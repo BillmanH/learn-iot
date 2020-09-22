@@ -1,0 +1,6 @@
+# vscode
+.vscode/settings.json
+
+# connection strings
+key_*.yaml
+
