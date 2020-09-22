@@ -4,3 +4,5 @@
 # connection strings
 key_*.yaml
 
+# cahce
+scripts/__pycache__/*

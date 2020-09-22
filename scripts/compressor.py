@@ -3,22 +3,25 @@ import time
 import uuid
 
 import numpy as np
-import yaml
 
 
 from azure.iot.device import IoTHubDeviceClient, Message
 from azure.iot.hub import IoTHubRegistryManager
 
-params = yaml.safe_load(open('key_thermostat1.yaml'))
+
 # %%
 
 
 class device:
-    def __init__(self):
+    def __init__(self, connection):
         self.guid = str(uuid.uuid4())
         self.client = IoTHubDeviceClient.create_from_connection_string(
-            params['connection_string'])
+            connection)
         self.temperature = 65
+
+    def wait_for_message(self):
+        message = self.client.receive_message()
+        return message
 
     def sleep(self, n):
         time.sleep(n)
@@ -35,17 +38,5 @@ class device:
         MSG_TXT = f'{{"temperature": {self.temperature}}}'
         self.client.send_message(MSG_TXT)
         print("Message successfully sent")
-
-
-# %%
-d = device()
-
-
-# %%
-
-for i in range(20):
-    d.monitor_temp(.5)
-    print(f"temperature has changed to: {d.temperature}")
-    d.sleep(4)
 
 # %%
