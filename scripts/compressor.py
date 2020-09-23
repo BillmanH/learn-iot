@@ -17,7 +17,7 @@ class device:
         self.guid = str(uuid.uuid4())
         self.client = IoTHubDeviceClient.create_from_connection_string(
             connection)
-        self.temperature = 65
+        self.vibration = 35
 
     def wait_for_message(self):
         message = self.client.receive_message()
@@ -27,15 +27,15 @@ class device:
         time.sleep(n)
         return None
 
-    def monitor_temp(self, bias):
+    def monitor_vibration(self, bias):
         dieroll = np.random.normal() + bias
         if dieroll <= .5:
-            self.temperature -= 1
+            self.vibration -= 1
         else:
-            self.temperature += 1
+            self.vibration += 1
 
     def post_data(self):
-        MSG_TXT = f'{{"temperature": {self.temperature}}}'
+        MSG_TXT = f'{{"compression": {self.vibration}}}'
         self.client.send_message(MSG_TXT)
         print("Message successfully sent")
 
