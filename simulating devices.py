@@ -7,8 +7,10 @@ params = yaml.safe_load(open('key_thermostat1.yaml'))
 
 # %%
 # create a new fake device with a new connection string.
-d1 = thermostat.device(params['thermostat1'])
+# d1 = thermostat.device(params['thermostat1'])
 # d2 = thermostat.device(params['thermostat2'])
+d2 = thermostat.camera(params['thermostat2'])
+
 
 # %%
 # Simulate the activity of that device
