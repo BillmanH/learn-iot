@@ -11,3 +11,10 @@ Looks like this:
 ```
 connection_string: HostName={your hostname};DeviceId={id};SharedAccessKey={access key}
 ```
+
+### Creating the environment:
+
+I'm using anaconda so you should be able to build the environemnt in any system with:
+```
+conda env create --file=environment.yaml
+```
