@@ -31,7 +31,7 @@ class device:
         while(True):
             # Capture the video frame
             # by frame
-            ret, frame = vid.read()
+            ret, frame = self.vid.read()
 
             # Display the resulting frame
             cv2.imshow('frame', frame)
@@ -42,7 +42,7 @@ class device:
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
         # After the loop release the cap object
-        vid.release()
+        self.vid.release()
         # Destroy all the windows
         cv2.destroyAllWindows()
 
