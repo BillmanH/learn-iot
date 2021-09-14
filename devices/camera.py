@@ -1,9 +1,11 @@
 # %%
 import time
 import uuid
+import os
 from datetime import datetime
 
 from azure.iot.device import IoTHubDeviceClient
+from azure.storage.blob import BlobClient
 import cv2
 
 # %%
@@ -15,10 +17,15 @@ class device:
         self.client = IoTHubDeviceClient.create_from_connection_string(
             connection)
         self.vid = cv2.VideoCapture(0)
+        # maximum number of frames between saving images
         self.frame_cap = 100
+        # maximum number of images to save before recycling
+        self.image_cap = 10
+        # for iteration, should be set to 0
         self.frame_no = 0
         self.image_no = 0
-        # print(self.client.get_storage_info_for_blob("camera-images"))
+        self.blob_info = self.client.get_storage_info_for_blob("camera-images")
+        self.images_path = os.path.join('..','assets','images')
 
 
     def wait_for_message(self):
@@ -31,7 +38,6 @@ class device:
 
     def activate_monitor(self):
         while(True):
-            # self.client.connect()
             # Capture the video frame
             # by frame
             ret, frame = self.vid.read()
@@ -47,29 +53,22 @@ class device:
             self.frame_cap += 1
             if self.frame_cap==self.frame_cap:
                 print(f"{self.frame_cap}th frame reached")
-                self.save_files(self,frame)
-                image_name = f'assets/images/frame_{self.image_no}.jpg'
-                cv2.imwrite(image_name, frame)
-                self.image_no+=1
-                if self.image_no>10:
-                    self.image_no=1
+                image_name = self.save_files(self,frame)
                 self.post_data(image_name)
-                # self.upload_to_blob(image_name)
-            # self.client.disconnect()
+                result = self.upload_to_blob(image_name)
+                print(result)
         # After the loop release the cap object
         self.vid.release()
         # Destroy all the windows
         cv2.destroyAllWindows()
 
     def save_files(self,frame):
-        image_name = f'assets/images/frame_{self.image_no}.jpg'
-        cv2.imwrite(image_name, frame)
+        image_name = f'frame_{self.image_no}.jpg'
+        cv2.imwrite(os.path.join(self.images_path,image_name), frame)
         self.image_no+=1
-        if self.image_no>10:
+        if self.image_no>self.image_cap:
             self.image_no=1
-            self.post_data(image_name)
-        # self.upload_to_blob(image_name)
-        frame_no = 0
+        return image_name
 
     def post_data(self,image_name):
         datetime_1 = str(datetime.now())
@@ -77,16 +76,22 @@ class device:
                     "time":datetime_1,
                     "frame":self.frame_cap,
                     "image_name":image_name}
+        # issue with the measage api can't handle single quotes. 
         self.client.send_message(str(MSG_TXT).replace('\'','"'))
         print(str(MSG_TXT))
 
 
     def upload_to_blob(self,image_name):
-        f = open(image_name, "rb").read()
-        print("IoTHubClient is uploading blob to storage")
-        self.client.upload_blob_async(image_name, f)
-
-
+        blob_info = self.client.get_storage_info_for_blob("camera-images")
+        sas_url = "https://{}/{}/{}{}".format(
+                    blob_info["hostName"],
+                    blob_info["containerName"],
+                    blob_info["blobName"],
+                    blob_info["sasToken"]
+                )
+        with BlobClient.from_blob_url(sas_url) as blob_client:
+            with open(os.path.join(self.images_path,image_name), "rb") as f:
+                result = blob_client.upload_blob(f, overwrite=True)
 
 
 # %%
