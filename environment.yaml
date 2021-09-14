@@ -12,6 +12,7 @@ dependencies:
   - pandas
   - django
   - black
+  - nb_black
   - scikit-learn
   - opencv
   - pip:
