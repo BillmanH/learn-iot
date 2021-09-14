@@ -4,7 +4,7 @@ import yaml
 import scripts.camera as camera
 # import scripts.compressor as compressor
 
-params = yaml.safe_load(open('key_thermostat1.yaml'))
+params = yaml.safe_load(open('iot_keys.yaml'))
 
 # %%
 # create a new fake device with a new connection string.

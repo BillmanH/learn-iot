@@ -3,6 +3,11 @@
 
 # connection strings
 key_*.yaml
+*_keys.yaml
+key_*.yml
+*_keys.yml
+
 
 # cahce
 scripts/__pycache__/*
+iot_keys.yaml
