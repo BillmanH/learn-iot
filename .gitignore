@@ -6,8 +6,13 @@ key_*.yaml
 *_keys.yaml
 key_*.yml
 *_keys.yml
+iot_keys.yaml
 
 
 # cahce
-scripts/__pycache__/*
-iot_keys.yaml
+devices/__pycache__/*
+
+# image files:
+*.jpg
+
+

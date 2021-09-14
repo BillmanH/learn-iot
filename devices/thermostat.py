@@ -6,7 +6,7 @@ import numpy as np
 
 
 from azure.iot.device import IoTHubDeviceClient, Message
-from azure.iot.hub import IoTHubRegistryManager
+
 
 
 # %%
@@ -44,10 +44,3 @@ class device:
 # d = thermostat.device(params['thermostat1'])
 
 
-# # %%
-# # Simulate the activity of that device
-for i in range(20):
-    d.monitor_temp(.5)
-    print(f"temperature has changed to: {d.temperature}")
-    d.post_data()
-    d.sleep(4)

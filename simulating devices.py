@@ -1,6 +1,6 @@
 # %%
 import yaml
-# import scripts.thermostat as thermostat
+import devices.thermostat as thermostat
 import devices.camera as camera
 # import scripts.compressor as compressor
 
