@@ -3,10 +3,7 @@ import time
 import uuid
 from datetime import datetime
 
-import numpy as np
-
-
-from azure.iot.device import IoTHubDeviceClient, Message
+from azure.iot.device import IoTHubDeviceClient
 import cv2
 
 # %%
@@ -19,6 +16,8 @@ class device:
             connection)
         self.vid = cv2.VideoCapture(0)
         self.frame_cap = 100
+        self.frame_no = 0
+        self.image_no = 0
         # print(self.client.get_storage_info_for_blob("camera-images"))
 
 
@@ -31,8 +30,6 @@ class device:
         return None
 
     def activate_monitor(self):
-        frame_no = 0
-        image_no = 0
         while(True):
             # self.client.connect()
             # Capture the video frame
@@ -47,32 +44,29 @@ class device:
             # desired button of your choice
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
-            frame_no += 1
-            if frame_no==self.frame_cap:
-                print(f"{frame_no}th frame reached")
-                image_name = f'assets/images/frame_{image_no}.jpg'
+            self.frame_cap += 1
+            if self.frame_cap==self.frame_cap:
+                print(f"{self.frame_cap}th frame reached")
+                self.save_files(self,frame)
+                image_name = f'assets/images/frame_{self.image_no}.jpg'
                 cv2.imwrite(image_name, frame)
-                image_no+=1
-                if image_no>10:
-                    image_no=1
+                self.image_no+=1
+                if self.image_no>10:
+                    self.image_no=1
                 self.post_data(image_name)
                 # self.upload_to_blob(image_name)
-                frame_no = 0
             # self.client.disconnect()
         # After the loop release the cap object
         self.vid.release()
         # Destroy all the windows
         cv2.destroyAllWindows()
 
-    def save_files(self,frame_no,image_no):
-        frame_no += 1
-        if frame_no==self.frame_cap:
-            print(f"{frame_no}th frame reached")
-        image_name = f'assets/images/frame_{image_no}.jpg'
+    def save_files(self,frame):
+        image_name = f'assets/images/frame_{self.image_no}.jpg'
         cv2.imwrite(image_name, frame)
-        image_no+=1
-        if image_no>10:
-            image_no=1
+        self.image_no+=1
+        if self.image_no>10:
+            self.image_no=1
             self.post_data(image_name)
         # self.upload_to_blob(image_name)
         frame_no = 0
