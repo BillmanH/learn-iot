@@ -6,7 +6,6 @@ import numpy as np
 
 
 from azure.iot.device import IoTHubDeviceClient, Message
-from azure.iot.hub import IoTHubRegistryManager
 
 
 # %%
