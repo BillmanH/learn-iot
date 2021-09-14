@@ -12,7 +12,6 @@ dependencies:
   - pandas
   - django
   - black
-  - nb_black
   - scikit-learn
   - opencv
   - pip:
@@ -29,6 +28,7 @@ dependencies:
     - msal==1.10.0
     - msal-extensions==0.3.0
     - msrest==0.6.21
+    - nb_black
     - oauthlib==3.1.0
     - portalocker==1.7.1
     - pycparser==2.20
