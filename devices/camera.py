@@ -28,6 +28,7 @@ class device:
         return None
 
     def activate_monitor(self):
+        frame_no = 0
         while(True):
             # Capture the video frame
             # by frame
@@ -41,10 +42,21 @@ class device:
             # desired button of your choice
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
+            frame_no += 1
+            if frame_no==100:
+                print(f"{frame_no}th frame reached")
+                cv2.imwrite('frame1.jpg', frame)
+                frame_no = 0
         # After the loop release the cap object
         self.vid.release()
         # Destroy all the windows
         cv2.destroyAllWindows()
+
+
+    def post_data(self):
+        MSG_TXT = f'{{"camera": {self.guid}}}'
+        self.client.send_message(MSG_TXT)
+        print("Message successfully sent")
 
 
     def post_data(self):

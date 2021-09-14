@@ -1,7 +1,7 @@
 # %%
 import yaml
 # import scripts.thermostat as thermostat
-import scripts.camera as camera
+import devices.camera as camera
 # import scripts.compressor as compressor
 
 params = yaml.safe_load(open('iot_keys.yaml'))
