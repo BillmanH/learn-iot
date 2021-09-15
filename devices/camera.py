@@ -18,7 +18,7 @@ class device:
             connection)
         self.vid = cv2.VideoCapture(0)
         # maximum number of frames between saving images
-        self.frame_cap = 100
+        self.frame_cap = 1000
         # maximum number of images to save before recycling
         self.image_cap = 10
         # for iteration, should be set to 0
@@ -92,6 +92,8 @@ class device:
                     return result
         except Exception as e:
             print("unable to upload : ")
+            self.client.disconnect()
+            self.client.connect()
             return e
 
 
