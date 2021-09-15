@@ -16,3 +16,4 @@ devices/__pycache__/*
 *.jpg
 
 
+devices/__pycache__/camera.cpython-37.pyc
