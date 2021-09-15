@@ -10,10 +10,10 @@ iot_keys.yaml
 
 
 # cahce
-devices/__pycache__/*
+# devices/__pycache__/*
 
 # image files:
 *.jpg
 
 
-devices/__pycache__/camera.cpython-37.pyc
+# devices/__pycache__/camera.cpython-37.pyc
