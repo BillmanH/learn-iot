@@ -16,3 +16,5 @@ devices/__pycache__/camera.cpython-37.pyc
 # image files:
 *.jpg
 
+# MQTT Keys
+mqtt/mqtt_key.yaml

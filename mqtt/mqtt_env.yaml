@@ -1,0 +1,10 @@
+name: azure-iot
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - opencv
+  - pyyaml
+  - pip:
+    - paho-mqtt
+
