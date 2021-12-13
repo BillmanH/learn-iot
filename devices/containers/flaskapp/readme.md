@@ -10,4 +10,6 @@ docker build . -t myflaskapp:latest
 ```
 
 Once it is built, you can test the app locally:
-
+```
+docker run -p 8000:8000 myflaskapp:latest
+```
