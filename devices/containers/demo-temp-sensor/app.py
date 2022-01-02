@@ -2,14 +2,14 @@ import time
 import uuid
 import os
 import numpy as np
-
+import yaml
 
 from azure.iot.device import IoTHubDeviceClient
 
 
 
 # %%
-
+params = yaml.safe_load(open('iot_keys.yaml'))
 
 class device:
     def __init__(self, connection):
@@ -44,11 +44,11 @@ class device:
 
 
 # Make a devices
-d = device(os.getenv('IOT_CONNECTION_STR','unable to find env var: IOT_CONNECTION_STR'))
+d = device(params.get('IOT_CONNECTION_STR','unable-to-find-env-var-IOT_CONNECTION_STR'))
 
 # Simulate the activity of that device
 while True:
     d.monitor_temp(.9)
-    print(f"temperature has changed to: {d1.temperature}")
+    print(f"temperature has changed to: {d.temperature}")
     d.post_data()
     d.sleep(2)
