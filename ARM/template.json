@@ -1,0 +1,249 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "IotHubs_name": {
+            "type": "String"
+        },
+        "IotHubs_sku": {
+            "type": "String"
+        },
+        "evhns_name": {
+            "type": "String"
+        },
+        "evh_name": {
+            "type": "String"
+        },
+        "evhpolicy_name": {
+            "type": "String"
+        },
+        "Location": {
+            "defaultValue": "WestUS 2",
+            "type": "String"
+        },
+        "evh_sku": {
+            "type": "String"
+        },
+        "tags": {
+            "type": "object",
+            "defaultValue": {}
+          }
+    },
+    "variables": {
+        "IoTHubApiVersion": "[utils.apiVersion('Microsoft.Devices', 'IotHubs')]",
+        "EventHubNamespacesApiVersion": "[utils.apiVersion('Microsoft.EventHub', 'namespaces')]",
+        "EventHubAuthRuleApiVersion": "[utils.apiVersion('Microsoft.EventHub', 'namespaces/AuthorizationRules')]",
+        "EventHubApiVersion": "[utils.apiVersion('Microsoft.EventHub', 'namespaces/eventhubs')]",
+        "EventHubNamespacesNetworkRuleVersion": "[utils.apiVersion('Microsoft.EventHub', 'namespaces/networkRuleSets')]",
+        "EventHubNetworkRuleVersion": "[utils.apiVersion('Microsoft.EventHub', 'namespaces/eventhubs/authorizationRules')]",
+        "EventHubConsumerGroupVersion": "[utils.apiVersion('Microsoft.EventHub', 'namespaces/eventhubs/consumergroups')]"
+    },
+    "functions": [
+        {
+            "namespace": "utils",
+            "members": {
+                "apiVersion": {
+                    "parameters": [
+                        {
+                            "name": "providerNamespace",
+                            "type": "string"
+                        },
+                        {
+                            "name": "resourceType",
+                            "type": "string"
+                        }
+                    ],
+                    "output": {
+                        "type": "string",
+                        "value": "[providers(parameters('providerNamespace'), parameters('resourceType')).apiVersions[0]]"
+                    }
+                }
+            }
+        }
+    ],
+    "resources": [
+        {
+            "type": "Microsoft.Devices/IotHubs",
+            "apiVersion": "[variables('IoTHubApiVersion')]",
+            "name": "[parameters('IotHubs_name')]",
+            "location": "[parameters('Location')]",
+            "tags": "[parameters('tags')]",
+            "sku": {
+                "name": "[parameters('IotHubs_sku')]",
+                "tier": "Standard",
+                "capacity": 1
+            },
+            "identity": {
+                "type": "None"
+            },
+            "properties": {
+                "ipFilterRules": [],
+                "eventHubEndpoints": {
+                    "events": {
+                        "retentionTimeInDays": 1,
+                        "partitionCount": 2
+                    }
+                },
+                "routing": {
+                    "endpoints": {
+                        "serviceBusQueues": [],
+                        "serviceBusTopics": [],
+                        "eventHubs": [],
+                        "storageContainers": []
+                    },
+                    "routes": [
+                        {
+                            "name": "local-edge-routes",
+                            "source": "DeviceMessages",
+                            "condition": "true",
+                            "endpointNames": [
+                                "data-ai-endpoint"
+                            ],
+                            "isEnabled": true
+                        }
+                    ],
+                    "fallbackRoute": {
+                        "name": "$fallback",
+                        "source": "DeviceMessages",
+                        "condition": "true",
+                        "endpointNames": [
+                            "events"
+                        ],
+                        "isEnabled": false
+                    }
+                },
+                "storageEndpoints": {},
+                "messagingEndpoints": {
+                    "fileNotifications": {
+                        "lockDurationAsIso8601": "PT1M",
+                        "ttlAsIso8601": "PT1H",
+                        "maxDeliveryCount": 10
+                    }
+                },
+                "enableFileUploadNotifications": false,
+                "cloudToDevice": {
+                    "maxDeliveryCount": 10,
+                    "defaultTtlAsIso8601": "PT1H",
+                    "feedback": {
+                        "lockDurationAsIso8601": "PT1M",
+                        "ttlAsIso8601": "PT1H",
+                        "maxDeliveryCount": 10
+                    }
+                },
+                "features": "None",
+                "allowedFqdnList": []
+            }
+        },
+        {
+            "type": "Microsoft.EventHub/namespaces",
+            "apiVersion": "[variables('EventHubNamespacesApiVersion')]",
+            "name": "[parameters('evhns_name')]",
+            "location": "[parameters('Location')]",
+            "tags": "[parameters('tags')]",
+            "sku": {
+                "name": "[parameters('evh_sku')]",
+                "tier": "[parameters('evh_sku')]",
+                "capacity": 1
+            },
+            "properties": {
+                "disableLocalAuth": false,
+                "zoneRedundant": false,
+                "isAutoInflateEnabled": false,
+                "maximumThroughputUnits": 0,
+                "kafkaEnabled": true
+            }
+        },
+        {
+            "type": "Microsoft.EventHub/namespaces/AuthorizationRules",
+            "apiVersion": "[variables('EventHubAuthRuleApiVersion')]",
+            "name": "[concat(parameters('evhns_name'), '/RootManageSharedAccessKey')]",
+            "location": "[parameters('Location')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.EventHub/namespaces', parameters('evhns_name'))]"
+            ],
+            "properties": {
+                "rights": [
+                    "Listen",
+                    "Manage",
+                    "Send"
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.EventHub/namespaces/eventhubs",
+            "apiVersion": "[variables('EventHubApiVersion')]",
+            "name": "[concat(parameters('evhns_name'), concat('/',parameters('evh_name')))]",
+            "location": "[parameters('Location')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.EventHub/namespaces', parameters('evhns_name'))]"
+            ],
+            "properties": {
+                "messageRetentionInDays": 1,
+                "partitionCount": 1,
+                "status": "Active"
+            }
+        },
+        {
+            "type": "Microsoft.EventHub/namespaces/networkRuleSets",
+            "apiVersion": "[variables('EventHubNamespacesNetworkRuleVersion')]",
+            "name": "[concat(parameters('evhns_name'), '/default')]",
+            "location": "[parameters('Location')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.EventHub/namespaces', parameters('evhns_name'))]"
+            ],
+            "properties": {
+                "publicNetworkAccess": "Enabled",
+                "defaultAction": "Allow",
+                "virtualNetworkRules": [],
+                "ipRules": []
+            }
+        },
+        {
+            "type": "Microsoft.EventHub/namespaces/eventhubs/authorizationRules",
+            "apiVersion": "[variables('EventHubNetworkRuleVersion')]",
+            "name": "[concat(parameters('evhns_name'),concat('/',parameters('evh_name'),'/',parameters('evhpolicy_name')))]",
+            "location": "[parameters('Location')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.EventHub/namespaces/eventhubs', parameters('evhns_name'), parameters('evh_name'))]",
+                "[resourceId('Microsoft.EventHub/namespaces', parameters('evhns_name'))]"
+            ],
+            "properties": {
+                "rights": [
+                    "Send"
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.EventHub/namespaces/eventhubs/consumergroups",
+            "apiVersion": "[variables('EventHubConsumerGroupVersion')]",
+            "name": "[concat(parameters('evhns_name'), '/', parameters('evh_name'),'/$Default')]",
+            "location": "[parameters('Location')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.EventHub/namespaces/eventhubs', parameters('evhns_name'), parameters('evh_name'))]",
+                "[resourceId('Microsoft.EventHub/namespaces', parameters('evhns_name'))]"
+            ],
+            "properties": {}
+        },
+        {
+            "type": "Microsoft.StreamAnalytics/StreamingJobs",
+            "apiVersion": "[variables('streamAnalyticsApiVersion')]",
+            "name": "[parameters('asa_stream_hub')]",
+            "location": "[parameters('Location')]",
+            "properties": {
+              "sku": { "name": "standard" },
+              "outputErrorPolicy": "stop",
+              "eventsOutOfOrderPolicy": "adjust",
+              "eventsOutOfOrderMaxDelayInSeconds": 0,
+              "eventsLateArrivalMaxDelayInSeconds": 5,
+              "dataLocale": "en-US",
+              "transformation": {
+                "name": "Transformation",
+                "properties": {
+                  "streamingUnits": "[parameters('numberOfStreamingUnits')]",
+                  "query": "SELECT\r\n *\r\nINTO\r\n [YourOutputAlias]\r\nFROM\r\n [YourInputAlias]"
+                }
+              }
+            }
+          }
+    ]
+}
