@@ -24,6 +24,13 @@
         "evh_sku": {
             "type": "String"
         },
+        "asa_stream_hub": {
+            "type": "String"
+          },
+        "numberOfStreamingUnits": {
+            "type": "int",
+            "defaultValue": 1
+        },
         "tags": {
             "type": "object",
             "defaultValue": {}
@@ -36,7 +43,8 @@
         "EventHubApiVersion": "[utils.apiVersion('Microsoft.EventHub', 'namespaces/eventhubs')]",
         "EventHubNamespacesNetworkRuleVersion": "[utils.apiVersion('Microsoft.EventHub', 'namespaces/networkRuleSets')]",
         "EventHubNetworkRuleVersion": "[utils.apiVersion('Microsoft.EventHub', 'namespaces/eventhubs/authorizationRules')]",
-        "EventHubConsumerGroupVersion": "[utils.apiVersion('Microsoft.EventHub', 'namespaces/eventhubs/consumergroups')]"
+        "EventHubConsumerGroupVersion": "[utils.apiVersion('Microsoft.EventHub', 'namespaces/eventhubs/consumergroups')]",
+        "streamAnalyticsApiVersion": "[utils.apiVersion('Microsoft.StreamAnalytics', 'StreamingJobs')]"
     },
     "functions": [
         {
