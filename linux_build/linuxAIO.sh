@@ -26,6 +26,28 @@ warn() {
 
 error() {
     echo -e "${RED}[$(date +'%Y-%m-%d %H:%M:%S')] ERROR: $1${NC}"
+    
+    # If the error is related to K3s connectivity, provide troubleshooting info
+    if [[ "$1" == *"Kubernetes"* ]] || [[ "$1" == *"cluster"* ]] || [[ "$1" == *"kubectl"* ]]; then
+        echo -e "${YELLOW}Troubleshooting steps:${NC}"
+        echo "1. Check K3s service status:"
+        echo "   sudo systemctl status k3s"
+        echo "2. Check K3s logs:"
+        echo "   sudo journalctl -u k3s --no-pager"
+        echo "3. Try restarting K3s:"
+        echo "   sudo systemctl restart k3s"
+        echo "4. Check if the API server is listening:"
+        echo "   sudo netstat -tlnp | grep 6443"
+        echo "5. Verify kubeconfig:"
+        echo "   ls -la ~/.kube/"
+        echo "   cat ~/.kube/config"
+        echo "6. Check disk space:"
+        echo "   df -h"
+        echo "7. Check system resources:"
+        echo "   free -h"
+        echo "   top"
+    fi
+    
     exit 1
 }
 
@@ -197,36 +219,69 @@ install_k3s() {
     
     if command -v k3s &> /dev/null; then
         log "K3s already installed: $(k3s --version | head -n1)"
+        
+        # Check if K3s is running
+        if ! sudo systemctl is-active --quiet k3s; then
+            log "K3s is installed but not running. Starting K3s..."
+            sudo systemctl start k3s
+            sudo systemctl enable k3s
+        fi
     else
         # Install K3s with Traefik disabled (required for Azure IoT Operations)
+        log "Downloading and installing K3s..."
         curl -sfL https://get.k3s.io | sh -s - --disable=traefik --write-kubeconfig-mode 644
         
-        # Wait for K3s to be ready
-        log "Waiting for K3s to be ready..."
+        # Enable and start K3s service
+        log "Enabling and starting K3s service..."
         sudo systemctl enable k3s
         sudo systemctl start k3s
-        
-        # Wait for node to be ready
-        timeout=300
-        while [ $timeout -gt 0 ]; do
+    fi
+    
+    # Wait for K3s to be ready
+    log "Waiting for K3s to be ready..."
+    local timeout=300
+    local count=0
+    while [ $count -lt $timeout ]; do
+        if sudo systemctl is-active --quiet k3s && sudo k3s kubectl get nodes >/dev/null 2>&1; then
             if sudo k3s kubectl get nodes | grep -q " Ready "; then
+                log "K3s is ready"
                 break
             fi
-            sleep 5
-            timeout=$((timeout - 5))
-        done
-        
-        if [ $timeout -eq 0 ]; then
-            error "K3s failed to become ready within 5 minutes"
         fi
         
-        log "K3s installed and running successfully"
+        if [ $count -eq 0 ]; then
+            log "K3s is starting up..."
+        elif [ $((count % 30)) -eq 0 ]; then
+            log "Still waiting for K3s to be ready... ($count/$timeout seconds)"
+        fi
+        
+        sleep 5
+        count=$((count + 5))
+    done
+    
+    if [ $count -ge $timeout ]; then
+        error "K3s failed to become ready within 5 minutes. Check the logs with: sudo journalctl -u k3s"
     fi
+    
+    log "K3s installed and running successfully"
 }
 
 # Configure kubectl for K3s
 configure_kubectl() {
     log "Configuring kubectl for K3s..."
+    
+    # Wait for k3s.yaml to be created
+    local timeout=60
+    local count=0
+    while [ ! -f /etc/rancher/k3s/k3s.yaml ] && [ $count -lt $timeout ]; do
+        log "Waiting for K3s configuration file..."
+        sleep 2
+        count=$((count + 2))
+    done
+    
+    if [ ! -f /etc/rancher/k3s/k3s.yaml ]; then
+        error "K3s configuration file not found after $timeout seconds"
+    fi
     
     # Create .kube directory
     mkdir -p ~/.kube
@@ -234,19 +289,26 @@ configure_kubectl() {
     # Backup existing config if it exists
     if [ -f ~/.kube/config ]; then
         cp ~/.kube/config ~/.kube/config.backup.$(date +%s)
+        log "Backed up existing kubectl config"
     fi
-    
-    # Merge K3s config with existing kubectl config
-    sudo KUBECONFIG=~/.kube/config:/etc/rancher/k3s/k3s.yaml kubectl config view --flatten > ~/.kube/merged
-    mv ~/.kube/merged ~/.kube/config
-    chmod 0600 ~/.kube/config
-    export KUBECONFIG=~/.kube/config
-    
-    # Switch to k3s context
-    kubectl config use-context default
     
     # Make k3s config readable
     sudo chmod 644 /etc/rancher/k3s/k3s.yaml
+    
+    # Copy K3s config to kubectl config
+    sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
+    sudo chown $(id -u):$(id -g) ~/.kube/config
+    chmod 0600 ~/.kube/config
+    
+    # Set KUBECONFIG environment variable
+    export KUBECONFIG=~/.kube/config
+    
+    # Verify kubectl can connect
+    if kubectl cluster-info >/dev/null 2>&1; then
+        log "kubectl configured and connected successfully"
+    else
+        error "kubectl configuration failed - cannot connect to cluster"
+    fi
     
     log "kubectl configured for K3s"
 }
@@ -375,7 +437,58 @@ arc_enable_cluster() {
     sleep 30
     
     # Verify cluster connectivity
+    verify_cluster_connectivity
+}
+
+# Verify cluster connectivity
+verify_cluster_connectivity() {
+    log "Verifying Kubernetes cluster connectivity..."
+    
+    # Check if K3s service is running
+    if ! sudo systemctl is-active --quiet k3s; then
+        warn "K3s service is not running. Attempting to start..."
+        sudo systemctl start k3s
+        sleep 10
+    fi
+    
+    # Wait for K3s API server to be ready
+    local timeout=120
+    local count=0
+    while [ $count -lt $timeout ]; do
+        if kubectl get nodes >/dev/null 2>&1; then
+            log "Kubernetes cluster is accessible"
+            break
+        fi
+        
+        if [ $count -eq 0 ]; then
+            log "Waiting for Kubernetes API server to be ready..."
+        fi
+        
+        sleep 5
+        count=$((count + 5))
+        
+        # Try to restart K3s if it's taking too long
+        if [ $count -eq 60 ]; then
+            warn "Kubernetes API server not responding. Restarting K3s..."
+            sudo systemctl restart k3s
+            sleep 15
+        fi
+    done
+    
+    if [ $count -ge $timeout ]; then
+        error "Kubernetes cluster is not accessible after $timeout seconds. Please check K3s installation."
+    fi
+    
+    # Verify nodes are ready
+    log "Checking node status..."
     kubectl get nodes
+    
+    # Check if nodes are in Ready state
+    if ! kubectl get nodes | grep -q " Ready "; then
+        error "Kubernetes nodes are not in Ready state"
+    fi
+    
+    log "Cluster connectivity verified successfully"
 }
 
 # Create Azure Device Registry namespace
