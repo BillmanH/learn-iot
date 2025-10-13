@@ -63,10 +63,14 @@ check_system_requirements() {
     total_ram_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
     total_ram_gb=$((total_ram_kb / 1024 / 1024))
     
-    if [ "$total_ram_gb" -lt 16 ]; then
-        error "Minimum 16GB RAM required. Current: ${total_ram_gb}GB"
+    if [ "$total_ram_gb" -lt 10 ]; then
+        error "Minimum 10GB (free) RAM required. Current: ${total_ram_gb}GB"
     fi
-    
+
+    if [ "$total_ram_gb" -lt 16 ] || [ "$total_ram_gb" -ge 11 ]; then
+        warn "This is recommended for 16GB RAM, and you have: ${total_ram_gb}GB. It should work with >10GB but if it crashes this could be the reason."
+    fi
+
     # Check CPU count (minimum 4)
     cpu_count=$(nproc)
     if [ "$cpu_count" -lt 4 ]; then
