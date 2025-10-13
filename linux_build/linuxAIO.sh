@@ -58,6 +58,67 @@ check_root() {
     fi
 }
 
+# Check for port conflicts
+check_port_conflicts() {
+    log "Checking for port conflicts..."
+    
+    # Check if port 6443 (Kubernetes API) is in use
+    if sudo netstat -tlnp 2>/dev/null | grep -q ":6443 "; then
+        warn "Port 6443 is already in use!"
+        echo "Processes using port 6443:"
+        sudo netstat -tlnp 2>/dev/null | grep ":6443 "
+        echo
+        
+        # Check if it's K3s already running
+        if sudo netstat -tlnp 2>/dev/null | grep ":6443 " | grep -q "k3s"; then
+            log "K3s is already using port 6443 - this might be from a previous installation"
+            read -p "Do you want to stop the existing K3s process? (y/N): " stop_k3s
+            if [[ "$stop_k3s" =~ ^[Yy]$ ]]; then
+                log "Stopping existing K3s processes..."
+                sudo pkill -f k3s || true
+                sudo systemctl stop k3s || true
+                sleep 5
+            else
+                error "Cannot proceed with port 6443 in use. Please stop the conflicting process."
+            fi
+        else
+            echo "Non-K3s process is using port 6443. Common culprits:"
+            echo "- Docker containers running Kubernetes"
+            echo "- Minikube"
+            echo "- Kind clusters"
+            echo "- Other Kubernetes distributions"
+            echo
+            read -p "Do you want to try to identify and stop the conflicting process? (y/N): " stop_process
+            if [[ "$stop_process" =~ ^[Yy]$ ]]; then
+                log "Attempting to stop conflicting processes..."
+                # Try to stop common Kubernetes processes
+                sudo pkill -f "kube-apiserver" || true
+                sudo pkill -f "minikube" || true
+                sudo pkill -f "kind" || true
+                docker stop $(docker ps -q --filter "publish=6443") 2>/dev/null || true
+                sleep 5
+                
+                # Check again
+                if sudo netstat -tlnp 2>/dev/null | grep -q ":6443 "; then
+                    error "Port 6443 is still in use. Please manually stop the conflicting process and try again."
+                fi
+            else
+                error "Cannot proceed with port 6443 in use. Please free up the port and try again."
+            fi
+        fi
+    fi
+    
+    # Check other common Kubernetes ports
+    for port in 6444 10250 10251 10252; do
+        if sudo netstat -tlnp 2>/dev/null | grep -q ":$port "; then
+            warn "Port $port is in use (this may cause issues)"
+            sudo netstat -tlnp 2>/dev/null | grep ":$port "
+        fi
+    done
+    
+    log "Port conflict check completed"
+}
+
 # Check system requirements
 check_system_requirements() {
     log "Checking system requirements..."
@@ -210,6 +271,73 @@ install_helm() {
         ./get_helm.sh
         rm get_helm.sh
         log "Helm installed successfully"
+    fi
+}
+
+# Clean up existing K3s installation
+cleanup_k3s() {
+    log "Checking for existing K3s installation..."
+    
+    if command -v k3s &> /dev/null || [ -f /usr/local/bin/k3s ]; then
+        warn "Found existing K3s installation"
+        
+        # Check if K3s is running
+        if sudo systemctl is-active --quiet k3s 2>/dev/null; then
+            log "K3s service is currently running"
+            read -p "Do you want to stop and clean up the existing K3s installation? (y/N): " cleanup
+            if [[ "$cleanup" =~ ^[Yy]$ ]]; then
+                log "Stopping K3s service..."
+                sudo systemctl stop k3s || true
+                sudo systemctl disable k3s || true
+                
+                log "Cleaning up K3s processes..."
+                sudo pkill -f k3s || true
+                
+                # Clean up K3s installation
+                if [ -f /usr/local/bin/k3s-uninstall.sh ]; then
+                    log "Running K3s uninstall script..."
+                    sudo /usr/local/bin/k3s-uninstall.sh || true
+                fi
+                
+                # Additional cleanup
+                log "Performing additional cleanup..."
+                sudo rm -rf /etc/rancher/k3s/ || true
+                sudo rm -rf /var/lib/rancher/k3s/ || true
+                sudo rm -f /usr/local/bin/k3s || true
+                sudo rm -f /usr/local/bin/kubectl || true
+                sudo rm -f /usr/local/bin/crictl || true
+                sudo rm -f /usr/local/bin/ctr || true
+                
+                # Clean up systemd service
+                sudo rm -f /etc/systemd/system/k3s.service || true
+                sudo systemctl daemon-reload
+                
+                log "K3s cleanup completed"
+            else
+                error "Cannot proceed with existing K3s installation. Please clean it up manually or choose to clean it up."
+            fi
+        else
+            log "K3s is installed but not running - this might be causing conflicts"
+            read -p "Do you want to clean up the existing K3s installation? (y/N): " cleanup
+            if [[ "$cleanup" =~ ^[Yy]$ ]]; then
+                log "Cleaning up existing K3s installation..."
+                
+                # Clean up K3s installation
+                if [ -f /usr/local/bin/k3s-uninstall.sh ]; then
+                    log "Running K3s uninstall script..."
+                    sudo /usr/local/bin/k3s-uninstall.sh || true
+                fi
+                
+                # Additional cleanup
+                sudo rm -rf /etc/rancher/k3s/ || true
+                sudo rm -rf /var/lib/rancher/k3s/ || true
+                sudo rm -f /usr/local/bin/k3s || true
+                
+                log "K3s cleanup completed"
+            fi
+        fi
+    else
+        log "No existing K3s installation found"
     fi
 }
 
@@ -647,6 +775,7 @@ main() {
     
     check_root
     check_system_requirements
+    check_port_conflicts
     
     # Load configuration from JSON file (if available)
     load_config
@@ -655,6 +784,7 @@ main() {
     install_azure_cli
     install_kubectl
     install_helm
+    cleanup_k3s
     install_k3s
     configure_kubectl
     configure_system_settings
