@@ -281,13 +281,38 @@ check_processes_ports() {
     log "Container runtime processes:"
     ps aux | grep -v grep | grep -E "containerd|docker|crio" || info "No container runtime processes found"
     
-    # Check critical ports
+    # Check critical ports using available tools
     log "Port usage check:"
     for port in 6443 6444 10250 10251 10252 2379 2380; do
-        if sudo netstat -tlnp 2>/dev/null | grep ":$port " >/dev/null; then
-            info "Port $port is in use:"
-            sudo netstat -tlnp 2>/dev/null | grep ":$port "
+        port_in_use=false
+        
+        if command -v ss >/dev/null 2>&1; then
+            if ss -tlnp 2>/dev/null | grep ":$port " >/dev/null; then
+                info "Port $port is in use:"
+                ss -tlnp 2>/dev/null | grep ":$port "
+                port_in_use=true
+            fi
+        elif command -v lsof >/dev/null 2>&1; then
+            if lsof -i :$port 2>/dev/null | grep -q ":$port"; then
+                info "Port $port is in use:"
+                lsof -i :$port 2>/dev/null
+                port_in_use=true
+            fi
+        elif command -v netstat >/dev/null 2>&1; then
+            if netstat -tlnp 2>/dev/null | grep ":$port " >/dev/null; then
+                info "Port $port is in use:"
+                netstat -tlnp 2>/dev/null | grep ":$port "
+                port_in_use=true
+            fi
         else
+            # Test basic connectivity as fallback
+            if timeout 1 bash -c "</dev/tcp/127.0.0.1/$port" 2>/dev/null; then
+                info "Port $port appears to be in use (basic connectivity test)"
+                port_in_use=true
+            fi
+        fi
+        
+        if [ "$port_in_use" = false ]; then
             debug "Port $port is free"
         fi
     done

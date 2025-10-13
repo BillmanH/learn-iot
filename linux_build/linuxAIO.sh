@@ -62,15 +62,42 @@ check_root() {
 check_port_conflicts() {
     log "Checking for port conflicts..."
     
+    # Function to check if port 6443 is in use
+    check_port_in_use() {
+        if command -v ss >/dev/null 2>&1; then
+            ss -tlnp 2>/dev/null | grep -q ":6443 "
+        elif command -v lsof >/dev/null 2>&1; then
+            lsof -i :6443 2>/dev/null | grep -q ":6443"
+        elif command -v netstat >/dev/null 2>&1; then
+            netstat -tlnp 2>/dev/null | grep -q ":6443 "
+        else
+            # Last resort: try to connect to the port
+            timeout 2 bash -c "</dev/tcp/127.0.0.1/6443" 2>/dev/null
+        fi
+    }
+    
+    # Function to get port usage info
+    get_port_info() {
+        if command -v ss >/dev/null 2>&1; then
+            ss -tlnp 2>/dev/null | grep ":6443 "
+        elif command -v lsof >/dev/null 2>&1; then
+            lsof -i :6443 2>/dev/null
+        elif command -v netstat >/dev/null 2>&1; then
+            netstat -tlnp 2>/dev/null | grep ":6443 "
+        else
+            echo "Port 6443 appears to be in use (using basic connectivity test)"
+        fi
+    }
+    
     # Check if port 6443 (Kubernetes API) is in use
-    if sudo netstat -tlnp 2>/dev/null | grep -q ":6443 "; then
+    if check_port_in_use; then
         warn "Port 6443 is already in use!"
         echo "Processes using port 6443:"
-        sudo netstat -tlnp 2>/dev/null | grep ":6443 "
+        get_port_info
         echo
         
         # Check if it's K3s already running
-        if sudo netstat -tlnp 2>/dev/null | grep ":6443 " | grep -q "k3s"; then
+        if get_port_info | grep -q "k3s"; then
             log "K3s is already using port 6443 - this might be from a previous installation"
             read -p "Do you want to stop the existing K3s process? (y/N): " stop_k3s
             if [[ "$stop_k3s" =~ ^[Yy]$ ]]; then
@@ -109,7 +136,7 @@ check_port_conflicts() {
                 fi
                 
                 # Check again
-                if sudo netstat -tlnp 2>/dev/null | grep -q ":6443 "; then
+                if check_port_in_use; then
                     error "Port 6443 is still in use. Please manually stop the conflicting process and try again."
                 fi
             else
@@ -120,9 +147,21 @@ check_port_conflicts() {
     
     # Check other common Kubernetes ports
     for port in 6444 10250 10251 10252; do
-        if sudo netstat -tlnp 2>/dev/null | grep -q ":$port "; then
-            warn "Port $port is in use (this may cause issues)"
-            sudo netstat -tlnp 2>/dev/null | grep ":$port "
+        if command -v ss >/dev/null 2>&1; then
+            if ss -tlnp 2>/dev/null | grep -q ":$port "; then
+                warn "Port $port is in use (this may cause issues)"
+                ss -tlnp 2>/dev/null | grep ":$port "
+            fi
+        elif command -v lsof >/dev/null 2>&1; then
+            if lsof -i :$port 2>/dev/null | grep -q ":$port"; then
+                warn "Port $port is in use (this may cause issues)"
+                lsof -i :$port 2>/dev/null
+            fi
+        elif command -v netstat >/dev/null 2>&1; then
+            if netstat -tlnp 2>/dev/null | grep -q ":$port "; then
+                warn "Port $port is in use (this may cause issues)"
+                netstat -tlnp 2>/dev/null | grep ":$port "
+            fi
         fi
     done
     

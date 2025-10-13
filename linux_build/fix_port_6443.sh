@@ -19,20 +19,77 @@ info() { echo -e "${BLUE}[$(date +'%H:%M:%S')] INFO: $1${NC}"; }
 
 # Check if port 6443 is in use
 check_port_6443() {
-    if sudo netstat -tlnp 2>/dev/null | grep -q ":6443 "; then
-        return 0  # Port is in use
+    # Try multiple methods to check port 6443
+    if command -v ss >/dev/null 2>&1; then
+        # Use ss (modern replacement for netstat)
+        if ss -tlnp 2>/dev/null | grep -q ":6443 "; then
+            return 0  # Port is in use
+        fi
+    elif command -v lsof >/dev/null 2>&1; then
+        # Use lsof as fallback
+        if lsof -i :6443 2>/dev/null | grep -q ":6443"; then
+            return 0  # Port is in use
+        fi
+    elif command -v netstat >/dev/null 2>&1; then
+        # Use netstat if available
+        if netstat -tlnp 2>/dev/null | grep -q ":6443 "; then
+            return 0  # Port is in use
+        fi
     else
-        return 1  # Port is free
+        # Last resort: try to connect to the port
+        if timeout 2 bash -c "</dev/tcp/127.0.0.1/6443" 2>/dev/null; then
+            return 0  # Port is in use
+        fi
     fi
+    
+    return 1  # Port is free
 }
 
 # Get process information for port 6443
 get_port_6443_info() {
-    sudo netstat -tlnp 2>/dev/null | grep ":6443 " | while read line; do
-        pid=$(echo "$line" | awk '{print $7}' | cut -d'/' -f1)
-        process=$(echo "$line" | awk '{print $7}' | cut -d'/' -f2)
-        echo "PID: $pid, Process: $process"
-    done
+    # Try multiple methods to get process info
+    if command -v ss >/dev/null 2>&1; then
+        # Use ss (modern replacement for netstat)
+        ss -tlnp 2>/dev/null | grep ":6443 " | while read line; do
+            # Extract PID and process name from ss output
+            pid_process=$(echo "$line" | grep -o 'pid=[0-9]*' | cut -d'=' -f2)
+            if [ -n "$pid_process" ]; then
+                process_name=$(ps -p "$pid_process" -o comm= 2>/dev/null || echo "unknown")
+                echo "PID: $pid_process, Process: $process_name"
+            else
+                # Try alternative parsing for ss output
+                users_field=$(echo "$line" | awk '{print $6}')
+                if [[ "$users_field" == *"pid="* ]]; then
+                    pid=$(echo "$users_field" | sed 's/.*pid=\([0-9]*\).*/\1/')
+                    process_name=$(ps -p "$pid" -o comm= 2>/dev/null || echo "unknown")
+                    echo "PID: $pid, Process: $process_name"
+                fi
+            fi
+        done
+    elif command -v lsof >/dev/null 2>&1; then
+        # Use lsof as fallback
+        lsof -i :6443 2>/dev/null | grep ":6443" | while read line; do
+            pid=$(echo "$line" | awk '{print $2}')
+            process=$(echo "$line" | awk '{print $1}')
+            echo "PID: $pid, Process: $process"
+        done
+    elif command -v netstat >/dev/null 2>&1; then
+        # Use netstat if available
+        netstat -tlnp 2>/dev/null | grep ":6443 " | while read line; do
+            pid=$(echo "$line" | awk '{print $7}' | cut -d'/' -f1)
+            process=$(echo "$line" | awk '{print $7}' | cut -d'/' -f2)
+            echo "PID: $pid, Process: $process"
+        done
+    else
+        # Manual process search as last resort
+        warn "No suitable tools found (ss, lsof, netstat). Searching for common processes..."
+        pgrep -f "k3s\|kube\|minikube\|kind" | while read pid; do
+            if [ -n "$pid" ]; then
+                process_name=$(ps -p "$pid" -o comm= 2>/dev/null || echo "unknown")
+                echo "PID: $pid, Process: $process_name"
+            fi
+        done
+    fi
 }
 
 # Kill processes using port 6443
