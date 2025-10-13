@@ -341,9 +341,55 @@ cleanup_k3s() {
     fi
 }
 
+# Check resource availability before K3s installation
+check_k3s_resources() {
+    log "Checking resource availability for K3s..."
+    
+    # Check available memory (not just total)
+    available_ram_kb=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
+    available_ram_gb=$((available_ram_kb / 1024 / 1024))
+    
+    if [ "$available_ram_gb" -lt 4 ]; then
+        warn "Low available memory: ${available_ram_gb}GB. K3s may fail to start."
+        warn "Consider stopping other services or adding more RAM."
+    fi
+    
+    # Check disk space in critical directories
+    root_space=$(df / | awk 'NR==2 {print $4}')
+    root_space_gb=$((root_space / 1024 / 1024))
+    
+    if [ "$root_space_gb" -lt 10 ]; then
+        error "Insufficient disk space: ${root_space_gb}GB available. Need at least 10GB."
+    fi
+    
+    if [ "$root_space_gb" -lt 20 ]; then
+        warn "Low disk space: ${root_space_gb}GB available. Consider freeing up space."
+    fi
+    
+    # Check file descriptor limits
+    current_fd_limit=$(ulimit -n)
+    if [ "$current_fd_limit" -lt 4096 ]; then
+        warn "Low file descriptor limit: $current_fd_limit. May cause issues."
+    fi
+    
+    # Check system load
+    load_avg=$(cat /proc/loadavg | awk '{print $1}')
+    cpu_count=$(nproc)
+    high_load=$(echo "$load_avg > $cpu_count * 2" | bc -l 2>/dev/null || echo "0")
+    
+    if [ "$high_load" = "1" ]; then
+        warn "High system load: $load_avg. K3s startup may be slow."
+    fi
+    
+    log "Resource check completed: ${available_ram_gb}GB available RAM, ${root_space_gb}GB disk space"
+}
+
 # Install K3s
 install_k3s() {
     log "Installing K3s Kubernetes..."
+    
+    # Check resources before installation
+    check_k3s_resources
     
     if command -v k3s &> /dev/null; then
         log "K3s already installed: $(k3s --version | head -n1)"
@@ -357,7 +403,17 @@ install_k3s() {
     else
         # Install K3s with Traefik disabled (required for Azure IoT Operations)
         log "Downloading and installing K3s..."
-        curl -sfL https://get.k3s.io | sh -s - --disable=traefik --write-kubeconfig-mode 644
+        
+        # Check internet connectivity first
+        if ! curl -s --connect-timeout 10 https://get.k3s.io >/dev/null; then
+            error "Cannot connect to K3s installation script. Check internet connectivity and firewall settings."
+        fi
+        
+        # Download and install with timeout and better error handling
+        log "Downloading K3s installer (this may take a few minutes)..."
+        if ! timeout 300 curl -sfL https://get.k3s.io | sh -s - --disable=traefik --write-kubeconfig-mode 644; then
+            error "K3s installation failed. This could be due to network issues, insufficient resources, or firewall blocking. Check: sudo journalctl -u k3s"
+        fi
         
         # Enable and start K3s service
         log "Enabling and starting K3s service..."
