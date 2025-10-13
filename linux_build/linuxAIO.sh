@@ -323,6 +323,93 @@ install_helm() {
     fi
 }
 
+# Check for and resolve kubelite/MicroK8s conflicts
+check_kubelite_conflicts() {
+    log "Checking for kubelite/MicroK8s conflicts..."
+    
+    # Check for kubelite process
+    if pgrep -f kubelite >/dev/null 2>&1; then
+        warn "Found kubelite process running (likely MicroK8s or similar)"
+        log "kubelite often conflicts with K3s by using the same ports (6443, 10257)"
+        
+        # Check if it's MicroK8s
+        if command -v microk8s >/dev/null 2>&1; then
+            log "MicroK8s is installed - this uses kubelite internally"
+            read -p "Do you want to stop MicroK8s to avoid port conflicts? (y/N): " stop_microk8s
+            if [[ "$stop_microk8s" =~ ^[Yy]$ ]]; then
+                log "Stopping MicroK8s..."
+                sudo microk8s stop || true
+                sudo systemctl stop snap.microk8s.daemon-kubelite || true
+                sudo systemctl disable snap.microk8s.daemon-kubelite || true
+                log "MicroK8s stopped"
+            else
+                warn "MicroK8s is still running - this may cause port conflicts with K3s"
+                warn "If K3s fails to start, please run: sudo microk8s stop"
+            fi
+        else
+            # Direct kubelite service
+            log "Checking for kubelite service..."
+            if sudo systemctl is-active --quiet kubelite 2>/dev/null; then
+                read -p "Do you want to stop the kubelite service? (y/N): " stop_kubelite
+                if [[ "$stop_kubelite" =~ ^[Yy]$ ]]; then
+                    log "Stopping kubelite service..."
+                    sudo systemctl stop kubelite || true
+                    sudo systemctl disable kubelite || true
+                    log "kubelite service stopped"
+                fi
+            else
+                # Kill kubelite process directly
+                read -p "Do you want to kill the kubelite process? (y/N): " kill_kubelite
+                if [[ "$kill_kubelite" =~ ^[Yy]$ ]]; then
+                    log "Killing kubelite process..."
+                    sudo pkill -f kubelite || true
+                    log "kubelite process killed"
+                fi
+            fi
+        fi
+        
+        # Wait a moment for processes to stop
+        sleep 3
+        
+        # Verify kubelite is stopped
+        if pgrep -f kubelite >/dev/null 2>&1; then
+            warn "kubelite is still running - K3s may fail to start due to port conflicts"
+            warn "You may need to manually stop kubelite or reboot the system"
+        else
+            log "kubelite is no longer running"
+        fi
+    else
+        log "No kubelite conflicts detected"
+    fi
+    
+    # Check for other Kubernetes distributions that might conflict
+    if command -v minikube >/dev/null 2>&1; then
+        if minikube status 2>/dev/null | grep -q "Running"; then
+            warn "Minikube is running and may conflict with K3s"
+            read -p "Do you want to stop minikube? (y/N): " stop_minikube
+            if [[ "$stop_minikube" =~ ^[Yy]$ ]]; then
+                log "Stopping minikube..."
+                minikube stop || true
+                log "minikube stopped"
+            fi
+        fi
+    fi
+    
+    if command -v kind >/dev/null 2>&1; then
+        if kind get clusters 2>/dev/null | grep -q .; then
+            warn "Kind clusters are running and may conflict with K3s"
+            read -p "Do you want to delete all kind clusters? (y/N): " delete_kind
+            if [[ "$delete_kind" =~ ^[Yy]$ ]]; then
+                log "Deleting kind clusters..."
+                for cluster in $(kind get clusters 2>/dev/null); do
+                    kind delete cluster --name "$cluster" || true
+                done
+                log "Kind clusters deleted"
+            fi
+        fi
+    fi
+}
+
 # Clean up existing K3s installation
 cleanup_k3s() {
     log "Checking for existing K3s installation..."
@@ -902,6 +989,7 @@ main() {
     install_azure_cli
     install_kubectl
     install_helm
+    check_kubelite_conflicts
     cleanup_k3s
     install_k3s
     configure_kubectl
