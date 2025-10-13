@@ -370,6 +370,19 @@ check_k3s_resources() {
     current_fd_limit=$(ulimit -n)
     if [ "$current_fd_limit" -lt 4096 ]; then
         warn "Low file descriptor limit: $current_fd_limit. May cause issues."
+        
+        # Try to increase the limit temporarily
+        log "Attempting to increase file descriptor limit..."
+        if ulimit -n 65536 2>/dev/null; then
+            log "Successfully increased file descriptor limit to 65536 for this session"
+            current_fd_limit=65536
+        else
+            warn "Cannot increase file descriptor limit. You may need to configure /etc/security/limits.conf"
+            echo "  Add these lines to /etc/security/limits.conf:"
+            echo "  * soft nofile 65536"
+            echo "  * hard nofile 65536"
+            echo "  Then log out and back in."
+        fi
     fi
     
     # Check system load
