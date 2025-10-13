@@ -91,12 +91,22 @@ check_port_conflicts() {
             read -p "Do you want to try to identify and stop the conflicting process? (y/N): " stop_process
             if [[ "$stop_process" =~ ^[Yy]$ ]]; then
                 log "Attempting to stop conflicting processes..."
-                # Try to stop common Kubernetes processes
-                sudo pkill -f "kube-apiserver" || true
-                sudo pkill -f "minikube" || true
-                sudo pkill -f "kind" || true
-                docker stop $(docker ps -q --filter "publish=6443") 2>/dev/null || true
-                sleep 5
+                
+                # Use the dedicated port fix script if available
+                if [ -f "./fix_port_6443.sh" ]; then
+                    log "Using automated port conflict resolver..."
+                    chmod +x ./fix_port_6443.sh
+                    ./fix_port_6443.sh
+                else
+                    # Fallback to manual process killing
+                    log "Running manual conflict resolution..."
+                    # Try to stop common Kubernetes processes
+                    sudo pkill -f "kube-apiserver" || true
+                    sudo pkill -f "minikube" || true
+                    sudo pkill -f "kind" || true
+                    docker stop $(docker ps -q --filter "publish=6443") 2>/dev/null || true
+                    sleep 5
+                fi
                 
                 # Check again
                 if sudo netstat -tlnp 2>/dev/null | grep -q ":6443 "; then
