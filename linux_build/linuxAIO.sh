@@ -37,7 +37,7 @@ error() {
         echo "3. Try restarting K3s:"
         echo "   sudo systemctl restart k3s"
         echo "4. Check if the API server is listening:"
-        echo "   sudo netstat -tlnp | grep 6443"
+        echo "   sudo ss -tlnp | grep 6443"
         echo "5. Verify kubeconfig:"
         echo "   ls -la ~/.kube/"
         echo "   cat ~/.kube/config"
@@ -68,8 +68,6 @@ check_port_conflicts() {
             ss -tlnp 2>/dev/null | grep -q ":6443 "
         elif command -v lsof >/dev/null 2>&1; then
             lsof -i :6443 2>/dev/null | grep -q ":6443"
-        elif command -v netstat >/dev/null 2>&1; then
-            netstat -tlnp 2>/dev/null | grep -q ":6443 "
         else
             # Last resort: try to connect to the port
             timeout 2 bash -c "</dev/tcp/127.0.0.1/6443" 2>/dev/null
@@ -82,8 +80,6 @@ check_port_conflicts() {
             ss -tlnp 2>/dev/null | grep ":6443 "
         elif command -v lsof >/dev/null 2>&1; then
             lsof -i :6443 2>/dev/null
-        elif command -v netstat >/dev/null 2>&1; then
-            netstat -tlnp 2>/dev/null | grep ":6443 "
         else
             echo "Port 6443 appears to be in use (using basic connectivity test)"
         fi
@@ -156,11 +152,6 @@ check_port_conflicts() {
             if lsof -i :$port 2>/dev/null | grep -q ":$port"; then
                 warn "Port $port is in use (this may cause issues)"
                 lsof -i :$port 2>/dev/null
-            fi
-        elif command -v netstat >/dev/null 2>&1; then
-            if netstat -tlnp 2>/dev/null | grep -q ":$port "; then
-                warn "Port $port is in use (this may cause issues)"
-                netstat -tlnp 2>/dev/null | grep ":$port "
             fi
         fi
     done
