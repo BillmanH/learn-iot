@@ -3,19 +3,31 @@ REM deploy.bat - Build and deploy Flask app to IoT Edge K3s cluster (Windows)
 
 setlocal EnableDelayedExpansion
 
-REM Configuration - Update these values
-set REGISTRY_TYPE=dockerhub
-set REGISTRY_NAME=your-registry-name
-set IMAGE_NAME=hello-flask
-set IMAGE_TAG=latest
+REM Load configuration from JSON file using PowerShell
+set CONFIG_FILE=hello_flask_config.json
+
+if not exist "%CONFIG_FILE%" (
+    echo ERROR: Configuration file %CONFIG_FILE% not found
+    echo Please create the configuration file with your registry settings
+    exit /b 1
+)
+
+echo Loading configuration from %CONFIG_FILE%...
+
+REM Use PowerShell to parse JSON and export to temp batch file
+powershell -Command "try { $cfg = Get-Content '%CONFIG_FILE%' | ConvertFrom-Json; Write-Output \"set REGISTRY_TYPE=$($cfg.registry.type)\"; Write-Output \"set REGISTRY_NAME=$($cfg.registry.name)\"; Write-Output \"set IMAGE_NAME=$($cfg.image.name)\"; Write-Output \"set IMAGE_TAG=$($cfg.image.tag)\" } catch { Write-Output \"echo ERROR: Failed to parse %CONFIG_FILE%\"; Write-Output \"exit /b 1\" }" > temp_config.bat
+
+call temp_config.bat
+del temp_config.bat
 
 echo === Flask IoT Edge Deployment Script ===
+echo Configuration loaded: Registry=%REGISTRY_TYPE%/%REGISTRY_NAME%, Image=%IMAGE_NAME%:%IMAGE_TAG%
 echo.
 
 REM Validate configuration
 if "%REGISTRY_NAME%"=="your-registry-name" (
-    echo ERROR: Please update REGISTRY_NAME in this script
-    echo Edit deploy.bat and set your Docker Hub username or ACR name
+    echo ERROR: Please update registry.name in %CONFIG_FILE%
+    echo Edit %CONFIG_FILE% and set your Docker Hub username or ACR name
     exit /b 1
 )
 

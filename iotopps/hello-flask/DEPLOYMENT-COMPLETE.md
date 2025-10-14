@@ -17,7 +17,7 @@ A complete, production-ready Flask container deployment system for your IoT Oper
 ### Remote Deployment Scripts (3 files)
 - ✅ `Deploy-ToIoTEdge.ps1` - **Main deployment script** 🌟
 - ✅ `Deploy-Example.ps1` - Quick configuration template
-- ✅ `Check-Deployment.ps1` - Status verification
+- ✅ `Deploy-Check.ps1` - Status verification
 
 ### Local Deployment Scripts (2 files)
 - ✅ `deploy.sh` - Linux/Mac deployment
@@ -53,7 +53,7 @@ cd iotopps\hello-flask
 
 ### 3️⃣ Verify
 ```powershell
-.\Check-Deployment.ps1
+.\Deploy-Check.ps1
 ```
 
 ### 4️⃣ Access
@@ -157,7 +157,7 @@ The deployment script reads this automatically!
 ## 💡 Pro Tips
 
 1. **Version Everything**: Use `-ImageTag "v1.0"` instead of "latest"
-2. **Check First**: Run `Check-Deployment.ps1` before redeploying
+2. **Check First**: Run `Deploy-Check.ps1` before redeploying
 3. **Use Examples**: Copy `Deploy-Example.ps1` for each environment
 4. **Watch Logs**: `kubectl logs -l app=hello-flask -f`
 5. **Test Locally**: Build and run container locally first
@@ -167,7 +167,7 @@ The deployment script reads this automatically!
 ### If deployment fails:
 ```powershell
 # Check the deployment status
-.\Check-Deployment.ps1
+.\Deploy-Check.ps1
 
 # View pod logs
 kubectl logs -l app=hello-flask
@@ -191,7 +191,7 @@ kubectl get events --sort-by='.lastTimestamp'
 
 You know it's working when:
 - ✅ `Deploy-ToIoTEdge.ps1` completes successfully
-- ✅ `Check-Deployment.ps1` shows "HEALTHY and READY"
+- ✅ `Deploy-Check.ps1` shows "HEALTHY and READY"
 - ✅ `curl http://<edge-device-ip>:30080` returns JSON
 - ✅ Browser shows Hello World message
 

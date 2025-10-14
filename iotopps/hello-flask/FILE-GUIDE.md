@@ -9,17 +9,25 @@ iotopps/hello-flask/
 │   ├── requirements.txt          # Python dependencies (Flask)
 │   └── Dockerfile                # Container definition (uses uv)
 │
+├── ⚙️ Configuration
+│   └── hello_flask_config.json   # Centralized configuration for all scripts
+│
 ├── ☸️ Kubernetes Configuration
 │   └── deployment.yaml           # K8s Deployment + Service (NodePort)
 │
 ├── 🚀 Remote Deployment (Windows → Edge)
 │   ├── Deploy-ToIoTEdge.ps1     # Main remote deployment script
 │   ├── Deploy-Example.ps1        # Example configuration template
-│   └── Check-Deployment.ps1      # Check deployment status
+│   └── Deploy-Check.ps1          # Check deployment status
 │
 ├── 📦 Local Deployment (On Edge Device)
 │   ├── deploy.sh                 # Linux/Mac deployment script
 │   └── deploy.bat                # Windows deployment script
+│
+├── 🏠 Local Development
+│   ├── Deploy-Local.ps1          # PowerShell local development script
+│   ├── run-local.bat             # Windows batch local development
+│   └── run-local.sh              # Linux/Mac local development
 │
 └── 📚 Documentation
     ├── README.md                 # Complete documentation
@@ -31,26 +39,38 @@ iotopps/hello-flask/
 
 ## 🎯 Which File Do I Use?
 
-### For Remote Deployment (Windows → IoT Edge)
+### ⚙️ First: Configure Your Registry
 
-**1. First Time Setup**
-```powershell
-# Edit this file with your registry name
-notepad Deploy-Example.ps1
-
-# Then run it
-.\Deploy-Example.ps1
+**Edit the configuration file:**
+```json
+// hello_flask_config.json
+{
+  "registry": {
+    "type": "dockerhub",
+    "name": "your-docker-username"  // ← Update this!
+  }
+}
 ```
 
-**2. Quick Deployments**
+All scripts will automatically use these settings.
+
+### For Remote Deployment (Windows → IoT Edge)
+
+**1. Quick Deployment**
 ```powershell
-# One command - reads config automatically
-.\Deploy-ToIoTEdge.ps1 -RegistryName "your-username"
+# Configuration is automatically loaded from hello_flask_config.json
+.\Deploy-ToIoTEdge.ps1
+```
+
+**2. Override Registry**
+```powershell
+# Override config file settings
+.\Deploy-ToIoTEdge.ps1 -RegistryName "different-registry"
 ```
 
 **3. Check Status**
 ```powershell
-.\Check-Deployment.ps1
+.\Deploy-Check.ps1
 ```
 
 **4. Documentation**
@@ -73,6 +93,39 @@ nano deploy.sh  # or deploy.bat on Windows
 **3. Documentation**
 - Start with: `QUICKSTART.md`
 - Full guide: `README.md`
+
+### For Local Development
+
+**1. Quick Start**
+```powershell
+# Windows PowerShell (auto-detects best runtime)
+.\Deploy-Local.ps1
+
+# Windows Command Prompt
+run-local.bat
+
+# Linux/Mac
+./run-local.sh
+```
+
+**2. Advanced Options**
+```powershell
+# Specific runtime mode
+.\Deploy-Local.ps1 -Mode docker -Port 8080
+
+# Force Docker rebuild
+.\Deploy-Local.ps1 -Mode docker -Build
+
+# Clean Python environment
+.\Deploy-Local.ps1 -Mode python -Clean
+```
+
+**3. Available Modes**
+- **uv mode**: Fast dependency management (recommended)
+- **Docker mode**: Containerized development
+- **Python mode**: Traditional virtual environment
+
+Access at: `http://localhost:5000`
 
 ## 📝 File Descriptions
 
@@ -131,7 +184,7 @@ nano deploy.sh  # or deploy.bat on Windows
 - Set your registry name once
 - Run it anytime to deploy
 
-#### `Check-Deployment.ps1`
+#### `Deploy-Check.ps1`
 **Purpose**: Verify deployment status
 
 **What it does**:
@@ -193,7 +246,7 @@ notepad ..\..\..\linux_build\linux_aio_config.json
 .\Deploy-ToIoTEdge.ps1 -RegistryName "myusername"
 
 # 3. Check status
-.\Check-Deployment.ps1
+.\Deploy-Check.ps1
 
 # 4. Test
 curl http://<edge-device-ip>:30080
@@ -208,7 +261,7 @@ notepad app.py
 .\Deploy-ToIoTEdge.ps1 -RegistryName "myusername" -ImageTag "v1.1"
 
 # 3. Verify
-.\Check-Deployment.ps1
+.\Deploy-Check.ps1
 ```
 
 ### Quick Redeploy (no code changes)
@@ -241,7 +294,7 @@ This contains:
 
 1. **Start Here**: `REMOTE-QUICK-REF.md` (2 min read)
 2. **First Deploy**: Run `Deploy-ToIoTEdge.ps1`
-3. **Verify**: Run `Check-Deployment.ps1`
+3. **Verify**: Run `Deploy-Check.ps1`
 4. **Deep Dive**: Read `REMOTE-DEPLOY.md`
 5. **Customize**: Modify `app.py` and redeploy
 
@@ -249,7 +302,7 @@ This contains:
 
 1. **Use Deploy-Example.ps1**: Set your registry once, run anytime
 2. **Keep ImageTags**: Use version tags (v1.0, v1.1) instead of "latest"
-3. **Check First**: Run `Check-Deployment.ps1` before redeploying
+3. **Check First**: Run `Deploy-Check.ps1` before redeploying
 4. **Watch Logs**: Use `kubectl logs -l app=hello-flask -f` to follow in real-time
 5. **Test Locally**: Test Docker image locally before pushing
 
@@ -274,7 +327,7 @@ A: Yes! Each deployment updates the existing deployment.
 
 | Issue | Check | Solution |
 |-------|-------|----------|
-| Can't connect to cluster | `Check-Deployment.ps1` | Verify Arc connection |
+| Can't connect to cluster | `Deploy-Check.ps1` | Verify Arc connection |
 | Image won't pull | Pod logs | Check registry credentials |
 | Can't access URL | Firewall | Allow port 30080 |
 | Pod crashes | `kubectl logs` | Check application errors |

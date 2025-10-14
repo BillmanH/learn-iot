@@ -23,6 +23,66 @@ Deploy directly on the edge device (Linux/Mac):
 
 **📖 See [QUICKSTART.md](QUICKSTART.md) for step-by-step local deployment**
 
+## ⚙️ Configuration
+
+All deployment scripts read configuration from `hello_flask_config.json`. To get started:
+
+1. **Edit the configuration file**:
+   ```json
+   {
+     "registry": {
+       "type": "dockerhub",
+       "name": "your-docker-username"
+     }
+   }
+   ```
+
+2. **Update registry settings**:
+   - For **Docker Hub**: Set `"type": "dockerhub"` and `"name": "your-username"`
+   - For **Azure Container Registry**: Set `"type": "acr"` and `"name": "your-acr-name"`
+
+3. **All scripts will use these settings automatically**
+
+See the [Configuration Guide](#configuration-reference) below for all available options.
+
+## 🏠 Local Development
+
+For local development and testing before deployment:
+
+### Quick Local Run
+```powershell
+# Windows PowerShell (recommended)
+.\Deploy-Local.ps1
+
+# Windows Command Prompt
+run-local.bat
+
+# Linux/Mac
+./run-local.sh
+```
+
+### Advanced Local Options
+```powershell
+# Run with specific mode and port
+.\Deploy-Local.ps1 -Mode docker -Port 8080
+
+# Force rebuild Docker image
+.\Deploy-Local.ps1 -Mode docker -Build
+
+# Clean Python virtual environment
+.\Deploy-Local.ps1 -Mode python -Clean
+
+# Auto-detect best available runtime (default)
+.\Deploy-Local.ps1 -Mode auto
+```
+
+The local development scripts support:
+- **uv mode**: Fast dependency management (auto-detected if available)
+- **Docker mode**: Containerized development environment
+- **Python mode**: Traditional virtual environment
+
+Access your local app at: `http://localhost:5000`
+
 ## Quick Start
 
 ### Prerequisites
@@ -209,6 +269,50 @@ kubectl delete -f deployment.yaml
 - **Container Runtime**: Docker
 - **Orchestration**: Kubernetes (K3s)
 - **Deployment**: Azure IoT Operations
+
+## Configuration Reference
+
+The `hello_flask_config.json` file supports these settings:
+
+```json
+{
+  "registry": {
+    "type": "dockerhub",           // "dockerhub" or "acr"
+    "name": "your-registry-name"   // Docker Hub username or ACR name
+  },
+  "image": {
+    "name": "hello-flask",         // Container image name
+    "tag": "latest"                // Image tag
+  },
+  "deployment": {
+    "name": "hello-flask",         // Kubernetes deployment name
+    "namespace": "default",        // Kubernetes namespace
+    "port": 5000,                  // Container port
+    "nodePort": 30080,             // External port for NodePort service
+    "replicas": 1                  // Number of replicas
+  },
+  "development": {
+    "localPort": 5000,             // Port for local development
+    "autoMode": true,              // Auto-detect runtime for Deploy-Local.ps1
+    "preferredRuntime": "auto"     // Preferred runtime: "uv", "docker", "python"
+  },
+  "azure": {
+    "useArcConnection": true,      // Use Azure Arc for remote deployment
+    "configPath": "../../linux_build/linux_aio_config.json"
+  }
+}
+```
+
+### Parameter Override
+
+Command-line parameters always override config file values:
+```powershell
+# Override registry from command line (ignores config file)
+.\Deploy-ToIoTEdge.ps1 -RegistryName "different-registry"
+
+# Override local port for development
+.\Deploy-Local.ps1 -Port 8080
+```
 
 ## Next Steps
 

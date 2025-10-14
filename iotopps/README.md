@@ -66,7 +66,7 @@ iotopps/
     ├── deployment.yaml         # Kubernetes manifest
     ├── Deploy-ToIoTEdge.ps1   # Remote deployment script
     ├── Deploy-Example.ps1      # Example configuration
-    ├── Check-Deployment.ps1    # Status checker
+    ├── Deploy-Check.ps1        # Status checker
     ├── deploy.sh               # Local deployment (Linux/Mac)
     ├── deploy.bat              # Local deployment (Windows)
     ├── README.md               # Full documentation
@@ -95,7 +95,7 @@ All deployment scripts automatically read this configuration.
 ### Check Application Status
 ```powershell
 cd hello-flask
-.\Check-Deployment.ps1
+.\Deploy-Check.ps1
 ```
 
 ### View Application Logs

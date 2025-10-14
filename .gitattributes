@@ -1,0 +1,50 @@
+# Set default behavior to automatically normalize line endings
+* text=auto
+
+# Windows-specific files should always use CRLF line endings
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Unix/Linux shell scripts should use LF line endings and be executable on Unix systems
+*.sh text eol=lf
+*.sh filter=lfs diff=lfs merge=lfs -text
+
+# Python files
+*.py text eol=lf
+
+# Markdown files
+*.md text eol=auto
+
+# YAML files (common in Kubernetes)
+*.yaml text eol=lf
+*.yml text eol=lf
+
+# JSON files
+*.json text eol=lf
+
+# Dockerfile
+Dockerfile text eol=lf
+
+# Configuration files
+*.conf text eol=lf
+*.config text eol=lf
+*.toml text eol=lf
+
+# Ignore binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.tar.gz binary
+
+# Mark shell scripts as executable on Unix systems (doesn't affect Windows)
+*.sh text eol=lf
+run-local.sh text eol=lf
+
+# Ensure consistent line endings for deployment scripts
+deploy.sh text eol=lf
+deploy.bat text eol=crlf

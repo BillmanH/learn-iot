@@ -9,15 +9,18 @@
 .PARAMETER EdgeDeviceIP
     Optional: Direct connection to edge device IP
 .EXAMPLE
-    .\Check-Deployment.ps1
+    .\Deploy-Check.ps1
 .EXAMPLE
-    .\Check-Deployment.ps1 -EdgeDeviceIP "192.168.1.100"
+    .\Deploy-Check.ps1 -EdgeDeviceIP "192.168.1.100"
 #>
 
 [CmdletBinding()]
 param(
     [Parameter()]
     [string]$ConfigPath = "$PSScriptRoot\..\..\linux_build\linux_aio_config.json",
+    
+    [Parameter()]
+    [string]$HelloFlaskConfigPath = "$PSScriptRoot\hello_flask_config.json",
     
     [Parameter()]
     [string]$EdgeDeviceIP

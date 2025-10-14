@@ -31,14 +31,17 @@ param(
     [string]$ConfigPath = "$PSScriptRoot\..\..\linux_build\linux_aio_config.json",
     
     [Parameter()]
-    [ValidateSet('dockerhub', 'acr')]
-    [string]$RegistryType = 'dockerhub',
+    [string]$HelloFlaskConfigPath = "$PSScriptRoot\hello_flask_config.json",
     
-    [Parameter(Mandatory=$true)]
+    [Parameter()]
+    [ValidateSet('dockerhub', 'acr')]
+    [string]$RegistryType,
+    
+    [Parameter()]
     [string]$RegistryName,
     
     [Parameter()]
-    [string]$ImageTag = 'latest',
+    [string]$ImageTag,
     
     [Parameter()]
     [string]$EdgeDeviceIP,
@@ -65,30 +68,75 @@ function Write-Step {
 
 function Write-Success {
     param([string]$Message)
-    Write-ColorOutput "✓ $Message" -Color Green
+    Write-ColorOutput "[OK] $Message" -Color Green
 }
 
 function Write-Error-Custom {
     param([string]$Message)
-    Write-ColorOutput "✗ $Message" -Color Red
+    Write-ColorOutput "[ERROR] $Message" -Color Red
 }
 
 function Write-Warning-Custom {
     param([string]$Message)
-    Write-ColorOutput "⚠ $Message" -Color Yellow
+    Write-ColorOutput "[WARNING] $Message" -Color Yellow
+}
+
+function Load-HelloFlaskConfig {
+    param([string]$ConfigPath)
+    
+    if (Test-Path $ConfigPath) {
+        try {
+            $helloFlaskConfig = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+            Write-ColorOutput "[OK] Hello-Flask configuration loaded from: $ConfigPath" -Color Green
+            return $helloFlaskConfig
+        } catch {
+            Write-Warning-Custom "Failed to parse hello-flask config: $_"
+            return $null
+        }
+    } else {
+        Write-Warning-Custom "Hello-Flask config not found: $ConfigPath"
+        return $null
+    }
 }
 
 # Banner
 Write-ColorOutput @"
 
-╔═══════════════════════════════════════════════════════════╗
-║   Flask IoT Edge Deployment - Remote Deployment Tool     ║
-╚═══════════════════════════════════════════════════════════╝
+===============================================================
+   Flask IoT Edge Deployment - Remote Deployment Tool
+===============================================================
 
 "@ -Color Cyan
 
-# Step 1: Load Configuration
-Write-Step "Loading configuration from $ConfigPath"
+# Load Hello-Flask configuration (for defaults)
+$helloFlaskConfig = Load-HelloFlaskConfig -ConfigPath $HelloFlaskConfigPath
+
+# Apply defaults from hello-flask config if parameters not provided
+if (-not $RegistryType -and $helloFlaskConfig) {
+    $RegistryType = $helloFlaskConfig.registry.type
+    Write-ColorOutput "Using registry type from config: $RegistryType" -Color Yellow
+}
+if (-not $RegistryName -and $helloFlaskConfig) {
+    $RegistryName = $helloFlaskConfig.registry.name
+    Write-ColorOutput "Using registry name from config: $RegistryName" -Color Yellow
+}
+if (-not $ImageTag -and $helloFlaskConfig) {
+    $ImageTag = $helloFlaskConfig.image.tag
+    Write-ColorOutput "Using image tag from config: $ImageTag" -Color Yellow
+}
+
+# Set defaults if still not provided
+if (-not $RegistryType) { $RegistryType = 'dockerhub' }
+if (-not $ImageTag) { $ImageTag = 'latest' }
+
+# Validate required parameters
+if (-not $RegistryName) {
+    Write-Error-Custom "Registry name is required. Provide via -RegistryName parameter or set in $HelloFlaskConfigPath"
+    exit 1
+}
+
+# Step 1: Load Azure Configuration
+Write-Step "Loading Azure configuration from $ConfigPath"
 
 if (-not (Test-Path $ConfigPath)) {
     Write-Error-Custom "Configuration file not found: $ConfigPath"
@@ -316,9 +364,9 @@ try {
 # Step 11: Display summary
 Write-ColorOutput @"
 
-╔═══════════════════════════════════════════════════════════╗
-║              Deployment Completed Successfully            ║
-╚═══════════════════════════════════════════════════════════╝
+===============================================================
+              Deployment Completed Successfully
+===============================================================
 
 "@ -Color Green
 

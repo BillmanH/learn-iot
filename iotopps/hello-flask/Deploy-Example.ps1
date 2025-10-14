@@ -1,42 +1,70 @@
 # Quick Deploy Example
-# Copy this file and customize for your environment
+# Uses configuration from hello_flask_config.json with optional overrides
 
-# === CONFIGURATION - UPDATE THESE VALUES ===
-$REGISTRY_NAME = "your-dockerhub-username"  # REQUIRED: Your Docker Hub username or ACR name
-$REGISTRY_TYPE = "dockerhub"                 # Options: "dockerhub" or "acr"
-$IMAGE_TAG = "latest"                        # Optional: Image version tag
+param(
+    [string]$RegistryName,    # Override registry name from config
+    [string]$RegistryType,    # Override registry type from config  
+    [string]$ImageTag,        # Override image tag from config
+    [string]$EdgeDeviceIP,    # Optional: Direct SSH to edge device
+    [string]$EdgeDeviceUser   # Optional: SSH user for edge device
+)
 
-# Optional: For direct SSH connection to edge device
-# $EDGE_DEVICE_IP = "192.168.1.100"
-# $EDGE_DEVICE_USER = "azureuser"
+# Load configuration from JSON file
+$HelloFlaskConfigPath = "$PSScriptRoot\hello_flask_config.json"
+$config = $null
 
-# === END CONFIGURATION ===
+if (Test-Path $HelloFlaskConfigPath) {
+    try {
+        $config = Get-Content $HelloFlaskConfigPath | ConvertFrom-Json
+        Write-Host "[CONFIG] Loaded configuration from hello_flask_config.json" -ForegroundColor Green
+    } catch {
+        Write-Host "[WARNING] Failed to parse hello_flask_config.json: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Host "[INFO] Continuing with parameters only..." -ForegroundColor Yellow
+    }
+}
+
+# Set configuration values with priority: Parameter > Config > Default
+if (-not $RegistryName -and $config.registry.name) {
+    $RegistryName = $config.registry.name
+}
+if (-not $RegistryType -and $config.registry.type) {
+    $RegistryType = $config.registry.type
+}
+if (-not $ImageTag -and $config.image.tag) {
+    $ImageTag = $config.image.tag
+}
+
+# Set defaults if still not specified
+if (-not $RegistryName) { $RegistryName = "your-dockerhub-username" }
+if (-not $RegistryType) { $RegistryType = "dockerhub" }
+if (-not $ImageTag) { $ImageTag = "latest" }
 
 # Validate registry name
-if ($REGISTRY_NAME -eq "your-dockerhub-username") {
-    Write-Host "ERROR: Please update REGISTRY_NAME in this script" -ForegroundColor Red
-    Write-Host "Edit Deploy-Example.ps1 and set your Docker Hub username or ACR name"
+if ($RegistryName -eq "your-dockerhub-username") {
+    Write-Host "[ERROR] Please set registry name in hello_flask_config.json or use -RegistryName parameter" -ForegroundColor Red
+    Write-Host "[INFO] Edit hello_flask_config.json and set registry.name, or use: .\Deploy-Example.ps1 -RegistryName 'your-username'" -ForegroundColor Yellow
     exit 1
 }
 
 # Build deployment command
-$deployCommand = ".\Deploy-ToIoTEdge.ps1 -RegistryName '$REGISTRY_NAME' -RegistryType '$REGISTRY_TYPE' -ImageTag '$IMAGE_TAG'"
+$deployCommand = ".\Deploy-ToIoTEdge.ps1 -RegistryName '$RegistryName' -RegistryType '$RegistryType' -ImageTag '$ImageTag'"
 
 # Add edge device parameters if specified
-if ($EDGE_DEVICE_IP) {
-    $deployCommand += " -EdgeDeviceIP '$EDGE_DEVICE_IP'"
+if ($EdgeDeviceIP) {
+    $deployCommand += " -EdgeDeviceIP '$EdgeDeviceIP'"
 }
-if ($EDGE_DEVICE_USER) {
-    $deployCommand += " -EdgeDeviceUser '$EDGE_DEVICE_USER'"
+if ($EdgeDeviceUser) {
+    $deployCommand += " -EdgeDeviceUser '$EdgeDeviceUser'"
 }
 
-Write-Host "Executing deployment with configuration:" -ForegroundColor Cyan
-Write-Host "  Registry: $REGISTRY_TYPE/$REGISTRY_NAME"
-Write-Host "  Image Tag: $IMAGE_TAG"
-if ($EDGE_DEVICE_IP) {
-    Write-Host "  Edge Device: $EDGE_DEVICE_USER@$EDGE_DEVICE_IP"
+Write-Host "[DEPLOY] Executing deployment with configuration:" -ForegroundColor Cyan
+Write-Host "  Registry: $RegistryType/$RegistryName" -ForegroundColor White
+Write-Host "  Image Tag: $ImageTag" -ForegroundColor White
+if ($EdgeDeviceIP) {
+    Write-Host "  Edge Device: $EdgeDeviceUser@$EdgeDeviceIP" -ForegroundColor White
 }
 Write-Host ""
 
 # Execute deployment
+Write-Host "[EXEC] Running: $deployCommand" -ForegroundColor Yellow
 Invoke-Expression $deployCommand
