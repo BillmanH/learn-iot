@@ -25,7 +25,7 @@ free -h
 sudo journalctl -u k3s --no-pager | grep -i error | tail -10
 
 # Check for port conflicts
-sudo netstat -tlnp | grep :6443
+sudo ss -tlnp | grep :6443
 
 # Check for disk space issues
 sudo journalctl -u k3s --no-pager | grep -i "no space\|disk full"
@@ -71,7 +71,7 @@ sudo journalctl -u k3s -f
 #### A. Port conflicts
 ```bash
 # Check what's using port 6443
-sudo netstat -tlnp | grep :6443
+sudo ss -tlnp | grep :6443
 
 # If it's not K3s, kill the conflicting process
 sudo pkill -f "kube-apiserver"
@@ -139,7 +139,7 @@ sudo journalctl -u k3s -f
 - **Cause**: Port 6443 is occupied
 - **Solution**: Find and kill the process using the port
 ```bash
-sudo netstat -tlnp | grep :6443
+sudo ss -tlnp | grep :6443
 sudo kill -9 <PID>
 ```
 

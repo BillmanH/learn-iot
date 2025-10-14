@@ -30,11 +30,6 @@ check_port_6443() {
         if lsof -i :6443 2>/dev/null | grep -q ":6443"; then
             return 0  # Port is in use
         fi
-    elif command -v netstat >/dev/null 2>&1; then
-        # Use netstat if available
-        if netstat -tlnp 2>/dev/null | grep -q ":6443 "; then
-            return 0  # Port is in use
-        fi
     else
         # Last resort: try to connect to the port
         if timeout 2 bash -c "</dev/tcp/127.0.0.1/6443" 2>/dev/null; then
@@ -73,16 +68,9 @@ get_port_6443_info() {
             process=$(echo "$line" | awk '{print $1}')
             echo "PID: $pid, Process: $process"
         done
-    elif command -v netstat >/dev/null 2>&1; then
-        # Use netstat if available
-        netstat -tlnp 2>/dev/null | grep ":6443 " | while read line; do
-            pid=$(echo "$line" | awk '{print $7}' | cut -d'/' -f1)
-            process=$(echo "$line" | awk '{print $7}' | cut -d'/' -f2)
-            echo "PID: $pid, Process: $process"
-        done
     else
         # Manual process search as last resort
-        warn "No suitable tools found (ss, lsof, netstat). Searching for common processes..."
+        warn "No suitable tools found (ss, lsof). Searching for common processes..."
         pgrep -f "k3s\|kube\|minikube\|kind" | while read pid; do
             if [ -n "$pid" ]; then
                 process_name=$(ps -p "$pid" -o comm= 2>/dev/null || echo "unknown")
@@ -281,7 +269,7 @@ resolve_port_conflict() {
         get_port_6443_info
         echo
         echo "Try these commands manually:"
-        echo "sudo netstat -tlnp | grep :6443"
+        echo "sudo ss -tlnp | grep :6443"
         echo "sudo kill -9 <PID_FROM_OUTPUT>"
     fi
 }

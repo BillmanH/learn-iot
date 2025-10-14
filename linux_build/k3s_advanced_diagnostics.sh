@@ -130,7 +130,7 @@ analyze_failure_patterns() {
         error "PORT CONFLICT DETECTED!"
         info "K3s cannot start because port 6443 is already in use"
         info "Solution:"
-        echo "  sudo netstat -tlnp | grep :6443"
+        echo "  sudo ss -tlnp | grep :6443"
         echo "  sudo kill -9 <PID_OF_CONFLICTING_PROCESS>"
         echo "  sudo systemctl start k3s"
     fi
@@ -296,12 +296,6 @@ check_processes_ports() {
             if lsof -i :$port 2>/dev/null | grep -q ":$port"; then
                 info "Port $port is in use:"
                 lsof -i :$port 2>/dev/null
-                port_in_use=true
-            fi
-        elif command -v netstat >/dev/null 2>&1; then
-            if netstat -tlnp 2>/dev/null | grep ":$port " >/dev/null; then
-                info "Port $port is in use:"
-                netstat -tlnp 2>/dev/null | grep ":$port "
                 port_in_use=true
             fi
         else
@@ -470,7 +464,7 @@ generate_recommendations() {
     
     echo
     echo "5. ${GREEN}Check for conflicts:${NC}"
-    echo "   sudo netstat -tlnp | grep :6443"
+    echo "   sudo ss -tlnp | grep :6443"
     echo "   sudo pkill -f 'kube-apiserver|minikube|kind'"
     echo "   docker stop \$(docker ps -q --filter 'publish=6443')"
     
