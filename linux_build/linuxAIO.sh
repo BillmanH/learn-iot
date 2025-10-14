@@ -62,6 +62,22 @@ check_root() {
 check_port_conflicts() {
     log "Checking for port conflicts..."
     
+    # First, check if K3s is already running successfully
+    if sudo systemctl is-active --quiet k3s 2>/dev/null; then
+        log "K3s service is already running"
+        
+        # Test if K3s cluster is actually working
+        if sudo k3s kubectl get nodes --no-headers 2>/dev/null | grep -q "Ready"; then
+            log "K3s cluster is running and healthy - no port conflicts detected"
+            log "Nodes status:"
+            sudo k3s kubectl get nodes 2>/dev/null || true
+            return 0  # No conflicts, K3s is working fine
+        else
+            warn "K3s service is running but cluster is not healthy"
+            log "This might indicate a configuration issue rather than port conflicts"
+        fi
+    fi
+    
     # Function to check if port 6443 is in use
     check_port_in_use() {
         if command -v ss >/dev/null 2>&1; then
@@ -85,27 +101,37 @@ check_port_conflicts() {
         fi
     }
     
-    # Check if port 6443 (Kubernetes API) is in use
+    # Check if port 6443 (Kubernetes API) is in use by non-working processes
     if check_port_in_use; then
-        warn "Port 6443 is already in use!"
+        log "Port 6443 is in use - checking if it's a conflict..."
         echo "Processes using port 6443:"
         get_port_info
         echo
         
-        # Check if it's K3s already running
+        # Check if it's K3s that's not working properly
         if get_port_info | grep -q "k3s"; then
-            log "K3s is already using port 6443 - this might be from a previous installation"
-            read -p "Do you want to stop the existing K3s process? (y/N): " stop_k3s
-            if [[ "$stop_k3s" =~ ^[Yy]$ ]]; then
-                log "Stopping existing K3s processes..."
-                sudo pkill -f k3s || true
-                sudo systemctl stop k3s || true
-                sleep 5
+            warn "K3s is using port 6443 but the cluster is not healthy"
+            log "This suggests K3s needs to be restarted rather than having port conflicts"
+            read -p "Do you want to restart the K3s service? (y/N): " restart_k3s
+            if [[ "$restart_k3s" =~ ^[Yy]$ ]]; then
+                log "Restarting K3s service..."
+                sudo systemctl restart k3s || true
+                sleep 10
+                
+                # Check if it's working now
+                if sudo k3s kubectl get nodes --no-headers 2>/dev/null | grep -q "Ready"; then
+                    log "K3s cluster is now healthy after restart"
+                    return 0
+                else
+                    warn "K3s still not healthy after restart - may need cleanup"
+                fi
             else
-                error "Cannot proceed with port 6443 in use. Please stop the conflicting process."
+                warn "K3s may need attention - consider restarting the service"
             fi
         else
-            echo "Non-K3s process is using port 6443. Common culprits:"
+            warn "Non-K3s process is using port 6443 - this is a genuine conflict!"
+            echo "Common conflicting processes:"
+            echo "- kubelite/MicroK8s"
             echo "- Docker containers running Kubernetes"
             echo "- Minikube"
             echo "- Kind clusters"
@@ -139,9 +165,11 @@ check_port_conflicts() {
                 error "Cannot proceed with port 6443 in use. Please free up the port and try again."
             fi
         fi
+    else
+        log "Port 6443 is free - no conflicts detected"
     fi
     
-    # Check other common Kubernetes ports
+    # Check other common Kubernetes ports for potential issues (but don't block on them)
     for port in 6444 10250 10251 10252; do
         if command -v ss >/dev/null 2>&1; then
             if ss -tlnp 2>/dev/null | grep -q ":$port "; then
