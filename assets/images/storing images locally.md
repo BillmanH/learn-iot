@@ -1,1 +1,0 @@
-# Local folder for storing image files from camera

@@ -1,0 +1,51 @@
+{
+  "azure": {
+    "subscription_id": "",
+    "subscription_name": "",
+    "resource_group": "rg-iot-operations",
+    "location": "eastus",
+    "cluster_name": "iot-ops-cluster",
+    "namespace_name": "iot-operations-ns"
+  },
+  "deployment": {
+    "skip_system_update": false,
+    "force_reinstall": false,
+    "deployment_mode": "test"
+  },
+  "comments": {
+    "subscription_id": "Leave empty to use current logged-in subscription, or provide your Azure subscription GUID",
+    "subscription_name": "Leave empty to use current logged-in subscription, or provide subscription display name",
+    "resource_group": "Name of Azure resource group (will be created if it doesn't exist)",
+    "location": "Azure region (e.g., eastus, westus2, westeurope, northeurope)",
+    "cluster_name": "Name for your Arc-enabled Kubernetes cluster",
+    "namespace_name": "Name for Azure Device Registry namespace",
+    "deployment_mode": "Options: 'test' for development, 'secure' for production (future)",
+    "skip_system_update": "Set to true to skip apt update/upgrade for faster runs",
+    "force_reinstall": "Set to true to reinstall components even if they already exist"
+  },
+  "examples": {
+    "development": {
+      "resource_group": "rg-iot-dev",
+      "location": "eastus",
+      "cluster_name": "dev-iot-cluster",
+      "namespace_name": "dev-namespace",
+      "skip_system_update": true,
+      "deployment_mode": "test"
+    },
+    "production": {
+      "resource_group": "rg-iot-prod",
+      "location": "westus2", 
+      "cluster_name": "prod-iot-cluster",
+      "namespace_name": "prod-namespace",
+      "skip_system_update": false,
+      "deployment_mode": "secure"
+    }
+  },
+  "usage_instructions": {
+    "step1": "Copy this file to 'linux_aio_config.json' in the same directory as linuxAIO.sh",
+    "step2": "Fill in your Azure subscription details (or leave empty to use current login)",
+    "step3": "Customize resource_group, location, cluster_name, and namespace_name",
+    "step4": "Adjust deployment settings as needed",
+    "step5": "Run ./linuxAIO.sh - it will automatically load this configuration"
+  }
+}

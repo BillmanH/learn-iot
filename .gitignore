@@ -18,3 +18,7 @@ devices/__pycache__/camera.cpython-37.pyc
 
 # MQTT Keys
 mqtt/mqtt_key.yaml
+
+
+# Cofig files
+linux_build/linux_aio_config.json
