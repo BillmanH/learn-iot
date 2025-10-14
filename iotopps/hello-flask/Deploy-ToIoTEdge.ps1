@@ -158,20 +158,76 @@ try {
 # Step 2: Validate Prerequisites
 Write-Step "Validating prerequisites"
 
-$prerequisites = @(
-    @{Name='docker'; Command='docker --version'},
-    @{Name='kubectl'; Command='kubectl version --client'},
-    @{Name='az'; Command='az --version'}
-)
-
-foreach ($prereq in $prerequisites) {
-    try {
-        $null = Invoke-Expression $prereq.Command 2>&1
-        Write-Success "$($prereq.Name) is installed"
-    } catch {
-        Write-Error-Custom "$($prereq.Name) is not installed or not in PATH"
-        exit 1
+# Check Docker
+try {
+    $dockerVersion = docker --version 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-Success "docker is installed"
+    } else {
+        throw "Docker check failed"
     }
+} catch {
+    Write-Error-Custom "docker is not installed or not in PATH"
+    exit 1
+}
+
+# Check kubectl
+try {
+    $kubectlVersion = kubectl version --client 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-Success "kubectl is installed"
+    } else {
+        throw "kubectl check failed"
+    }
+} catch {
+    Write-Error-Custom "kubectl is not installed or not in PATH"
+    exit 1
+}
+
+# Check Azure CLI - try multiple methods
+$azFound = $false
+try {
+    # Try direct command
+    $azVersion = az --version 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        $azFound = $true
+    }
+} catch {
+    # Command not found, try to find it
+}
+
+if (-not $azFound) {
+    # Try to find az in common locations
+    $azPaths = @(
+        "${env:ProgramFiles}\Microsoft SDKs\Azure\CLI2\wbin\az.cmd",
+        "${env:ProgramFiles(x86)}\Microsoft SDKs\Azure\CLI2\wbin\az.cmd",
+        "${env:LOCALAPPDATA}\Programs\Microsoft\Azure CLI\wbin\az.cmd"
+    )
+    
+    foreach ($path in $azPaths) {
+        if (Test-Path $path) {
+            # Add to PATH for this session
+            $azDir = Split-Path $path
+            $env:PATH = "$azDir;$env:PATH"
+            
+            # Test again
+            $azVersion = az --version 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                $azFound = $true
+                Write-Warning-Custom "Found Azure CLI at: $path (added to PATH for this session)"
+                break
+            }
+        }
+    }
+}
+
+if ($azFound) {
+    Write-Success "az is installed"
+} else {
+    Write-Error-Custom "az (Azure CLI) is not installed or not in PATH"
+    Write-Host "`nPlease install Azure CLI from: https://aka.ms/installazurecliwindows"
+    Write-Host "Or restart PowerShell if you just installed it."
+    exit 1
 }
 
 # Step 3: Build full image name

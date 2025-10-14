@@ -36,15 +36,15 @@ function Write-ColorOutput {
 function Write-Section {
     param([string]$Title)
     Write-Host "`n" -NoNewline
-    Write-ColorOutput "═══ $Title ═══" -Color Cyan
+    Write-ColorOutput "=== $Title ===" -Color Cyan
 }
 
 # Banner
 Write-ColorOutput @"
 
-╔═══════════════════════════════════════════════════════════╗
-║        Flask IoT Edge - Deployment Status Check          ║
-╚═══════════════════════════════════════════════════════════╝
+===============================================================
+   Flask IoT Edge - Deployment Status Check
+===============================================================
 
 "@ -Color Cyan
 
@@ -73,13 +73,13 @@ try {
     
     kubectl get nodes --no-headers 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
-        Write-ColorOutput "✓ Connected to cluster" -Color Green
+        Write-ColorOutput "[OK] Connected to cluster" -Color Green
         kubectl get nodes
     } else {
         throw "Connection failed"
     }
 } catch {
-    Write-ColorOutput "✗ Cannot connect to cluster" -Color Red
+    Write-ColorOutput "[ERROR] Cannot connect to cluster" -Color Red
     Write-Host "Try running: az connectedk8s proxy -n $clusterName -g $resourceGroup"
     exit 1
 }
@@ -90,14 +90,14 @@ try {
     kubectl get deployment hello-flask 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
         kubectl get deployment hello-flask
-        Write-ColorOutput "`n✓ Deployment exists" -Color Green
+        Write-ColorOutput "`n[OK] Deployment exists" -Color Green
     } else {
-        Write-ColorOutput "✗ Deployment 'hello-flask' not found" -Color Red
+        Write-ColorOutput "[ERROR] Deployment 'hello-flask' not found" -Color Red
         Write-Host "Run Deploy-ToIoTEdge.ps1 to deploy the application"
         exit 1
     }
 } catch {
-    Write-ColorOutput "✗ Error checking deployment: $_" -Color Red
+    Write-ColorOutput "[ERROR] Error checking deployment: $_" -Color Red
     exit 1
 }
 
@@ -109,9 +109,9 @@ if ($LASTEXITCODE -eq 0 -and $pods) {
     
     $podStatus = ($pods -split '\s+')[2]
     if ($podStatus -eq "Running") {
-        Write-ColorOutput "`n✓ Pod is running" -Color Green
+        Write-ColorOutput "`n[OK] Pod is running" -Color Green
     } else {
-        Write-ColorOutput "`n⚠ Pod status: $podStatus" -Color Yellow
+        Write-ColorOutput "`n[WARNING] Pod status: $podStatus" -Color Yellow
         
         # Get pod name for logs
         $podName = ($pods -split '\s+')[0]
@@ -119,7 +119,7 @@ if ($LASTEXITCODE -eq 0 -and $pods) {
         kubectl logs $podName --tail=20
     }
 } else {
-    Write-ColorOutput "✗ No pods found" -Color Red
+    Write-ColorOutput "[ERROR] No pods found" -Color Red
 }
 
 # Check service
@@ -140,15 +140,15 @@ try {
             }
         }
         
-        Write-ColorOutput "`n✓ Service is exposed" -Color Green
+        Write-ColorOutput "`n[OK] Service is exposed" -Color Green
         if ($serviceUrl) {
             Write-Host "Service URL: $serviceUrl"
         }
     } else {
-        Write-ColorOutput "✗ Service not found" -Color Red
+        Write-ColorOutput "[ERROR] Service not found" -Color Red
     }
 } catch {
-    Write-ColorOutput "⚠ Error checking service: $_" -Color Yellow
+    Write-ColorOutput "[WARNING] Error checking service: $_" -Color Yellow
 }
 
 # Test endpoint if possible
@@ -159,12 +159,12 @@ if ($serviceUrl) {
     try {
         $response = Invoke-WebRequest -Uri $serviceUrl -TimeoutSec 5 -UseBasicParsing
         if ($response.StatusCode -eq 200) {
-            Write-ColorOutput "✓ Application is responding!" -Color Green
+            Write-ColorOutput "[OK] Application is responding!" -Color Green
             Write-Host "Response:"
             $response.Content | ConvertFrom-Json | ConvertTo-Json
         }
     } catch {
-        Write-ColorOutput "✗ Cannot reach application endpoint" -Color Red
+        Write-ColorOutput "[ERROR] Cannot reach application endpoint" -Color Red
         Write-Host "This may be normal if:"
         Write-Host "  - You're not on the same network as the edge device"
         Write-Host "  - Firewall is blocking port $nodePort"
@@ -178,15 +178,29 @@ kubectl get events --field-selector involvedObject.name=hello-flask --sort-by='.
 
 # Summary
 Write-Section "Summary"
-$deploymentReady = (kubectl get deployment hello-flask -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' 2>&1) -eq "True"
-$podsReady = (kubectl get pods -l app=hello-flask -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}' 2>&1) -eq "True"
+
+# Check deployment readiness
+try {
+    $deploymentStatus = kubectl get deployment hello-flask -o jsonpath="{.status.conditions[?(@.type=='Available')].status}" 2>&1
+    $deploymentReady = ($deploymentStatus -eq "True")
+} catch {
+    $deploymentReady = $false
+}
+
+# Check pod readiness
+try {
+    $podStatus = kubectl get pods -l app=hello-flask -o jsonpath="{.items[0].status.conditions[?(@.type=='Ready')].status}" 2>&1
+    $podsReady = ($podStatus -eq "True")
+} catch {
+    $podsReady = $false
+}
 
 if ($deploymentReady -and $podsReady) {
-    Write-ColorOutput "`n✓ Application is HEALTHY and READY" -Color Green
+    Write-ColorOutput "`n[OK] Application is HEALTHY and READY" -Color Green
 } elseif ($deploymentReady) {
-    Write-ColorOutput "`n⚠ Deployment exists but pods may not be ready" -Color Yellow
+    Write-ColorOutput "`n[WARNING] Deployment exists but pods may not be ready" -Color Yellow
 } else {
-    Write-ColorOutput "`n✗ Application has issues" -Color Red
+    Write-ColorOutput "`n[ERROR] Application has issues" -Color Red
 }
 
 Write-Host "`nUseful Commands:"
