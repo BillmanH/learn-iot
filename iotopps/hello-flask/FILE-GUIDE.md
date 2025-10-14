@@ -222,7 +222,7 @@ notepad app.py
 ### Configuration File
 All scripts read from:
 ```
-../../../linux_build/linux_aio_config.json
+../../linux_build/linux_aio_config.json
 ```
 
 This contains:
@@ -262,7 +262,7 @@ A: Use `Deploy-ToIoTEdge.ps1` for remote deployment from Windows. It's automated
 A: No! The scripts handle that automatically.
 
 **Q: Where is my cluster config?**
-A: In `../../../linux_build/linux_aio_config.json`
+A: In `../../linux_build/linux_aio_config.json`
 
 **Q: How do I update my app?**
 A: Edit `app.py`, then run `Deploy-ToIoTEdge.ps1` with a new `-ImageTag`

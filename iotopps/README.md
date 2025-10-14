@@ -21,7 +21,7 @@ A simple Flask "Hello World" REST API that demonstrates:
 ### Remote Deployment (Windows → Edge Device)
 Deploy applications from your Windows development machine to remote IoT Operations clusters:
 
-1. Configure your cluster in `../linux_build/linux_aio_config.json`
+1. Configure your cluster in `../../linux_build/linux_aio_config.json`
 2. Navigate to the application directory (e.g., `cd hello-flask`)
 3. Run the deployment script: `.\Deploy-ToIoTEdge.ps1 -RegistryName "your-registry"`
 
@@ -79,7 +79,7 @@ iotopps/
 
 Your IoT Operations cluster configuration is stored in:
 ```
-../linux_build/linux_aio_config.json
+../../linux_build/linux_aio_config.json
 ```
 
 This file contains:
@@ -136,9 +136,9 @@ To add a new application to this directory:
 
 ## Related Documentation
 
-- [Linux Build Steps](../linux_build/linux_build_steps.md) - Setting up IoT Operations
-- [K3s Troubleshooting](../linux_build/K3S_TROUBLESHOOTING_GUIDE.md) - Cluster issues
-- [Project README](../readme.md) - Overall project documentation
+- [Linux Build Steps](../../linux_build/linux_build_steps.md) - Setting up IoT Operations
+- [K3s Troubleshooting](../../linux_build/K3S_TROUBLESHOOTING_GUIDE.md) - Cluster issues
+- [Project README](../../readme.md) - Overall project documentation
 
 ## Next Steps
 

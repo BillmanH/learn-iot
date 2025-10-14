@@ -80,7 +80,7 @@ If you have direct network access to your edge device:
 | `RegistryName` | Yes | - | Your Docker Hub username or ACR name |
 | `RegistryType` | No | `dockerhub` | Registry type: `dockerhub` or `acr` |
 | `ImageTag` | No | `latest` | Docker image tag |
-| `ConfigPath` | No | `../../../linux_build/linux_aio_config.json` | Path to config file |
+| `ConfigPath` | No | `../../linux_build/linux_aio_config.json` | Path to config file |
 | `EdgeDeviceIP` | No | - | IP address of edge device for direct SSH access |
 | `EdgeDeviceUser` | No | `azureuser` | SSH username for edge device |
 | `SkipBuild` | No | `false` | Skip building/pushing image (use existing) |
@@ -286,5 +286,5 @@ steps:
 
 - [Main README](README.md) - Complete application documentation
 - [QUICKSTART](QUICKSTART.md) - Quick deployment guide
-- [Linux Build Steps](../../linux_build/linux_build_steps.md) - IoT Operations setup
-- [K3s Troubleshooting](../../linux_build/K3S_TROUBLESHOOTING_GUIDE.md) - Cluster issues
+- [Linux Build Steps](../../../linux_build/linux_build_steps.md) - IoT Operations setup
+- [K3s Troubleshooting](../../../linux_build/K3S_TROUBLESHOOTING_GUIDE.md) - Cluster issues

@@ -6,7 +6,7 @@
     K3s cluster running on a remote edge device. It reads configuration from 
     linux_aio_config.json and handles the entire deployment workflow.
 .PARAMETER ConfigPath
-    Path to the configuration JSON file (default: ..\..\..\linux_build\linux_aio_config.json)
+    Path to the configuration JSON file (default: ..\..\linux_build\linux_aio_config.json)
 .PARAMETER RegistryType
     Container registry type: 'dockerhub' or 'acr' (default: dockerhub)
 .PARAMETER RegistryName
@@ -28,7 +28,7 @@
 [CmdletBinding()]
 param(
     [Parameter()]
-    [string]$ConfigPath = "$PSScriptRoot\..\..\..\linux_build\linux_aio_config.json",
+    [string]$ConfigPath = "$PSScriptRoot\..\..\linux_build\linux_aio_config.json",
     
     [Parameter()]
     [ValidateSet('dockerhub', 'acr')]

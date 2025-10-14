@@ -17,7 +17,7 @@
 [CmdletBinding()]
 param(
     [Parameter()]
-    [string]$ConfigPath = "$PSScriptRoot\..\..\..\linux_build\linux_aio_config.json",
+    [string]$ConfigPath = "$PSScriptRoot\..\..\linux_build\linux_aio_config.json",
     
     [Parameter()]
     [string]$EdgeDeviceIP
