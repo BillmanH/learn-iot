@@ -434,11 +434,30 @@ cleanup_k3s() {
     log "Checking for existing K3s installation..."
     
     if command -v k3s &> /dev/null || [ -f /usr/local/bin/k3s ]; then
-        warn "Found existing K3s installation"
         
-        # Check if K3s is running
+        # First check if K3s is running and healthy
         if sudo systemctl is-active --quiet k3s 2>/dev/null; then
-            log "K3s service is currently running"
+            log "K3s service is running - checking cluster health..."
+            
+            # Test if K3s cluster is actually working
+            if sudo k3s kubectl get nodes --no-headers 2>/dev/null | grep -q "Ready"; then
+                log "K3s cluster is running and healthy - skipping cleanup"
+                log "Current cluster status:"
+                sudo k3s kubectl get nodes 2>/dev/null || true
+                echo
+                log "Continuing with Azure IoT Operations installation on existing healthy K3s cluster..."
+                return 0  # Skip cleanup, K3s is working fine
+            else
+                warn "K3s service is running but cluster is not healthy"
+                log "This indicates K3s needs attention"
+            fi
+        fi
+        
+        warn "Found existing K3s installation that needs cleanup"
+        
+        # Check if K3s is running (but not healthy from above check)
+        if sudo systemctl is-active --quiet k3s 2>/dev/null; then
+            log "K3s service is currently running (but not healthy)"
             read -p "Do you want to stop and clean up the existing K3s installation? (y/N): " cleanup
             if [[ "$cleanup" =~ ^[Yy]$ ]]; then
                 log "Stopping K3s service..."
