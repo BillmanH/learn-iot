@@ -55,6 +55,24 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Initialize script-level variables
+$script:proxyProcess = $null
+
+# Cleanup function
+function Cleanup-ProxyProcess {
+    if ($script:proxyProcess -and -not $script:proxyProcess.HasExited) {
+        try {
+            Stop-Process -Id $script:proxyProcess.Id -Force -ErrorAction SilentlyContinue
+            Write-Host "Proxy process stopped." -ForegroundColor Yellow
+        } catch {
+            # Ignore cleanup errors
+        }
+    }
+}
+
+# Register cleanup on script exit
+Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action { Cleanup-ProxyProcess } | Out-Null
+
 # Color output functions
 function Write-ColorOutput {
     param([string]$Message, [string]$Color = 'White')
@@ -307,11 +325,96 @@ if ($subscriptionId) {
 # Get Arc cluster credentials
 try {
     Write-Host "Getting credentials for Arc-enabled cluster..."
-    Start-Process -FilePath "az" -ArgumentList "connectedk8s","proxy","-n",$clusterName,"-g",$resourceGroup -NoNewWindow
-    Start-Sleep -Seconds 5
-    Write-Success "Connected to Arc cluster via proxy"
+    
+    # Check for and clean up any existing proxy processes
+    Write-Host "Checking for existing proxy processes..."
+    $existingProxies = Get-Process -Name "kubectl" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like "*proxy*" }
+    if ($existingProxies) {
+        Write-Warning-Custom "Found existing proxy processes. Stopping them..."
+        $existingProxies | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+    }
+    
+    # Also try to stop any az connectedk8s proxy processes
+    $azProxies = Get-Process | Where-Object { $_.CommandLine -like "*connectedk8s*proxy*" } -ErrorAction SilentlyContinue
+    if ($azProxies) {
+        Write-Warning-Custom "Found existing Az proxy processes. Stopping them..."
+        $azProxies | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+    }
+    
+    # Get the kubeconfig timestamp before starting proxy
+    $kubeconfigPath = "$env:USERPROFILE\.kube\config"
+    $beforeTimestamp = if (Test-Path $kubeconfigPath) { (Get-Item $kubeconfigPath).LastWriteTime } else { [DateTime]::MinValue }
+    
+    # Start the proxy in a new process (non-blocking) with a random port to avoid conflicts
+    Write-Host "Starting proxy in background process..."
+    
+    # Use a random port between 47012-47100 to avoid conflicts
+    $proxyPort = Get-Random -Minimum 47012 -Maximum 47100
+    
+    # Create a temp file to capture output
+    $proxyLogFile = "$env:TEMP\arc-proxy-$clusterName-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
+    
+    $proxyProcess = Start-Process -FilePath "powershell" -ArgumentList "-Command", "az connectedk8s proxy -n $clusterName -g $resourceGroup --port $proxyPort 2>&1 | Tee-Object -FilePath '$proxyLogFile'" -PassThru -WindowStyle Hidden
+    
+    Write-Host "Proxy process started (PID: $($proxyProcess.Id)) on port $proxyPort. Waiting for connection..."
+    Write-Host "Proxy log file: $proxyLogFile"
+    
+    # Wait for proxy to be ready (check for kubeconfig changes or timeout after 60 seconds)
+    $maxWaitTime = 60
+    $waitInterval = 2
+    $elapsed = 0
+    $proxyReady = $false
+    
+    while ($elapsed -lt $maxWaitTime) {
+        Start-Sleep -Seconds $waitInterval
+        $elapsed += $waitInterval
+        
+        # Check if process is still running
+        if ($proxyProcess.HasExited) {
+            $errorOutput = if (Test-Path $proxyLogFile) { Get-Content $proxyLogFile -Raw } else { "No log file found" }
+            throw "Proxy process exited unexpectedly with code: $($proxyProcess.ExitCode). Error: $errorOutput"
+        }
+        
+        # Check if kubeconfig was updated
+        if (Test-Path $kubeconfigPath) {
+            $currentTimestamp = (Get-Item $kubeconfigPath).LastWriteTime
+            if ($currentTimestamp -gt $beforeTimestamp) {
+                # Kubeconfig was updated, give it a moment to complete
+                Start-Sleep -Seconds 2
+                
+                # Check if kubectl can connect
+                try {
+                    $null = kubectl cluster-info 2>&1
+                    if ($LASTEXITCODE -eq 0) {
+                        $proxyReady = $true
+                        Write-Success "Connected to Arc cluster via proxy"
+                        break
+                    }
+                } catch {
+                    # Continue waiting
+                }
+            }
+        }
+        
+        Write-Host "." -NoNewline
+    }
+    
+    if (-not $proxyReady) {
+        # Kill the proxy process
+        if (-not $proxyProcess.HasExited) {
+            Stop-Process -Id $proxyProcess.Id -Force -ErrorAction SilentlyContinue
+        }
+        throw "Proxy did not become ready within $maxWaitTime seconds"
+    }
+    
+    # Store the proxy process so we can clean it up later
+    $script:proxyProcess = $proxyProcess
+    
 } catch {
-    Write-Warning-Custom "Could not connect via Arc proxy. Trying direct kubectl access..."
+    Write-Warning-Custom "Could not connect via Arc proxy: $_"
+    Write-Host "Trying direct kubectl access..."
     
     # Alternative: Try to get kubeconfig directly if edge device is accessible
     if ($EdgeDeviceIP) {
@@ -449,3 +552,14 @@ if ($serviceUrl) {
 }
 
 Write-ColorOutput "Deployment script completed!" -Color Green
+
+# Cleanup: Notify about the proxy process if it's still running
+if ($script:proxyProcess -and -not $script:proxyProcess.HasExited) {
+    Write-Host ""
+    Write-ColorOutput "Note: The Arc proxy is still running in the background (PID: $($script:proxyProcess.Id))" -Color Yellow
+    Write-Host "To manage the proxy:"
+    Write-Host "  Stop proxy:   Stop-Process -Id $($script:proxyProcess.Id) -Force"
+    Write-Host "  Check status: Get-Process -Id $($script:proxyProcess.Id) -ErrorAction SilentlyContinue"
+    Write-Host ""
+    Write-Host "The proxy will stop automatically when you close this PowerShell session."
+}

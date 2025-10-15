@@ -1,8 +1,8 @@
 <!--
-Version change: Initial → 1.0.0
-Modified principles: All principles established
-Added sections: Development Environment, Deployment Architecture, Script Standards
-Removed sections: None (initial constitution)
+Version change: 1.0.0 → 1.2.0
+Modified principles: Added Principle VIII (No Supplementary Documentation Files)
+Added sections: None
+Removed sections: None
 -->
 
 # IoT Hub Learning Project Constitution
@@ -29,6 +29,9 @@ All code files must use only conventional ASCII characters (7-bit ASCII characte
 
 ### VII. Documentation-Driven Development
 Every component must include comprehensive documentation with platform-specific examples. README files must clearly distinguish between Windows development workflows and Linux deployment procedures, providing both PowerShell and shell script examples where applicable.
+
+### VIII. No Supplementary Documentation Files
+Do not automatically create additional documentation files (e.g., troubleshooting guides, fix explanations, how-to documents) unless explicitly requested. When making fixes or changes, provide explanations inline in responses rather than generating separate markdown files. Keep the repository clean and focused on functional code and essential README documentation.
 
 ### Windows Development Machine Requirements
 - PowerShell 5.1+ for deployment scripts
