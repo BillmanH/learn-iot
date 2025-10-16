@@ -12,18 +12,73 @@ A simple Flask "Hello World" REST API that demonstrates:
 - Kubernetes service exposure on local networks
 - Health checks and monitoring
 
-**Quick Deploy:** `cd hello-flask && .\Deploy-ToIoTEdge.ps1 -RegistryName "your-username"`
+**Quick Deploy:** `.\Deploy-ToIoTEdge.ps1 -AppFolder "hello-flask" -RegistryName "your-username"`
 
 [📖 Read the docs →](./hello-flask/README.md)
+
+## Deployment Scripts
+
+This folder contains three modular PowerShell deployment scripts that work with any application in the `iotopps` folder:
+
+### 📤 Deploy-ToIoTEdge.ps1
+Deploy applications to remote IoT Operations clusters via Azure Arc.
+
+**Usage:**
+```powershell
+.\Deploy-ToIoTEdge.ps1 -AppFolder "hello-flask" -RegistryName "your-username"
+.\Deploy-ToIoTEdge.ps1 -AppFolder "my-app" -RegistryName "myacr" -RegistryType "acr" -ImageTag "v1.0"
+```
+
+**Parameters:**
+- `-AppFolder` (Required): Name of the app folder to deploy
+- `-RegistryName` (Required): Docker Hub username or ACR name
+- `-RegistryType`: `dockerhub` or `acr` (default: dockerhub)
+- `-ImageTag`: Image tag (default: latest)
+- `-SkipBuild`: Skip Docker build/push (use existing image)
+- `-EdgeDeviceIP`: Direct SSH connection fallback
+- `-ConfigPath`: Override default config location
+
+### 🏠 Deploy-Local.ps1
+Run applications locally for development and testing.
+
+**Usage:**
+```powershell
+.\Deploy-Local.ps1 -AppFolder "hello-flask"
+.\Deploy-Local.ps1 -AppFolder "my-app" -Mode docker -Port 8080
+.\Deploy-Local.ps1 -AppFolder "hello-flask" -Mode python -Clean
+```
+
+**Parameters:**
+- `-AppFolder` (Required): Name of the app folder to run
+- `-Mode`: `python`, `docker`, `uv`, or `auto` (default: auto)
+- `-Port`: Local port (default: 5000)
+- `-Build`: Force Docker rebuild
+- `-Clean`: Clean Python venv before setup
+
+### 🔍 Deploy-Check.ps1
+Check deployment status and health of deployed applications.
+
+**Usage:**
+```powershell
+.\Deploy-Check.ps1 -AppFolder "hello-flask"
+.\Deploy-Check.ps1 -AppFolder "my-app" -EdgeDeviceIP "192.168.1.100"
+```
+
+**Parameters:**
+- `-AppFolder` (Required): Name of the app folder to check
+- `-EdgeDeviceIP`: Direct connection to edge device
+- `-ConfigPath`: Override default config location
 
 ## Deployment Workflows
 
 ### Remote Deployment (Windows → Edge Device)
 Deploy applications from your Windows development machine to remote IoT Operations clusters:
 
-1. Configure your cluster in `../../linux_build/linux_aio_config.json`
-2. Navigate to the application directory (e.g., `cd hello-flask`)
-3. Run the deployment script: `.\Deploy-ToIoTEdge.ps1 -RegistryName "your-registry"`
+1. Configure your cluster in `../linux_build/linux_aio_config.json`
+2. From the `iotopps` folder, run the deployment script:
+   ```powershell
+   .\Deploy-ToIoTEdge.ps1 -AppFolder "hello-flask" -RegistryName "your-registry"
+   ```
 
 The script handles:
 - ✓ Building Docker images
@@ -32,11 +87,21 @@ The script handles:
 - ✓ Deploying to Kubernetes
 - ✓ Verifying deployment status
 
-### Local Deployment (On Edge Device)
-Deploy directly from the edge device:
+### Local Development
+Test applications locally before deploying:
 
-1. Navigate to the application directory
-2. Run the deployment script: `./deploy.sh` (Linux/Mac) or `deploy.bat` (Windows)
+1. From the `iotopps` folder, run:
+   ```powershell
+   .\Deploy-Local.ps1 -AppFolder "hello-flask"
+   ```
+2. Access at `http://localhost:5000`
+
+### Check Deployment Status
+Monitor your deployed applications:
+
+```powershell
+.\Deploy-Check.ps1 -AppFolder "hello-flask"
+```
 
 ## Prerequisites
 
@@ -47,16 +112,18 @@ Deploy directly from the edge device:
 - Access to container registry (Docker Hub or ACR)
 - Azure IoT Operations deployed and Arc-connected
 
-### For Local Deployment
-- Docker installed on edge device
-- kubectl configured for local K3s
-- Access to container registry
+### For Local Development
+- Python 3.8+ OR Docker OR uv
+- Application dependencies (see app-specific requirements.txt)
 
 ## Project Structure
 
 ```
 iotopps/
 ├── README.md                    # This file
+├── Deploy-ToIoTEdge.ps1        # Modular remote deployment script
+├── Deploy-Local.ps1             # Modular local development script
+├── Deploy-Check.ps1             # Modular deployment status checker
 ├── .vscode/
 │   └── settings.json           # VS Code settings (uses uv for Python)
 └── hello-flask/                # Flask Hello World app
@@ -64,22 +131,18 @@ iotopps/
     ├── Dockerfile              # Container definition (uses uv)
     ├── requirements.txt        # Python dependencies
     ├── deployment.yaml         # Kubernetes manifest
-    ├── Deploy-ToIoTEdge.ps1   # Remote deployment script
-    ├── Deploy-Example.ps1      # Example configuration
-    ├── Deploy-Check.ps1        # Status checker
-    ├── deploy.sh               # Local deployment (Linux/Mac)
-    ├── deploy.bat              # Local deployment (Windows)
+    ├── hello_flask_config.json # App-specific configuration (optional)
     ├── README.md               # Full documentation
     ├── QUICKSTART.md           # Quick start guide
-    ├── REMOTE-DEPLOY.md        # Remote deployment guide
-    └── REMOTE-QUICK-REF.md     # Quick reference card
+    └── FILE-GUIDE.md           # File descriptions
 ```
 
 ## Configuration
 
+### Cluster Configuration
 Your IoT Operations cluster configuration is stored in:
 ```
-../../linux_build/linux_aio_config.json
+../linux_build/linux_aio_config.json
 ```
 
 This file contains:
@@ -90,12 +153,35 @@ This file contains:
 
 All deployment scripts automatically read this configuration.
 
+### Application Configuration (Optional)
+Each application can have its own config file (e.g., `hello_flask_config.json`) containing:
+- Registry settings (type, name)
+- Image tags
+- Development preferences (port, runtime mode)
+
 ## Common Commands
+
+### Deploy an Application
+```powershell
+# Deploy to IoT Edge cluster
+.\Deploy-ToIoTEdge.ps1 -AppFolder "hello-flask" -RegistryName "myusername"
+
+# Deploy with custom tag
+.\Deploy-ToIoTEdge.ps1 -AppFolder "hello-flask" -RegistryName "myusername" -ImageTag "v1.0"
+```
 
 ### Check Application Status
 ```powershell
-cd hello-flask
-.\Deploy-Check.ps1
+.\Deploy-Check.ps1 -AppFolder "hello-flask"
+```
+
+### Run Locally
+```powershell
+# Auto-detect runtime (uv > docker > python)
+.\Deploy-Local.ps1 -AppFolder "hello-flask"
+
+# Specify runtime
+.\Deploy-Local.ps1 -AppFolder "hello-flask" -Mode docker
 ```
 
 ### View Application Logs
@@ -110,21 +196,99 @@ http://<edge-device-ip>:30080
 ```
 
 ### Update Application
-1. Modify source code
-2. Run deployment script with new tag:
+1. Modify source code in the app folder
+2. Redeploy with new tag:
    ```powershell
-   .\Deploy-ToIoTEdge.ps1 -RegistryName "your-username" -ImageTag "v1.1"
+   .\Deploy-ToIoTEdge.ps1 -AppFolder "hello-flask" -RegistryName "your-username" -ImageTag "v1.1"
    ```
 
 ## Adding New Applications
 
 To add a new application to this directory:
 
-1. Create a new folder: `iotopps/your-app-name/`
-2. Add your application code and Dockerfile
-3. Create `deployment.yaml` for Kubernetes
-4. Copy and adapt deployment scripts from `hello-flask/`
-5. Update this README with your application
+1. **Create Application Folder**
+   ```powershell
+   mkdir iotopps\my-new-app
+   cd iotopps\my-new-app
+   ```
+
+2. **Add Required Files**
+   - Application code (e.g., `app.py`, `main.py`)
+   - `Dockerfile` - Container definition
+   - `deployment.yaml` - Kubernetes manifest
+   - `requirements.txt` - Dependencies (if Python)
+
+3. **Create Kubernetes Deployment Manifest**
+   ```yaml
+   # deployment.yaml
+   apiVersion: apps/v1
+   kind: Deployment
+   metadata:
+     name: my-new-app
+   spec:
+     replicas: 1
+     selector:
+       matchLabels:
+         app: my-new-app
+     template:
+       metadata:
+         labels:
+           app: my-new-app
+       spec:
+         containers:
+         - name: my-new-app
+           image: <YOUR_REGISTRY>/my-new-app:latest
+           ports:
+           - containerPort: 5000
+   ---
+   apiVersion: v1
+   kind: Service
+   metadata:
+     name: my-new-app-service
+   spec:
+     type: NodePort
+     selector:
+       app: my-new-app
+     ports:
+     - port: 80
+       targetPort: 5000
+       nodePort: 30081
+   ```
+
+4. **Optional: Add App Config**
+   Create `my_new_app_config.json` for default settings:
+   ```json
+   {
+     "registry": {
+       "type": "dockerhub",
+       "name": "your-username"
+     },
+     "image": {
+       "tag": "latest"
+     },
+     "development": {
+       "localPort": 5000,
+       "preferredRuntime": "auto"
+     }
+   }
+   ```
+
+5. **Deploy Your Application**
+   ```powershell
+   # From iotopps folder
+   .\Deploy-Local.ps1 -AppFolder "my-new-app"
+   .\Deploy-ToIoTEdge.ps1 -AppFolder "my-new-app" -RegistryName "your-username"
+   ```
+
+6. **Update Documentation**
+   - Add your app to the "Available Applications" section in this README
+   - Create an app-specific README in your app folder
+
+### Application Requirements
+- **Dockerfile**: Must expose the application port
+- **deployment.yaml**: Must use `<YOUR_REGISTRY>` placeholder for registry name
+- **Service naming**: Use `{app-name}-service` convention
+- **Labels**: Use `app: {app-name}` for pod selection
 
 ## Technology Stack
 
