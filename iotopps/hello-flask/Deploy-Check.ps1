@@ -62,43 +62,74 @@ if (Test-Path $ConfigPath) {
     Write-Host "Proceeding with current kubectl context..."
 }
 
-# Check cluster connectivity
-Write-Section "Cluster Connection"
+# Check Docker login status
+Write-Section "Docker Authentication"
 try {
-    if ($config) {
-        Write-Host "Connecting to Arc cluster..."
-        Start-Process -FilePath "az" -ArgumentList "connectedk8s","proxy","-n",$clusterName,"-g",$resourceGroup -NoNewWindow
-        Start-Sleep -Seconds 3
-    }
-    
-    kubectl get nodes --no-headers 2>&1 | Out-Null
+    $dockerInfo = docker info 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
-        Write-ColorOutput "[OK] Connected to cluster" -Color Green
-        kubectl get nodes
+        # Check if logged in by looking for registry info
+        $dockerConfigPath = "$env:USERPROFILE\.docker\config.json"
+        if (Test-Path $dockerConfigPath) {
+            $dockerConfig = Get-Content $dockerConfigPath -Raw | ConvertFrom-Json
+            if ($dockerConfig.auths -and ($dockerConfig.auths.PSObject.Properties.Count -gt 0)) {
+                Write-ColorOutput "[OK] Docker is authenticated" -Color Green
+                $dockerConfig.auths.PSObject.Properties.Name | ForEach-Object {
+                    Write-Host "  Registry: $_"
+                }
+            } else {
+                Write-ColorOutput "[INFO] Docker is running but no registry authentication found" -Color Yellow
+                Write-Host "  Run 'docker login' if you need to push images"
+            }
+        } else {
+            Write-ColorOutput "[INFO] Docker is running" -Color White
+        }
     } else {
-        throw "Connection failed"
+        Write-ColorOutput "[INFO] Docker is not running (only needed for building/pushing images)" -Color White
     }
 } catch {
-    Write-ColorOutput "[ERROR] Cannot connect to cluster" -Color Red
-    Write-Host "Try running: az connectedk8s proxy -n $clusterName -g $resourceGroup"
-    exit 1
+    Write-ColorOutput "[INFO] Docker not available (only needed for building/pushing images)" -Color White
+}
+
+# Check cluster connectivity
+Write-Section "Cluster Connection"
+
+if ($config) {
+    Write-ColorOutput "`nPlease start the cluster proxy in another terminal window:" -Color Yellow
+    Write-ColorOutput "  az connectedk8s proxy -n $clusterName -g $resourceGroup" -Color White
+    Write-Host "`nPress any key once you see 'Proxy is listening on port...' and 'Start sending kubectl requests...'" -ForegroundColor Cyan
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    Write-Host ""
+}
+
+Write-Host "Verifying cluster connection..."
+$nodeOutput = kubectl get nodes 2>&1
+$nodeExitCode = $LASTEXITCODE
+
+if ($nodeExitCode -eq 0) {
+    Write-ColorOutput "[OK] Connected to cluster" -Color Green
+    Write-Host $nodeOutput
+} else {
+    Write-ColorOutput "[WARNING] Could not connect to get nodes (this may be OK)" -Color Yellow
+    Write-Host "Error details: $nodeOutput"
+    Write-Host "`nAttempting to continue with deployment checks..."
 }
 
 # Check deployments
 Write-Section "Deployment Status"
-try {
-    kubectl get deployment hello-flask 2>&1 | Out-Null
-    if ($LASTEXITCODE -eq 0) {
-        kubectl get deployment hello-flask
-        Write-ColorOutput "`n[OK] Deployment exists" -Color Green
-    } else {
-        Write-ColorOutput "[ERROR] Deployment 'hello-flask' not found" -Color Red
-        Write-Host "Run Deploy-ToIoTEdge.ps1 to deploy the application"
-        exit 1
-    }
-} catch {
-    Write-ColorOutput "[ERROR] Error checking deployment: $_" -Color Red
-    exit 1
+
+$ErrorActionPreference = 'SilentlyContinue'
+$deploymentOutput = kubectl get deployment hello-flask 2>&1 | Out-String
+$deploymentExitCode = $LASTEXITCODE
+$ErrorActionPreference = 'Stop'
+
+if ($deploymentExitCode -eq 0) {
+    Write-Host $deploymentOutput
+    Write-ColorOutput "[OK] Deployment exists" -Color Green
+} else {
+    Write-ColorOutput "[INFO] Deployment 'hello-flask' not found" -Color Yellow
+    Write-Host "`nTo deploy the application, run: .\Deploy-ToIoTEdge.ps1"
+    
+    # Don't exit - continue checking other resources
 }
 
 # Check pods
@@ -195,13 +226,70 @@ try {
     $podsReady = $false
 }
 
-if ($deploymentReady -and $podsReady) {
-    Write-ColorOutput "`n[OK] Application is HEALTHY and READY" -Color Green
-} elseif ($deploymentReady) {
-    Write-ColorOutput "`n[WARNING] Deployment exists but pods may not be ready" -Color Yellow
-} else {
-    Write-ColorOutput "`n[ERROR] Application has issues" -Color Red
+# Check service
+$serviceExists = $false
+try {
+    kubectl get service hello-flask-service 2>&1 | Out-Null
+    $serviceExists = ($LASTEXITCODE -eq 0)
+} catch {
+    $serviceExists = $false
 }
+
+# Final status display
+Write-Host ""
+Write-Host "===============================================================" -ForegroundColor Cyan
+Write-Host "                    DEPLOYMENT STATUS" -ForegroundColor Cyan
+Write-Host "===============================================================" -ForegroundColor Cyan
+
+if ($deploymentReady -and $podsReady -and $serviceExists) {
+    Write-Host ""
+    Write-ColorOutput "  [OK] Deployment:     READY" -Color Green
+    Write-ColorOutput "  [OK] Pods:           RUNNING" -Color Green
+    Write-ColorOutput "  [OK] Service:        EXPOSED" -Color Green
+    Write-Host ""
+    Write-ColorOutput "  >> ALL SYSTEMS OPERATIONAL! <<" -Color Green
+    Write-Host ""
+    
+    if ($serviceUrl) {
+        Write-ColorOutput "  Application URL: $serviceUrl" -Color Cyan
+        Write-Host ""
+    }
+    
+    Write-ColorOutput "  Your Flask application is successfully deployed and ready!" -Color White
+    Write-Host ""
+} elseif ($deploymentReady -and $podsReady) {
+    Write-Host ""
+    Write-ColorOutput "  [OK] Deployment:     READY" -Color Green
+    Write-ColorOutput "  [OK] Pods:           RUNNING" -Color Green
+    Write-ColorOutput "  [WARNING] Service:   CHECK REQUIRED" -Color Yellow
+    Write-Host ""
+    Write-ColorOutput "  >> DEPLOYMENT PARTIALLY READY <<" -Color Yellow
+    Write-Host ""
+} elseif ($deploymentReady) {
+    Write-Host ""
+    Write-ColorOutput "  [OK] Deployment:     EXISTS" -Color Green
+    Write-ColorOutput "  [WARNING] Pods:      NOT READY" -Color Yellow
+    if ($serviceExists) {
+        Write-ColorOutput "  [OK] Service:        EXPOSED" -Color Green
+    } else {
+        Write-ColorOutput "  [ERROR] Service:     NOT FOUND" -Color Red
+    }
+    Write-Host ""
+    Write-ColorOutput "  >> PODS NOT READY - Check logs for issues <<" -Color Yellow
+    Write-Host ""
+} else {
+    Write-Host ""
+    Write-ColorOutput "  [ERROR] Deployment:  NOT FOUND" -Color Red
+    Write-ColorOutput "  [ERROR] Pods:        NONE" -Color Red
+    Write-ColorOutput "  [ERROR] Service:     N/A" -Color Red
+    Write-Host ""
+    Write-ColorOutput "  >> APPLICATION NOT DEPLOYED <<" -Color Red
+    Write-Host ""
+    Write-Host "  Next Step: Run Deploy-ToIoTEdge.ps1 to deploy the application" -ForegroundColor Yellow
+    Write-Host ""
+}
+
+Write-Host "===============================================================" -ForegroundColor Cyan
 
 Write-Host "`nUseful Commands:"
 Write-Host "  View logs:           kubectl logs -l app=hello-flask --tail=50"
