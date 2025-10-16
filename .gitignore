@@ -86,6 +86,7 @@ Thumbs.db
 # Logs
 *.log
 logs/
+error.json
 
 # IDE
 *.swp
