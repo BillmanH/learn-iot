@@ -72,6 +72,79 @@ chmod +x run-local.sh
 
 ## ⚙️ Configuration
 
+### Finding Your MQTT Broker Service Name
+
+Before deploying, you need to find your MQTT broker's service name in the cluster.
+
+#### Using k9s (Recommended)
+
+1. **Launch k9s**:
+   ```bash
+   k9s
+   ```
+
+2. **Navigate to Services**:
+   - Press `:` to open the command prompt
+   - Type `svc` and press Enter
+   - Or press `:services` and Enter
+
+3. **Find your MQTT broker**:
+   - Look for services with names like:
+     - `mqtt-broker`
+     - `mosquitto`
+     - `aio-mq-dmqtt-frontend` (Azure IoT Operations)
+     - `emqx`
+   - Note the **NAME** column (this is your `MQTT_BROKER` value)
+   - Note the **PORT(S)** column (typically `1883` for MQTT)
+
+4. **Get service details**:
+   - Navigate to your MQTT service using arrow keys
+   - Press `d` to describe the service
+   - Look for the port and namespace information
+
+#### Using kubectl
+
+**List all services**:
+```bash
+kubectl get svc --all-namespaces
+```
+
+**Search for MQTT services**:
+```bash
+kubectl get svc --all-namespaces | grep -i mqtt
+```
+
+**Get service details**:
+```bash
+kubectl describe svc <service-name> -n <namespace>
+```
+
+**Common MQTT service patterns**:
+- `mqtt-broker-service`
+- `mosquitto-service`
+- `aio-mq-dmqtt-frontend` (for Azure IoT Operations)
+- `emqx-service`
+
+#### Example Configuration
+
+If k9s shows a service named `aio-mq-dmqtt-frontend` in namespace `azure-iot-operations` on port `1883`:
+
+```json
+{
+  "mqtt": {
+    "broker": "aio-mq-dmqtt-frontend.azure-iot-operations.svc.cluster.local",
+    "port": 1883,
+    "topic": "sputnik/beep"
+  }
+}
+```
+
+**Note**: For services in different namespaces, use the full DNS name:
+`<service-name>.<namespace>.svc.cluster.local`
+
+For services in the same namespace as Sputnik, you can use just the service name:
+`<service-name>`
+
 ### Environment Variables
 
 - `MQTT_BROKER`: MQTT broker hostname (default: `localhost`)
