@@ -1,0 +1,16 @@
+{
+  "registry": {
+    "type": "dockerhub",
+    "name": "your-docker-username"
+  },
+  "mqtt": {
+    "broker": "mqtt-broker-service",
+    "port": 1883,
+    "topic": "sputnik/beep"
+  },
+  "deployment": {
+    "namespace": "default",
+    "replicas": 1,
+    "beep_interval": 5
+  }
+}

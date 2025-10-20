@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sputnik
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sputnik
+  template:
+    metadata:
+      labels:
+        app: sputnik
+    spec:
+      containers:
+      - name: sputnik
+        image: <YOUR_REGISTRY>/sputnik:latest
+        env:
+        - name: MQTT_BROKER
+          value: "mqtt-broker-service"  # Update with your MQTT broker service name
+        - name: MQTT_PORT
+          value: "1883"
+        - name: MQTT_TOPIC
+          value: "sputnik/beep"
+        - name: BEEP_INTERVAL
+          value: "5"  # Send beep every 5 seconds
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "50m"
+          limits:
+            memory: "64Mi"
+            cpu: "100m"
+        livenessProbe:
+          exec:
+            command:
+            - pgrep
+            - python
+          initialDelaySeconds: 10
+          periodSeconds: 30

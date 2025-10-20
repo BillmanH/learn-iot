@@ -2,6 +2,11 @@
 .vscode/settings.json
 .vscode/launch.json
 
+# Configuration files (keep these out of repo for security)
+linux_build/linux_aio_config.json
+iotopps/sputnik/sputnik_config.json
+
+
 # Connection strings and keys
 key_*.yaml
 *_keys.yaml
@@ -58,8 +63,7 @@ venv.bak/
 *.png
 *.gif
 
-# Configuration files (keep these out of repo for security)
-linux_build/linux_aio_config.json
+
 
 # Temporary files
 temp_config.bat
@@ -92,3 +96,4 @@ error.json
 *.swp
 *.swo
 *~
+
