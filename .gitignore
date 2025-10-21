@@ -97,3 +97,4 @@ error.json
 *.swo
 *~
 
+linux_build/linux_aio_config_*.json
