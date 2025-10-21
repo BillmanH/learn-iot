@@ -325,9 +325,9 @@ if (-not $SkipBuild) {
 
         Write-Step "Checking container registry authentication"
         if ($RegistryType -eq 'acr') {
-            # Check if already logged into ACR
+            # Check if already logged into ACR by trying to get token
             Write-Host "Checking ACR login status..."
-            $acrLoginCheck = az acr login --name $RegistryName --expose-token 2>&1
+            $acrLoginCheck = az acr login --name $RegistryName --expose-token 2>&1 | Out-String
             if ($LASTEXITCODE -eq 0) {
                 Write-Success "Already authenticated with Azure Container Registry"
             } else {
@@ -344,22 +344,21 @@ if (-not $SkipBuild) {
             Write-Host "Checking Docker Hub login status..."
             $dockerInfoOutput = docker info 2>&1 | Out-String
             
-            # Check if we can access Docker Hub (look for username in docker info)
-            if ($dockerInfoOutput -match "Username:\s+\S+") {
-                Write-Success "Already authenticated with Docker Hub"
-            } else {
-                # Try a test authentication check
-                $loginTest = docker login --username $RegistryName --password-stdin <<< "" 2>&1
-                if ($loginTest -match "Login Succeeded") {
-                    Write-Success "Already authenticated with Docker Hub"
-                } else {
-                    try {
-                        docker login
-                        Write-Success "Logged into Docker Hub"
-                    } catch {
-                        Write-Error-Custom "Docker Hub login failed: $_"
-                        exit 1
-                    }
+            # Check if we're authenticated (look for username in docker info)
+            $isLoggedIn = $false
+            if ($dockerInfoOutput -match "Username:\s+(\S+)") {
+                $currentUser = $matches[1]
+                Write-Success "Already authenticated with Docker Hub as '$currentUser'"
+                $isLoggedIn = $true
+            }
+            
+            if (-not $isLoggedIn) {
+                try {
+                    docker login
+                    Write-Success "Logged into Docker Hub"
+                } catch {
+                    Write-Error-Custom "Docker Hub login failed: $_"
+                    exit 1
                 }
             }
         }
