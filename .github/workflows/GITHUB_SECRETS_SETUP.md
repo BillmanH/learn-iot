@@ -4,12 +4,22 @@ This document describes all the secrets and variables you need to configure in y
 
 ## Required Secrets
 
-Navigate to your repository → **Settings** → **Secrets and variables** → **Actions** to add these secrets.
+Navigate to your repository → **Settings** → **Secrets and variables** → **Actions** to add these secrets. The workflows only reference the secrets listed below — I trimmed anything unused.
 
-### Azure Authentication Secrets
+List of secrets referenced by the workflows (alphabetical):
 
-#### `AZURE_CREDENTIALS`
-Service Principal credentials for Azure authentication. Create using:
+- `ACR_PASSWORD` — Azure Container Registry admin password (only required if you authenticate to ACR with username/password). Used by the ACR login step.
+- `ACR_USERNAME` — Azure Container Registry admin username (only required if you authenticate to ACR with username/password). Used by the ACR login step.
+- `AZURE_CREDENTIALS` — Preferred: service principal JSON used by `azure/login` (recommended). See creation snippet below.
+- `AZURE_SUBSCRIPTION_ID` — Subscription ID used for `az account set` when `AZURE_CREDENTIALS` is not used.
+- `DOCKER_PASSWORD` — Docker Hub password or access token (required if using Docker Hub credentials).
+- `DOCKER_USERNAME` — Docker Hub username (used for login and as the fallback namespace when `REGISTRY_NAME` is empty).
+
+Only add the registry secrets for the provider you use (ACR vs Docker Hub). The registry namespace/name itself should be configured as the repository variable `REGISTRY_NAME` (see Variables section below).
+
+### Azure Authentication (create `AZURE_CREDENTIALS`)
+
+Create an Azure service principal with appropriate rights and store the JSON in `AZURE_CREDENTIALS`. Example (CLI):
 
 ```bash
 az ad sp create-for-rbac --name "github-actions-iot-edge" \
@@ -18,48 +28,18 @@ az ad sp create-for-rbac --name "github-actions-iot-edge" \
   --sdk-auth
 ```
 
-The output JSON should be stored as-is in this secret. Format:
+Save the entire JSON output as the `AZURE_CREDENTIALS` secret. The workflow also supports using `AZURE_SUBSCRIPTION_ID` when `AZURE_CREDENTIALS` is not provided, but `AZURE_CREDENTIALS` is the recommended approach.
+
+Example output (truncated):
+
 ```json
 {
   "clientId": "<GUID>",
   "clientSecret": "<GUID>",
   "subscriptionId": "<GUID>",
-  "tenantId": "<GUID>",
-  "activeDirectoryEndpointUrl": "https://login.microsoftonline.com",
-  "resourceManagerEndpointUrl": "https://management.azure.com/",
-  "activeDirectoryGraphResourceId": "https://graph.windows.net/",
-  "sqlManagementEndpointUrl": "https://management.core.windows.net:8443/",
-  "galleryEndpointUrl": "https://gallery.azure.com/",
-  "managementEndpointUrl": "https://management.core.windows.net/"
+  "tenantId": "<GUID>"
 }
 ```
-
-#### `AZURE_SUBSCRIPTION_ID`
-Your Azure subscription ID (GUID format)
-
-Example: `12345678-1234-1234-1234-123456789012`
-
-### Container Registry Secrets
-
-Choose **ONE** of the following registry types:
-
-#### For Docker Hub:
-- **`DOCKER_USERNAME`**: Your Docker Hub username
-- **`DOCKER_PASSWORD`**: Your Docker Hub password or access token
-
-#### For Azure Container Registry (ACR):
-- **`ACR_NAME`**: Name of your ACR (e.g., `myiotregistry`)
-- **`ACR_USERNAME`**: ACR admin username (found in ACR → Access keys)
-- **`ACR_PASSWORD`**: ACR admin password (found in ACR → Access keys)
-
-**Note:** If using ACR with the Azure service principal, you may not need separate ACR credentials if the service principal has `acrpull` and `acrpush` roles.
-
-### SSH Secrets (Optional - for direct edge device access)
-
-These are optional and only needed if you want to deploy directly to edge devices without using Arc:
-
-- **`EDGE_DEVICE_SSH_KEY`**: Private SSH key for accessing edge devices
-- **`EDGE_DEVICE_USER`**: SSH username (default: `azureuser`)
 
 ## Repository Variables
 
@@ -117,9 +97,12 @@ For better organization, create GitHub Environments for different deployment sta
 Before running workflows, verify:
 
 - [ ] Azure service principal created with appropriate permissions
+- [ ] `ACR_PASSWORD` (if using ACR) added
+- [ ] `ACR_USERNAME` (if using ACR) added
 - [ ] `AZURE_CREDENTIALS` secret added with valid JSON
-- [ ] `AZURE_SUBSCRIPTION_ID` secret added
-- [ ] Container registry credentials added (Docker Hub OR ACR)
+- [ ] `AZURE_SUBSCRIPTION_ID` secret added (if not using `AZURE_CREDENTIALS`)
+- [ ] `DOCKER_PASSWORD` (if using Docker Hub) added
+- [ ] `DOCKER_USERNAME` (if using Docker Hub) added
 - [ ] `AZURE_RESOURCE_GROUP` variable set
 - [ ] `AZURE_CLUSTER_NAME` variable set
 - [ ] `AZURE_LOCATION` variable set

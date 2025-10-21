@@ -39,8 +39,8 @@ on:
 env:
   REGISTRY_TYPE: ${{ vars.REGISTRY_TYPE || 'dockerhub' }}
   REGISTRY_NAME: ${{ vars.REGISTRY_NAME }}
-  AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
-  AZURE_CLUSTER_NAME: ${{ vars.AZURE_CLUSTER_NAME }}
+  AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+  AZURE_CLUSTER_NAME: ${{ secrets.AZURE_CLUSTER_NAME }}
   AZURE_LOCATION: ${{ vars.AZURE_LOCATION || 'eastus' }}
 
 jobs:
@@ -190,19 +190,42 @@ jobs:
         run: |
           echo "Connecting to Arc-enabled cluster..."
           
+          # Trim and export secrets to avoid accidental whitespace/newlines
+          AZURE_CLUSTER_NAME=$(printf '%s' "$AZURE_CLUSTER_NAME" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+          AZURE_RESOURCE_GROUP=$(printf '%s' "$AZURE_RESOURCE_GROUP" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+
+          # Debug: confirm variables are present (do not print secret values)
+          if [ -n "$AZURE_CLUSTER_NAME" ]; then
+            echo "AZURE_CLUSTER_NAME is set"
+          else
+            echo "AZURE_CLUSTER_NAME is empty"
+          fi
+          if [ -n "$AZURE_RESOURCE_GROUP" ]; then
+            echo "AZURE_RESOURCE_GROUP is set"
+          else
+            echo "AZURE_RESOURCE_GROUP is empty"
+          fi
+
+          # Fail fast if required environment variables are empty
+          if [ -z "$AZURE_CLUSTER_NAME" ] || [ -z "$AZURE_RESOURCE_GROUP" ]; then
+            echo "Error: AZURE_CLUSTER_NAME and AZURE_RESOURCE_GROUP must be set."
+            echo "Set repository secrets accordingly."
+            exit 2
+          fi
+
           # Install connectedk8s extension if not present
           az extension add --name connectedk8s --upgrade
-          
+
           # Verify cluster is connected
           az connectedk8s show \
-            --name ${{ env.AZURE_CLUSTER_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }}
+            --name "$AZURE_CLUSTER_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP"
           
           # Get cluster credentials using proxy
           echo "Starting Arc proxy connection..."
           timeout 120 az connectedk8s proxy \
-            --name ${{ env.AZURE_CLUSTER_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} &
+            --name "$AZURE_CLUSTER_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" &
           
           PROXY_PID=$!
           echo "Proxy PID: $PROXY_PID"
@@ -294,8 +317,8 @@ jobs:
           
           **Application:** ${{ matrix.app }}  
           **Image:** ${{ steps.image_name.outputs.full_image }}  
-          **Cluster:** ${{ env.AZURE_CLUSTER_NAME }}  
-          **Resource Group:** ${{ env.AZURE_RESOURCE_GROUP }}  
+          **Cluster:** (secret)  
+          **Resource Group:** (secret)  
           **Node Port:** ${{ steps.service_info.outputs.node_port }}
           
           ### Useful Commands
@@ -325,7 +348,7 @@ jobs:
               repo: context.repo.repo,
               body: `## 🚀 Deployment Status: ${{ matrix.app }}
               
-              ✅ Successfully deployed to **${{ env.AZURE_CLUSTER_NAME }}**
+              ✅ Successfully deployed to **(secret cluster)**
               
               **Image:** \`${{ steps.image_name.outputs.full_image }}\`
               **Node Port:** \`${{ steps.service_info.outputs.node_port }}\`
