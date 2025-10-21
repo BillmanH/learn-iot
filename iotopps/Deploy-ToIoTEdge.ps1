@@ -206,12 +206,21 @@ try {
     $dockerVersion = docker --version 2>&1
     if ($LASTEXITCODE -eq 0) {
         Write-Success "docker is installed"
-        $dockerAvailable = $true
+        
+        # Check if Docker daemon is running
+        $dockerInfo = docker info 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            Write-Success "Docker daemon is running"
+            $dockerAvailable = $true
+        } else {
+            throw "Docker daemon is not running"
+        }
     } else {
         throw "Docker check failed"
     }
 } catch {
-    Write-Warning-Custom "docker is not installed or not in PATH - will skip image build/push"
+    Write-Warning-Custom "docker is not available: $_"
+    Write-Host "  Please ensure Docker Desktop is running"
     Write-Host "  You can build and push the image manually on a machine with Docker"
     $dockerAvailable = $false
 }
