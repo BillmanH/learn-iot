@@ -1,0 +1,318 @@
+name: Deploy IoT Edge Application
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_folder:
+        description: 'Application folder name (e.g., hello-flask, sputnik)'
+        required: true
+        type: choice
+        options:
+          - hello-flask
+          - sputnik
+      image_tag:
+        description: 'Image tag (default: github.sha)'
+        required: false
+        default: ''
+      skip_build:
+        description: 'Skip building and pushing Docker image'
+        required: false
+        type: boolean
+        default: false
+      environment:
+        description: 'Deployment environment'
+        required: true
+        type: choice
+        options:
+          - development
+          - production
+        default: development
+
+  push:
+    branches:
+      - main
+      - dev
+    paths:
+      - 'iotopps/**'
+      - '.github/workflows/deploy-iot-edge.yaml'
+
+env:
+  REGISTRY_TYPE: ${{ vars.REGISTRY_TYPE || 'dockerhub' }}
+  REGISTRY_NAME: ${{ vars.REGISTRY_NAME }}
+  AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+  AZURE_CLUSTER_NAME: ${{ vars.AZURE_CLUSTER_NAME }}
+  AZURE_LOCATION: ${{ vars.AZURE_LOCATION || 'eastus' }}
+
+jobs:
+  detect-changes:
+    name: Detect Changed Applications
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    outputs:
+      apps: ${{ steps.detect.outputs.apps }}
+      has_changes: ${{ steps.detect.outputs.has_changes }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect changed applications
+        id: detect
+        run: |
+          # Get list of changed files
+          CHANGED_FILES=$(git diff --name-only HEAD^ HEAD)
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+          
+          # Find unique app folders
+          APPS=$(echo "$CHANGED_FILES" | grep '^iotopps/' | cut -d'/' -f2 | sort -u | grep -v '^$' || true)
+          
+          # Filter to only valid app directories (containing Dockerfile)
+          VALID_APPS=""
+          for app in $APPS; do
+            if [ -f "iotopps/$app/Dockerfile" ]; then
+              VALID_APPS="$VALID_APPS $app"
+            fi
+          done
+          
+          # Convert to JSON array
+          if [ -z "$VALID_APPS" ]; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "apps=[]" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            JSON_APPS=$(echo $VALID_APPS | jq -R -s -c 'split(" ") | map(select(length > 0))')
+            echo "apps=$JSON_APPS" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "Detected apps: $VALID_APPS"
+
+  build-and-deploy:
+    name: Build & Deploy ${{ matrix.app || inputs.app_folder }}
+    runs-on: ubuntu-latest
+    needs: [detect-changes]
+    if: |
+      always() && 
+      (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.has_changes == 'true')
+    strategy:
+      matrix:
+        app: ${{ github.event_name == 'workflow_dispatch' && fromJson(format('["{0}"]', inputs.app_folder)) || fromJson(needs.detect-changes.outputs.apps) }}
+      fail-fast: false
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set image tag
+        id: set_tag
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ inputs.image_tag }}" ]; then
+            TAG="${{ inputs.image_tag }}"
+          else
+            TAG="${{ github.sha }}"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Image tag: $TAG"
+
+      - name: Set up Docker Buildx
+        if: ${{ !inputs.skip_build }}
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: ${{ !inputs.skip_build && env.REGISTRY_TYPE == 'dockerhub' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Log in to Azure Container Registry
+        if: ${{ !inputs.skip_build && env.REGISTRY_TYPE == 'acr' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_NAME }}.azurecr.io
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Build full image name
+        id: image_name
+        run: |
+          if [ "${{ env.REGISTRY_TYPE }}" == "acr" ]; then
+            FULL_IMAGE="${{ env.REGISTRY_NAME }}.azurecr.io/${{ matrix.app }}:${{ steps.set_tag.outputs.tag }}"
+          else
+            FULL_IMAGE="${{ env.REGISTRY_NAME }}/${{ matrix.app }}:${{ steps.set_tag.outputs.tag }}"
+          fi
+          echo "full_image=$FULL_IMAGE" >> $GITHUB_OUTPUT
+          echo "Full image name: $FULL_IMAGE"
+
+      - name: Build and push Docker image
+        if: ${{ !inputs.skip_build }}
+        uses: docker/build-push-action@v5
+        with:
+          context: ./iotopps/${{ matrix.app }}
+          push: true
+          tags: |
+            ${{ steps.image_name.outputs.full_image }}
+            ${{ env.REGISTRY_TYPE == 'acr' && format('{0}.azurecr.io/{1}:latest', env.REGISTRY_NAME, matrix.app) || format('{0}/{1}:latest', env.REGISTRY_NAME, matrix.app) }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set Azure Subscription
+        run: |
+          az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          az account show
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Get Arc cluster credentials
+        run: |
+          echo "Connecting to Arc-enabled cluster..."
+          
+          # Install connectedk8s extension if not present
+          az extension add --name connectedk8s --upgrade
+          
+          # Verify cluster is connected
+          az connectedk8s show \
+            --name ${{ env.AZURE_CLUSTER_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }}
+          
+          # Get cluster credentials using proxy
+          echo "Starting Arc proxy connection..."
+          timeout 120 az connectedk8s proxy \
+            --name ${{ env.AZURE_CLUSTER_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} &
+          
+          PROXY_PID=$!
+          echo "Proxy PID: $PROXY_PID"
+          
+          # Wait for proxy to be ready (check kubeconfig)
+          echo "Waiting for proxy to be ready..."
+          for i in {1..30}; do
+            if kubectl cluster-info &>/dev/null; then
+              echo "Successfully connected to cluster"
+              break
+            fi
+            echo "Waiting for connection... ($i/30)"
+            sleep 2
+          done
+          
+          # Verify connection
+          kubectl cluster-info
+          kubectl get nodes
+
+      - name: Create deployment manifest
+        run: |
+          # Read deployment template
+          DEPLOYMENT_FILE="iotopps/${{ matrix.app }}/deployment.yaml"
+          
+          if [ ! -f "$DEPLOYMENT_FILE" ]; then
+            echo "Error: deployment.yaml not found for ${{ matrix.app }}"
+            exit 1
+          fi
+          
+          # Replace placeholders
+          sed "s|<YOUR_REGISTRY>|${{ env.REGISTRY_NAME }}|g" "$DEPLOYMENT_FILE" | \
+          sed "s|:latest|:${{ steps.set_tag.outputs.tag }}|g" > deployment-temp.yaml
+          
+          echo "Generated deployment manifest:"
+          cat deployment-temp.yaml
+
+      - name: Deploy to Kubernetes
+        run: |
+          kubectl apply -f deployment-temp.yaml
+          
+          # Wait for deployment to be ready
+          kubectl rollout status deployment/${{ matrix.app }} --timeout=5m
+          
+          echo "Deployment completed successfully"
+
+      - name: Get service information
+        id: service_info
+        run: |
+          SERVICE_NAME="${{ matrix.app }}-service"
+          
+          # Get service details
+          kubectl get service $SERVICE_NAME
+          
+          # Try to get node port
+          NODE_PORT=$(kubectl get service $SERVICE_NAME -o jsonpath='{.spec.ports[0].nodePort}' || echo "N/A")
+          echo "node_port=$NODE_PORT" >> $GITHUB_OUTPUT
+          
+          # Get node IP (if available)
+          NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' || echo "N/A")
+          echo "node_ip=$NODE_IP" >> $GITHUB_OUTPUT
+          
+          echo "Service exposed on port: $NODE_PORT"
+
+      - name: Verify deployment
+        run: |
+          echo "=== Deployment Status ==="
+          kubectl get deployment ${{ matrix.app }}
+          
+          echo -e "\n=== Pods ==="
+          kubectl get pods -l app=${{ matrix.app }}
+          
+          echo -e "\n=== Service ==="
+          kubectl get service ${{ matrix.app }}-service
+          
+          echo -e "\n=== Recent Events ==="
+          kubectl get events --sort-by='.lastTimestamp' | grep ${{ matrix.app }} | tail -10
+
+      - name: Cleanup proxy
+        if: always()
+        run: |
+          # Kill any proxy processes
+          pkill -f "connectedk8s proxy" || true
+
+      - name: Deployment Summary
+        if: success()
+        run: |
+          cat << EOF >> $GITHUB_STEP_SUMMARY
+          ## ✅ Deployment Successful
+          
+          **Application:** ${{ matrix.app }}  
+          **Image:** ${{ steps.image_name.outputs.full_image }}  
+          **Cluster:** ${{ env.AZURE_CLUSTER_NAME }}  
+          **Resource Group:** ${{ env.AZURE_RESOURCE_GROUP }}  
+          **Node Port:** ${{ steps.service_info.outputs.node_port }}
+          
+          ### Useful Commands
+          \`\`\`bash
+          # View pods
+          kubectl get pods -l app=${{ matrix.app }}
+          
+          # View logs
+          kubectl logs -l app=${{ matrix.app }}
+          
+          # View service
+          kubectl get service ${{ matrix.app }}-service
+          
+          # Describe deployment
+          kubectl describe deployment ${{ matrix.app }}
+          \`\`\`
+          EOF
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## 🚀 Deployment Status: ${{ matrix.app }}
+              
+              ✅ Successfully deployed to **${{ env.AZURE_CLUSTER_NAME }}**
+              
+              **Image:** \`${{ steps.image_name.outputs.full_image }}\`
+              **Node Port:** \`${{ steps.service_info.outputs.node_port }}\`
+              
+              [View workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`
+            })

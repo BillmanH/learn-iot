@@ -198,7 +198,7 @@ try {
 }
 
 # Step 2: Validate Prerequisites
-Write-Step "Validating prerequisites"
+Write-Step "Validating prerequisites"2
 
 # Check Docker
 $dockerAvailable = $false
