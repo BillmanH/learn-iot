@@ -13,7 +13,7 @@ A simple Flask "Hello World" REST API that demonstrates:
 - Health checks and monitoring
 
 **Quick Deploy:** `.\Deploy-ToIoTEdge.ps1 -AppFolder "hello-flask" -RegistryName "your-username"`
-
+  
 [📖 Read the docs →](./hello-flask/README.md)
 
 ## Deployment Scripts
@@ -71,6 +71,22 @@ Check deployment status and health of deployed applications.
 
 ## Deployment Workflows
 
+### Two-Machine Workflow (Docker on one machine, Kubernetes access on another)
+
+If you have Docker and Kubernetes access on separate machines:
+
+**On the machine with Docker:**
+1. Build and push your container image to Docker Hub or ACR (see "Build and Push Container Images Manually" section below)
+2. Note the full image name (e.g., `username/hello-flask:latest`)
+
+**On the machine with Kubernetes/Arc access:**
+1. Run the deployment script with `-SkipBuild` to deploy the pre-built image:
+   ```powershell
+   .\Deploy-ToIoTEdge.ps1 -AppFolder "hello-flask" -RegistryName "your-username" -SkipBuild
+   ```
+
+The script will detect if Docker is missing and provide instructions for manual image building.
+
 ### Remote Deployment (Windows → Edge Device)
 Deploy applications from your Windows development machine to remote IoT Operations clusters:
 
@@ -106,11 +122,16 @@ Monitor your deployed applications:
 ## Prerequisites
 
 ### For Remote Deployment
-- Docker Desktop (Windows/Mac)
+- **Docker Desktop (Windows/Mac)** - Optional if using two-machine workflow (see below)
 - Azure CLI (`az`)
 - kubectl
 - Access to container registry (Docker Hub or ACR)
 - Azure IoT Operations deployed and Arc-connected
+
+**Two-Machine Setup:**
+- Machine 1 (Build): Docker Desktop for building images
+- Machine 2 (Deploy): Azure CLI + kubectl for deployment (no Docker needed)
+- Both machines need access to the same container registry
 
 ### For Local Development
 - Python 3.8+ OR Docker OR uv
@@ -160,6 +181,51 @@ Each application can have its own config file (e.g., `hello_flask_config.json`) 
 - Development preferences (port, runtime mode)
 
 ## Common Commands
+
+### Build and Push Container Images Manually
+
+If you have Docker on a separate machine from your Kubernetes cluster access, you can build and push images manually:
+
+#### For Docker Hub:
+```bash
+# Navigate to your app folder
+cd iotopps/hello-flask
+
+# Build the image
+docker build -t hello-flask:latest .
+
+# Tag for your registry
+docker tag hello-flask:latest YOUR-DOCKERHUB-USERNAME/hello-flask:latest
+
+# Login to Docker Hub
+docker login
+
+# Push to Docker Hub
+docker push YOUR-DOCKERHUB-USERNAME/hello-flask:latest
+```
+
+#### For Azure Container Registry (ACR):
+```bash
+# Navigate to your app folder
+cd iotopps/hello-flask
+
+# Build the image
+docker build -t hello-flask:latest .
+
+# Tag for ACR
+docker tag hello-flask:latest YOUR-ACR-NAME.azurecr.io/hello-flask:latest
+
+# Login to ACR (requires Azure CLI)
+az acr login --name YOUR-ACR-NAME
+
+# Push to ACR
+docker push YOUR-ACR-NAME.azurecr.io/hello-flask:latest
+```
+
+After pushing the image, you can deploy it from a machine without Docker using:
+```powershell
+.\Deploy-ToIoTEdge.ps1 -AppFolder "hello-flask" -RegistryName "YOUR-USERNAME" -SkipBuild
+```
 
 ### Deploy an Application
 ```powershell

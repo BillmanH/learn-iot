@@ -201,16 +201,19 @@ try {
 Write-Step "Validating prerequisites"
 
 # Check Docker
+$dockerAvailable = $false
 try {
     $dockerVersion = docker --version 2>&1
     if ($LASTEXITCODE -eq 0) {
         Write-Success "docker is installed"
+        $dockerAvailable = $true
     } else {
         throw "Docker check failed"
     }
 } catch {
-    Write-Error-Custom "docker is not installed or not in PATH"
-    exit 1
+    Write-Warning-Custom "docker is not installed or not in PATH - will skip image build/push"
+    Write-Host "  You can build and push the image manually on a machine with Docker"
+    $dockerAvailable = $false
 }
 
 # Check kubectl
@@ -284,50 +287,91 @@ Write-Host "`nTarget Image: $fullImageName"
 
 # Step 4: Build and Push Docker Image (unless skipped)
 if (-not $SkipBuild) {
-    Write-Step "Building Docker image"
-    
-    # Change to app directory for build
-    Push-Location $appPath
-    try {
-        docker build -t "${imageName}:${ImageTag}" .
-        Write-Success "Docker image built"
-    } catch {
-        Write-Error-Custom "Docker build failed: $_"
-        exit 1
-    } finally {
-        Pop-Location
-    }
-
-    Write-Step "Tagging image"
-    docker tag "${imageName}:${ImageTag}" $fullImageName
-    Write-Success "Image tagged as $fullImageName"
-
-    Write-Step "Logging into container registry"
-    if ($RegistryType -eq 'acr') {
-        try {
-            az acr login --name $RegistryName
-            Write-Success "Logged into Azure Container Registry"
-        } catch {
-            Write-Error-Custom "ACR login failed: $_"
-            exit 1
+    if (-not $dockerAvailable) {
+        Write-Warning-Custom "Docker is not available. Skipping image build and push."
+        Write-Host ""
+        Write-Host "To build and push the image manually on a machine with Docker:"
+        Write-Host "  1. cd $appPath"
+        Write-Host "  2. docker build -t ${imageName}:${ImageTag} ."
+        Write-Host "  3. docker tag ${imageName}:${ImageTag} $fullImageName"
+        Write-Host "  4. docker login  # For Docker Hub, or 'az acr login --name $RegistryName' for ACR"
+        Write-Host "  5. docker push $fullImageName"
+        Write-Host ""
+        Write-Host "After pushing the image, you can re-run this script with -SkipBuild to continue deployment."
+        Write-Host ""
+        $continueWithoutDocker = Read-Host "Continue with deployment (assumes image already exists in registry)? (y/N)"
+        if ($continueWithoutDocker -ne 'y' -and $continueWithoutDocker -ne 'Y') {
+            Write-Host "Deployment cancelled."
+            exit 0
         }
     } else {
+        Write-Step "Building Docker image"
+        
+        # Change to app directory for build
+        Push-Location $appPath
         try {
-            docker login
-            Write-Success "Logged into Docker Hub"
+            docker build -t "${imageName}:${ImageTag}" .
+            Write-Success "Docker image built"
         } catch {
-            Write-Error-Custom "Docker Hub login failed: $_"
+            Write-Error-Custom "Docker build failed: $_"
+            exit 1
+        } finally {
+            Pop-Location
+        }
+
+        Write-Step "Tagging image"
+        docker tag "${imageName}:${ImageTag}" $fullImageName
+        Write-Success "Image tagged as $fullImageName"
+
+        Write-Step "Checking container registry authentication"
+        if ($RegistryType -eq 'acr') {
+            # Check if already logged into ACR
+            Write-Host "Checking ACR login status..."
+            $acrLoginCheck = az acr login --name $RegistryName --expose-token 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                Write-Success "Already authenticated with Azure Container Registry"
+            } else {
+                try {
+                    az acr login --name $RegistryName
+                    Write-Success "Logged into Azure Container Registry"
+                } catch {
+                    Write-Error-Custom "ACR login failed: $_"
+                    exit 1
+                }
+            }
+        } else {
+            # Check if already logged into Docker Hub
+            Write-Host "Checking Docker Hub login status..."
+            $dockerInfoOutput = docker info 2>&1 | Out-String
+            
+            # Check if we can access Docker Hub (look for username in docker info)
+            if ($dockerInfoOutput -match "Username:\s+\S+") {
+                Write-Success "Already authenticated with Docker Hub"
+            } else {
+                # Try a test authentication check
+                $loginTest = docker login --username $RegistryName --password-stdin <<< "" 2>&1
+                if ($loginTest -match "Login Succeeded") {
+                    Write-Success "Already authenticated with Docker Hub"
+                } else {
+                    try {
+                        docker login
+                        Write-Success "Logged into Docker Hub"
+                    } catch {
+                        Write-Error-Custom "Docker Hub login failed: $_"
+                        exit 1
+                    }
+                }
+            }
+        }
+
+        Write-Step "Pushing image to registry"
+        try {
+            docker push $fullImageName
+            Write-Success "Image pushed successfully"
+        } catch {
+            Write-Error-Custom "Docker push failed: $_"
             exit 1
         }
-    }
-
-    Write-Step "Pushing image to registry"
-    try {
-        docker push $fullImageName
-        Write-Success "Image pushed successfully"
-    } catch {
-        Write-Error-Custom "Docker push failed: $_"
-        exit 1
     }
 } else {
     Write-Warning-Custom "Skipping build and push (using existing image: $fullImageName)"

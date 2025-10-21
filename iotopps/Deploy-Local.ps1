@@ -233,6 +233,10 @@ function Start-DockerMode {
 
 function Get-PreferredMode {
     if ($Mode -ne 'auto') {
+        # If user explicitly requested docker but it's not available, error
+        if ($Mode -eq 'docker' -and -not (Test-CommandExists 'docker')) {
+            throw "Docker mode requested but docker is not installed or not in PATH"
+        }
         return $Mode
     }
     

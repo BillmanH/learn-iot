@@ -112,6 +112,8 @@ try {
     }
 } catch {
     Write-ColorOutput "[INFO] Docker not available (only needed for building/pushing images)" -Color White
+    Write-Host "  If you need to build images, install Docker on this machine"
+    Write-Host "  or use a machine with Docker and push to a container registry"
 }
 
 # Check cluster connectivity

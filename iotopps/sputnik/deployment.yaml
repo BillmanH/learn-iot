@@ -18,7 +18,7 @@ spec:
         image: <YOUR_REGISTRY>/sputnik:latest
         env:
         - name: MQTT_BROKER
-          value: "mqtt-broker-service"  # Update with your MQTT broker service name
+          value: "aio-broker"  # Azure IoT Operations MQTT broker
         - name: MQTT_PORT
           value: "1883"
         - name: MQTT_TOPIC
