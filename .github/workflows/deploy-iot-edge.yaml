@@ -134,11 +134,25 @@ jobs:
       - name: Build full image name
         id: image_name
         run: |
-          if [ "${{ env.REGISTRY_TYPE }}" == "acr" ]; then
-            FULL_IMAGE="${{ env.REGISTRY_NAME }}.azurecr.io/${{ matrix.app }}:${{ steps.set_tag.outputs.tag }}"
+          REG_TYPE="$REGISTRY_TYPE"
+          REG_NAME="$REGISTRY_NAME"
+          APP="${{ matrix.app }}"
+
+          # Demo: always use latest
+          if [ "$REG_TYPE" = "acr" ]; then
+            if [ -n "$REG_NAME" ]; then
+              FULL_IMAGE="$REG_NAME.azurecr.io/$APP:latest"
+            else
+              FULL_IMAGE="$APP:latest"
+            fi
           else
-            FULL_IMAGE="${{ env.REGISTRY_NAME }}/${{ matrix.app }}:${{ steps.set_tag.outputs.tag }}"
+            if [ -n "$REG_NAME" ]; then
+              FULL_IMAGE="$REG_NAME/$APP:latest"
+            else
+              FULL_IMAGE="$APP:latest"
+            fi
           fi
+
           echo "full_image=$FULL_IMAGE" >> $GITHUB_OUTPUT
           echo "Full image name: $FULL_IMAGE"
 
@@ -150,7 +164,6 @@ jobs:
           push: true
           tags: |
             ${{ steps.image_name.outputs.full_image }}
-            ${{ env.REGISTRY_TYPE == 'acr' && format('{0}.azurecr.io/{1}:latest', env.REGISTRY_NAME, matrix.app) || format('{0}/{1}:latest', env.REGISTRY_NAME, matrix.app) }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
