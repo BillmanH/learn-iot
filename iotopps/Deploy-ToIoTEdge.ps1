@@ -323,46 +323,22 @@ if (-not $SkipBuild) {
         docker tag "${imageName}:${ImageTag}" $fullImageName
         Write-Success "Image tagged as $fullImageName"
 
-        Write-Step "Checking container registry authentication"
+        Write-Step "Logging into container registry"
         if ($RegistryType -eq 'acr') {
-            # For ACR, always attempt login (it will use cached credentials if available)
-            Write-Host "Logging into Azure Container Registry..."
             try {
                 az acr login --name $RegistryName
-                Write-Success "Authenticated with Azure Container Registry"
+                Write-Success "Logged into Azure Container Registry"
             } catch {
                 Write-Error-Custom "ACR login failed: $_"
                 exit 1
             }
         } else {
-            # Check if already logged into Docker Hub
-            Write-Host "Checking Docker Hub login status..."
             try {
-                $dockerConfigPath = "$env:USERPROFILE\.docker\config.json"
-                if (Test-Path $dockerConfigPath) {
-                    $dockerConfig = Get-Content $dockerConfigPath -Raw | ConvertFrom-Json
-                    # Check if we have auth credentials stored
-                    if ($dockerConfig.auths -and ($dockerConfig.auths.PSObject.Properties.Name -contains "https://index.docker.io/v1/")) {
-                        Write-Success "Already authenticated with Docker Hub"
-                    } else {
-                        # Not logged in, prompt for login
-                        docker login
-                        Write-Success "Logged into Docker Hub"
-                    }
-                } else {
-                    # No config file, need to log in
-                    docker login
-                    Write-Success "Logged into Docker Hub"
-                }
+                docker login
+                Write-Success "Logged into Docker Hub"
             } catch {
-                Write-Warning-Custom "Could not check Docker login status. Attempting login..."
-                try {
-                    docker login
-                    Write-Success "Logged into Docker Hub"
-                } catch {
-                    Write-Error-Custom "Docker Hub login failed: $_"
-                    exit 1
-                }
+                Write-Error-Custom "Docker Hub login failed: $_"
+                exit 1
             }
         }
 
