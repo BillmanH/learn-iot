@@ -150,11 +150,13 @@ jobs:
               FULL_IMAGE="$APP:latest"
             fi
           else
+            # dockerhub: if REGISTRY_NAME is empty, fall back to secrets.DOCKER_USERNAME
             if [ -n "$REG_NAME" ]; then
-              FULL_IMAGE="$REG_NAME/$APP:latest"
+              NAMESPACE="$REG_NAME"
             else
-              FULL_IMAGE="$APP:latest"
+              NAMESPACE="${{ secrets.DOCKER_USERNAME }}"
             fi
+            FULL_IMAGE="$NAMESPACE/$APP:latest"
           fi
 
           echo "full_image=$FULL_IMAGE" >> $GITHUB_OUTPUT
