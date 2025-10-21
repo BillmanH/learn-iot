@@ -107,11 +107,8 @@ jobs:
       - name: Set image tag
         id: set_tag
         run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ inputs.image_tag }}" ]; then
-            TAG="${{ inputs.image_tag }}"
-          else
-            TAG="${{ github.sha }}"
-          fi
+          # Demo environment: always use 'latest' as the image tag
+          TAG="latest"
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "Image tag: $TAG"
 
