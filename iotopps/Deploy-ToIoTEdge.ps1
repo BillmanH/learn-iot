@@ -325,34 +325,37 @@ if (-not $SkipBuild) {
 
         Write-Step "Checking container registry authentication"
         if ($RegistryType -eq 'acr') {
-            # Check if already logged into ACR by trying to get token
-            Write-Host "Checking ACR login status..."
-            $acrLoginCheck = az acr login --name $RegistryName --expose-token 2>&1 | Out-String
-            if ($LASTEXITCODE -eq 0) {
-                Write-Success "Already authenticated with Azure Container Registry"
-            } else {
-                try {
-                    az acr login --name $RegistryName
-                    Write-Success "Logged into Azure Container Registry"
-                } catch {
-                    Write-Error-Custom "ACR login failed: $_"
-                    exit 1
-                }
+            # For ACR, always attempt login (it will use cached credentials if available)
+            Write-Host "Logging into Azure Container Registry..."
+            try {
+                az acr login --name $RegistryName
+                Write-Success "Authenticated with Azure Container Registry"
+            } catch {
+                Write-Error-Custom "ACR login failed: $_"
+                exit 1
             }
         } else {
             # Check if already logged into Docker Hub
             Write-Host "Checking Docker Hub login status..."
-            $dockerInfoOutput = docker info 2>&1 | Out-String
-            
-            # Check if we're authenticated (look for username in docker info)
-            $isLoggedIn = $false
-            if ($dockerInfoOutput -match "Username:\s+(\S+)") {
-                $currentUser = $matches[1]
-                Write-Success "Already authenticated with Docker Hub as '$currentUser'"
-                $isLoggedIn = $true
-            }
-            
-            if (-not $isLoggedIn) {
+            try {
+                $dockerConfigPath = "$env:USERPROFILE\.docker\config.json"
+                if (Test-Path $dockerConfigPath) {
+                    $dockerConfig = Get-Content $dockerConfigPath -Raw | ConvertFrom-Json
+                    # Check if we have auth credentials stored
+                    if ($dockerConfig.auths -and ($dockerConfig.auths.PSObject.Properties.Name -contains "https://index.docker.io/v1/")) {
+                        Write-Success "Already authenticated with Docker Hub"
+                    } else {
+                        # Not logged in, prompt for login
+                        docker login
+                        Write-Success "Logged into Docker Hub"
+                    }
+                } else {
+                    # No config file, need to log in
+                    docker login
+                    Write-Success "Logged into Docker Hub"
+                }
+            } catch {
+                Write-Warning-Custom "Could not check Docker login status. Attempting login..."
                 try {
                     docker login
                     Write-Success "Logged into Docker Hub"
