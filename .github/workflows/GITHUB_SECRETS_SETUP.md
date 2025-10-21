@@ -21,11 +21,15 @@ Only add the registry secrets for the provider you use (ACR vs Docker Hub). The 
 
 Create an Azure service principal with appropriate rights and store the JSON in `AZURE_CREDENTIALS`. Example (CLI):
 
-```bash
-az ad sp create-for-rbac --name "github-actions-iot-edge" \
-  --role contributor \
-  --scopes /subscriptions/{subscription-id}/resourceGroups/{resource-group-name} \
-  --sdk-auth
+```powershell
+$sp = az ad sp create-for-rbac --name "github-actions-iot-edge" `
+  --role Contributor `
+  --scopes "/subscriptions/{subscription-id}/resourceGroups/{resource-group-name}" `
+  --sdk-auth | ConvertFrom-Json
+
+# Save the JSON output of $sp as the AZURE_CREDENTIALS secret
+# For example: $sp | ConvertTo-Json -Depth 10 | Out-File -Encoding UTF8 azure_credentials.json
+# Then copy the file contents into the GitHub secret value for AZURE_CREDENTIALS
 ```
 
 Save the entire JSON output as the `AZURE_CREDENTIALS` secret. The workflow also supports using `AZURE_SUBSCRIPTION_ID` when `AZURE_CREDENTIALS` is not provided, but `AZURE_CREDENTIALS` is the recommended approach.
@@ -40,6 +44,28 @@ Example output (truncated):
   "tenantId": "<GUID>"
 }
 ```
+
+### Assign the role on the Arc-connected cluster resource
+The service principal must also have permissions on the Arc-connected cluster resource so kubectl (via the connectedk8s proxy) can access Kubernetes resources.
+
+Run these steps after creating the service principal (replace placeholders):
+
+```powershell
+# Get the connected cluster resource id
+$clusterId = az resource show `
+  --resource-group "{resource-group-name}" `
+  --resource-type "Microsoft.Kubernetes/connectedClusters" `
+  --name "{cluster-name}" `
+  --query id -o tsv
+
+# Assign the Contributor role to the SP (uses clientId from $sp created above)
+az role assignment create `
+  --assignee $sp.clientId `
+  --role "Contributor" `
+  --scope $clusterId
+```
+
+This gives the service principal rights on the connected cluster resource. For Kubernetes RBAC-level permissions, apply the corresponding ClusterRoleBinding on the cluster (see troubleshooting section).
 
 ## Repository Variables
 
