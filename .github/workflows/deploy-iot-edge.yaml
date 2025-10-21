@@ -264,10 +264,10 @@ jobs:
 
       - name: Deploy to Kubernetes
         run: |
-          kubectl apply -f deployment-temp.yaml
+          kubectl apply -f deployment-temp.yaml -n default
           
           # Wait for deployment to be ready
-          kubectl rollout status deployment/${{ matrix.app }} --timeout=5m
+          kubectl rollout status deployment/${{ matrix.app }} --namespace default --timeout=5m
           
           echo "Deployment completed successfully"
 
@@ -277,10 +277,10 @@ jobs:
           SERVICE_NAME="${{ matrix.app }}-service"
           
           # Get service details
-          kubectl get service $SERVICE_NAME
+          kubectl get service $SERVICE_NAME -n default
           
           # Try to get node port
-          NODE_PORT=$(kubectl get service $SERVICE_NAME -o jsonpath='{.spec.ports[0].nodePort}' || echo "N/A")
+          NODE_PORT=$(kubectl get service $SERVICE_NAME -n default -o jsonpath='{.spec.ports[0].nodePort}' || echo "N/A")
           echo "node_port=$NODE_PORT" >> $GITHUB_OUTPUT
           
           # Get node IP (if available)
@@ -292,16 +292,16 @@ jobs:
       - name: Verify deployment
         run: |
           echo "=== Deployment Status ==="
-          kubectl get deployment ${{ matrix.app }}
+          kubectl get deployment ${{ matrix.app }} -n default
           
           echo -e "\n=== Pods ==="
-          kubectl get pods -l app=${{ matrix.app }}
+          kubectl get pods -l app=${{ matrix.app }} -n default
           
           echo -e "\n=== Service ==="
-          kubectl get service ${{ matrix.app }}-service
+          kubectl get service ${{ matrix.app }}-service -n default
           
           echo -e "\n=== Recent Events ==="
-          kubectl get events --sort-by='.lastTimestamp' | grep ${{ matrix.app }} | tail -10
+          kubectl get events -n default --sort-by='.lastTimestamp' | grep ${{ matrix.app }} | tail -10
 
       - name: Cleanup proxy
         if: always()
@@ -324,16 +324,16 @@ jobs:
           ### Useful Commands
           \`\`\`bash
           # View pods
-          kubectl get pods -l app=${{ matrix.app }}
+          kubectl get pods -l app=${{ matrix.app }} -n default
           
           # View logs
-          kubectl logs -l app=${{ matrix.app }}
+          kubectl logs -l app=${{ matrix.app }} -n default
           
           # View service
-          kubectl get service ${{ matrix.app }}-service
+          kubectl get service ${{ matrix.app }}-service -n default
           
           # Describe deployment
-          kubectl describe deployment ${{ matrix.app }}
+          kubectl describe deployment ${{ matrix.app }} -n default
           \`\`\`
           EOF
 
