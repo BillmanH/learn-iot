@@ -136,7 +136,11 @@ jobs:
         run: |
           REG_TYPE="$REGISTRY_TYPE"
           REG_NAME="$REGISTRY_NAME"
-          APP="${{ matrix.app }}"
+          APP_RAW="${{ matrix.app }}"
+          # Trim whitespace and newlines from app name
+          APP=$(printf '%s' "$APP_RAW" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+          echo "App raw: [$APP_RAW]"
+          echo "App trimmed: [$APP]"
 
           # Demo: always use latest
           if [ "$REG_TYPE" = "acr" ]; then

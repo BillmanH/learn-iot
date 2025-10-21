@@ -89,17 +89,6 @@ Type of container registry: `dockerhub` or `acr`
 - For Docker Hub: Your Docker Hub username
 - For ACR: Your ACR name (without `.azurecr.io`)
 
-### Optional Variables
-
-#### `IMAGE_TAG_PREFIX`
-Prefix for image tags (default: `v`)
-
-Example: `v` will create tags like `v1.0.0`
-
-#### `EDGE_DEVICE_IP`
-IP address of edge device (if deploying directly without Arc)
-
-Example: `192.168.1.100`
 
 ## Environments (Recommended)
 
