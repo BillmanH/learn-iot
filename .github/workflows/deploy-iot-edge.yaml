@@ -230,20 +230,53 @@ jobs:
           PROXY_PID=$!
           echo "Proxy PID: $PROXY_PID"
           
-          # Wait for proxy to be ready (check kubeconfig)
+          # Wait for proxy to be ready: check proxy process, listening port, and lightweight kubectl server check
           echo "Waiting for proxy to be ready..."
+          # give proxy a moment to start
+          sleep 1
+          PROXY_OK=0
           for i in {1..30}; do
-            if kubectl cluster-info &>/dev/null; then
-              echo "Successfully connected to cluster"
-              break
+            # ensure proxy process still exists
+            if ! kill -0 "$PROXY_PID" 2>/dev/null; then
+              echo "Proxy process $PROXY_PID is not running"
+              exit 1
             fi
+
+            # check if local proxy port 8001 is listening (ss is available on ubuntu runners)
+            if ss -ltnp 2>/dev/null | grep -E '(:|\b)8001\b' >/dev/null; then
+              echo "Proxy port 8001 is listening"
+
+              # lightweight kubectl check that usually works with minimal permissions
+              if kubectl version --short --request-timeout='5s' 2>&1 | grep -q 'Server Version'; then
+                echo "Successfully connected to API server (kubectl can reach server)"
+                PROXY_OK=1
+                break
+              else
+                # capture last kubectl error for diagnostics
+                KUBECTL_ERR=$(kubectl version --short --request-timeout='5s' 2>&1 || true)
+                echo "kubectl version output:"
+                echo "$KUBECTL_ERR"
+                # If Forbidden appears, show a helpful hint for RBAC
+                if echo "$KUBECTL_ERR" | grep -qi forbidden; then
+                  echo "Detected RBAC Forbidden when contacting the API server."
+                  echo "Your identity may lack permission to query cluster resources."
+                  echo "To allow basic diagnostics, a cluster admin can run:" 
+                  echo "kubectl create clusterrolebinding gha-actions-view --clusterrole=view --user=<YOUR_SP_CLIENT_ID>"
+                  # don't break here; maybe server becomes reachable for other reasons
+                fi
+              fi
+            fi
+
             echo "Waiting for connection... ($i/30)"
             sleep 2
           done
-          
-          # Verify connection
-          kubectl cluster-info
-          kubectl get nodes
+
+          if [ "$PROXY_OK" -ne 1 ]; then
+            echo "Proxy didn't become ready within the timeout. Running final diagnostic:"
+            kubectl cluster-info || true
+            kubectl get nodes || true
+            exit 1
+          fi
 
       - name: Create deployment manifest
         run: |
