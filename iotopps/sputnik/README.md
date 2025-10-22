@@ -23,7 +23,7 @@ Sputnik continuously publishes JSON messages to an MQTT topic with the following
 - Docker registry access (Docker Hub or Azure Container Registry)
 - Kubernetes cluster with kubectl configured
 
-### Local Development
+### Local Development.
 
 To test locally before deploying:
 

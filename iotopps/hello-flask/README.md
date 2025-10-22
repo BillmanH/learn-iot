@@ -45,7 +45,7 @@ All deployment scripts read configuration from `hello_flask_config.json`. To get
 
 See the [Configuration Guide](#configuration-reference) below for all available options.
 
-## 🏠 Local Development
+## 🏠 Local Development.
 
 For local development and testing before deployment:
 
