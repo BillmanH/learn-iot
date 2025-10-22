@@ -317,15 +317,24 @@ jobs:
           cat deployment-temp.yaml
 
       - name: Deploy to Kubernetes
+        shell: bash
         run: |
-          # Apply the deployment
-          kubectl apply -f deployment-temp.yaml -n default
+          # Set variables
+          NAMESPACE="default"
+          APP="${{ matrix.app }}"
           
-          # Wait for rollout to complete (all on one line)
-          kubectl rollout status deployment/${{ matrix.app }} -n default --timeout=5m
+          # Apply deployment
+          kubectl apply -f deployment-temp.yaml --namespace="$NAMESPACE"
           
-          # Print success message
-          echo "Deployment completed successfully"
+          # Check deployment status
+          kubectl rollout status "deployment/$APP" --namespace="$NAMESPACE" --timeout=300s
+          
+          if [ $? -eq 0 ]; then
+            echo "Deployment completed successfully"
+          else
+            echo "Deployment failed"
+            exit 1
+          fi
 
       - name: Get service information
         id: service_info
