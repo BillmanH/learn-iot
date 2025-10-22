@@ -243,13 +243,13 @@ jobs:
             fi
 
               # lightweight kubectl check that usually works with minimal permissions
-              if kubectl version --short --request-timeout='5s' 2>&1 | grep -q 'Server Version'; then
+              if kubectl version --output=json --request-timeout='5s' 2>&1 | grep -q 'serverVersion'; then
                 echo "Successfully connected to API server (kubectl can reach server)"
                 PROXY_OK=1
                 break
               else
                 # capture last kubectl error for diagnostics
-                KUBECTL_ERR=$(kubectl version --short --request-timeout='5s' 2>&1 || true)
+                KUBECTL_ERR=$(kubectl version --output=json --request-timeout='5s' 2>&1 || true)
                 echo "kubectl version output:"
                 echo "$KUBECTL_ERR"
                 # If Forbidden appears, show a helpful hint for RBAC
