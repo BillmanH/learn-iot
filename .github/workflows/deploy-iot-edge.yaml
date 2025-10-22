@@ -275,11 +275,18 @@ jobs:
 
       - name: Create deployment manifest
         run: |
-          # Read deployment template
-          DEPLOYMENT_FILE="iotopps/${{ matrix.app }}/deployment.yaml"
+          # Construct deployment file path carefully
+          APP_NAME=$(echo "${{ matrix.app }}" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+          DEPLOYMENT_FILE="iotopps/${APP_NAME}/deployment.yaml"
+          
+          echo "Looking for deployment file at: ${DEPLOYMENT_FILE}"
           
           if [ ! -f "$DEPLOYMENT_FILE" ]; then
-            echo "Error: deployment.yaml not found for ${{ matrix.app }}"
+            echo "Error: deployment.yaml not found at ${DEPLOYMENT_FILE}"
+            echo "Current directory contents:"
+            ls -la iotopps/
+            echo "Application directory contents:"
+            ls -la "iotopps/${APP_NAME}/" || true
             exit 1
           fi
           
