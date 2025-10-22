@@ -26,7 +26,7 @@ Sputnik continuously publishes JSON messages to an MQTT topic with the following
 ### Local Development
 
 To test locally before deploying:
-.
+
 **Windows:**
 ```cmd
 run-local.bat
