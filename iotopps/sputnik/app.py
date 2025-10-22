@@ -9,7 +9,7 @@ MQTT_BROKER = os.environ.get('MQTT_BROKER', 'localhost')
 MQTT_PORT = int(os.environ.get('MQTT_PORT', '1883'))
 MQTT_TOPIC = os.environ.get('MQTT_TOPIC', 'sputnik/beep')
 MQTT_CLIENT_ID = os.environ.get('MQTT_CLIENT_ID', 'sputnik')
-INTERVAL = int(os.environ.get('BEEP_INTERVAL', '6'))  # seconds between beeps
+INTERVAL = int(os.environ.get('BEEP_INTERVAL', '5'))  # seconds between beeps
 
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
