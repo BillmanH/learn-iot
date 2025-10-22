@@ -290,8 +290,27 @@ jobs:
             exit 1
           fi
           
+          # Build registry prefix based on registry type
+          if [ "$REGISTRY_TYPE" = "acr" ]; then
+            if [ -n "$REGISTRY_NAME" ]; then
+              REGISTRY_PREFIX="$REGISTRY_NAME.azurecr.io"
+            else
+              echo "Error: REGISTRY_NAME is required for ACR"
+              exit 1
+            fi
+          else
+            # Docker Hub
+            if [ -n "$REGISTRY_NAME" ]; then
+              REGISTRY_PREFIX="$REGISTRY_NAME"
+            else
+              REGISTRY_PREFIX="${{ secrets.DOCKER_USERNAME }}"
+            fi
+          fi
+
+          echo "Using registry prefix: $REGISTRY_PREFIX"
+
           # Replace placeholders
-          sed "s|<YOUR_REGISTRY>|${{ env.REGISTRY_NAME }}|g" "$DEPLOYMENT_FILE" | \
+          sed "s|<YOUR_REGISTRY>|$REGISTRY_PREFIX|g" "$DEPLOYMENT_FILE" | \
           sed "s|:latest|:${{ steps.set_tag.outputs.tag }}|g" > deployment-temp.yaml
           
           echo "Generated deployment manifest:"
