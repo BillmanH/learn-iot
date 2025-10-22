@@ -242,10 +242,6 @@ jobs:
               exit 1
             fi
 
-            # check if local proxy port 8001 is listening (ss is available on ubuntu runners)
-            if ss -ltnp 2>/dev/null | grep -E '(:|\b)8001\b' >/dev/null; then
-              echo "Proxy port 8001 is listening"
-
               # lightweight kubectl check that usually works with minimal permissions
               if kubectl version --short --request-timeout='5s' 2>&1 | grep -q 'Server Version'; then
                 echo "Successfully connected to API server (kubectl can reach server)"
@@ -265,7 +261,6 @@ jobs:
                   # don't break here; maybe server becomes reachable for other reasons
                 fi
               fi
-            fi
 
             echo "Waiting for connection... ($i/30)"
             sleep 2
