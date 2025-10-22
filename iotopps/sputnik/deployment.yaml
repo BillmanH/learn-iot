@@ -18,9 +18,9 @@ spec:
         image: <YOUR_REGISTRY>/sputnik:latest
         env:
         - name: MQTT_BROKER
-          value: "aio-mq-dmqtt-frontend.azure-iot-operations.svc.cluster.local"  # Azure IoT Operations MQTT broker
+          value: "aio-broker.azure-iot-operations"  # Azure IoT Operations MQTT broker
         - name: MQTT_PORT
-          value: "1883"
+          value: "18883"  # MQTTS port for Azure IoT Operations broker
         - name: MQTT_TOPIC
           value: "sputnik/beep"
         - name: BEEP_INTERVAL
