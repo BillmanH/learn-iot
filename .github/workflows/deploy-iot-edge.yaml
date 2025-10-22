@@ -319,20 +319,29 @@ jobs:
       - name: Deploy to Kubernetes
         shell: bash
         run: |
-          # Set variables
+          # Set variables with explicit line ending removal
           NAMESPACE="default"
-          APP="${{ matrix.app }}"
+          APP=$(echo "${{ matrix.app }}" | tr -d '\n\r')
+          
+          echo "Deploying app: [$APP] to namespace: [$NAMESPACE]"
           
           # Apply deployment
           kubectl apply -f deployment-temp.yaml --namespace="$NAMESPACE"
+          if [ $? -ne 0 ]; then
+            echo "Failed to apply deployment"
+            exit 1
+          fi
           
-          # Check deployment status
-          kubectl rollout status "deployment/$APP" --namespace="$NAMESPACE" --timeout=300s
+          # Check deployment status (ensure no line endings in command)
+          DEPLOY_CMD="kubectl rollout status deployment/${APP} --namespace=${NAMESPACE} --timeout=300s"
+          echo "Running: $DEPLOY_CMD"
+          $DEPLOY_CMD
           
           if [ $? -eq 0 ]; then
             echo "Deployment completed successfully"
           else
             echo "Deployment failed"
+            kubectl describe deployment/"${APP}" --namespace="${NAMESPACE}"
             exit 1
           fi
 
