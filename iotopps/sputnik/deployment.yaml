@@ -17,8 +17,11 @@ spec:
       - name: sputnik
         image: <YOUR_REGISTRY>/sputnik:latest
         env:
+        # IMPORTANT: When accessing services across namespaces in Kubernetes,
+        # always use the fully qualified domain name (FQDN):
+        # format: service-name.namespace.svc.cluster.local
         - name: MQTT_BROKER
-          value: "aio-broker"  # Azure IoT Operations MQTT broker
+          value: "aio-broker.azure-iot-operations.svc.cluster.local"  # Azure IoT Operations MQTT broker in azure-iot-operations namespace
         - name: MQTT_PORT
           value: "18883"  # MQTTS port for Azure IoT Operations broker
         - name: MQTT_TOPIC
