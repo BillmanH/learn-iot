@@ -18,13 +18,15 @@ spec:
         image: <YOUR_REGISTRY>/sputnik:latest
         env:
         - name: MQTT_BROKER
-          value: "aio-broker.azure-iot-operations"  # Azure IoT Operations MQTT broker
+          value: "aio-broker"  # Azure IoT Operations MQTT broker
         - name: MQTT_PORT
           value: "18883"  # MQTTS port for Azure IoT Operations broker
         - name: MQTT_TOPIC
           value: "sputnik/beep"
         - name: BEEP_INTERVAL
           value: "5"  # Send beep every 5 seconds
+        - name: PYTHONUNBUFFERED
+          value: "1"
         resources:
           requests:
             memory: "128Mi"
@@ -40,6 +42,3 @@ spec:
             - "import os; exit(0 if os.path.exists('/proc/1') else 1)"
           initialDelaySeconds: 10
           periodSeconds: 30
-        env:
-        - name: PYTHONUNBUFFERED
-          value: "1"
