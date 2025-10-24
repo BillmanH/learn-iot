@@ -30,15 +30,18 @@ def on_publish(client, userdata, mid):
     print(f"Message published (mid: {mid})")
 
 def main():
-    # Create MQTT client
-    client = mqtt.Client(client_id=MQTT_CLIENT_ID)
+    # Create MQTT client with a shorter keepalive
+    client = mqtt.Client(client_id=MQTT_CLIENT_ID, clean_session=True)
     client.on_connect = on_connect
     client.on_publish = on_publish
-
-    # Connect to broker
+    
+    # Set reconnect parameters
+    client.reconnect_delay_set(min_delay=1, max_delay=30)
+    
+    # Connect to broker with shorter keepalive
     print(f"Connecting to MQTT broker {MQTT_BROKER}:{MQTT_PORT}...")
     try:
-        client.connect(MQTT_BROKER, MQTT_PORT, 60)
+        client.connect(MQTT_BROKER, MQTT_PORT, keepalive=15)
         client.loop_start()
     except Exception as e:
         print(f"Error connecting to MQTT broker: {e}")

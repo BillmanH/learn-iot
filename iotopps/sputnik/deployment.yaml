@@ -27,15 +27,19 @@ spec:
           value: "5"  # Send beep every 5 seconds
         resources:
           requests:
-            memory: "32Mi"
-            cpu: "50m"
-          limits:
-            memory: "64Mi"
+            memory: "128Mi"
             cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
         livenessProbe:
           exec:
             command:
-            - pgrep
-            - python
+            - python3
+            - -c
+            - "import os; exit(0 if os.path.exists('/proc/1') else 1)"
           initialDelaySeconds: 10
           periodSeconds: 30
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
