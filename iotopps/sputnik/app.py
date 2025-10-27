@@ -84,11 +84,13 @@ def process_message_queue(client):
 def main():
     # Create MQTT client with a unique ID and persistent session
     client = mqtt.Client(client_id=MQTT_CLIENT_ID,
-                        protocol=mqtt.MQTTv5)  # Azure IoT Operations supports MQTT v5
+                        protocol=mqtt.MQTTv5,
+                        transport="tcp")  # Azure IoT Operations supports MQTT v5
     
-    # Set MQTT v5 properties
-    client._connect_properties = mqtt.Properties(mqtt.PacketTypes.CONNECT)
-    client._disconnect_properties = mqtt.Properties(mqtt.PacketTypes.DISCONNECT)
+    # For MQTT v5, we need to configure specific properties
+    properties = mqtt.Properties()
+    properties.SessionExpiryInterval = 0  # Clean session behavior
+    client._connect_properties = properties
     
     # For demo/development only: Allow insecure TLS
     client.tls_set(cert_reqs=ssl.CERT_NONE, tls_version=ssl.PROTOCOL_TLS)
