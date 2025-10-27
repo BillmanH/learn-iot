@@ -18,8 +18,8 @@ INTERVAL = int(os.environ.get('BEEP_INTERVAL', '6'))
 is_connected = threading.Event()
 message_queue = queue.Queue(maxsize=100)  # Buffer up to 100 messages
 
-def on_connect(client, userdata, flags, rc):
-    """Called when the client connects to the broker."""
+def on_connect(client, userdata, flags, rc, properties=None):
+    """Called when the client connects to the broker. MQTT v5 includes properties parameter."""
     connection_codes = {
         0: "Connected successfully",
         1: "Incorrect protocol version",
