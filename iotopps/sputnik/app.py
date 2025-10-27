@@ -88,7 +88,8 @@ def main():
                         transport="tcp")  # Azure IoT Operations supports MQTT v5
     
     # For MQTT v5, we need to configure specific properties
-    properties = mqtt.Properties()
+    # CONNECT packet type is 1 in MQTT protocol
+    properties = mqtt.Properties(packetType=1)  # 1 = CONNECT packet
     properties.SessionExpiryInterval = 0  # Clean session behavior
     client._connect_properties = properties
     
