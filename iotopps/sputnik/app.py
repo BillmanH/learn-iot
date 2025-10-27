@@ -18,8 +18,14 @@ INTERVAL = int(os.environ.get('BEEP_INTERVAL', '6'))
 is_connected = threading.Event()
 message_queue = queue.Queue(maxsize=100)  # Buffer up to 100 messages
 
-def on_connect(client, userdata, flags, rc, properties=None):
+def on_connect(client, userdata, flags, reason_code, properties=None):
     """Called when the client connects to the broker. MQTT v5 includes properties parameter."""
+    # For MQTT v5, reason_code is a ReasonCodes object
+    if hasattr(reason_code, 'value'):
+        rc = reason_code.value  # Extract the numeric value from ReasonCodes
+    else:
+        rc = reason_code  # Fall back to numeric value for MQTT v3
+
     connection_codes = {
         0: "Connected successfully",
         1: "Incorrect protocol version",
@@ -28,6 +34,7 @@ def on_connect(client, userdata, flags, rc, properties=None):
         4: "Bad username or password",
         5: "Not authorized"
     }
+    
     if rc == 0:
         print(f"Connected to MQTT broker at {MQTT_BROKER}:{MQTT_PORT}")
         is_connected.set()
