@@ -127,23 +127,17 @@ def main():
                         protocol=mqtt.MQTTv5,
                         transport="tcp")  # Azure IoT Operations supports MQTT v5
     
-    # Configure TLS for Azure IoT Operations MQTT broker
-    context = ssl.create_default_context()
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE
-    print("Setting up TLS connection...")
-    client.tls_set_context(context)
-    
     # For MQTT v5, we need to configure specific properties
     properties = mqtt.Properties(packetType=1)  # 1 = CONNECT packet
     properties.SessionExpiryInterval = 0  # Clean session behavior
     client._connect_properties = properties
     
-    print("MQTT client configuration complete")
-    
-    # For demo/development only: Allow insecure TLS
+    # Configure TLS for Azure IoT Operations MQTT broker
+    print("Setting up TLS connection...")
     client.tls_set(cert_reqs=ssl.CERT_NONE, tls_version=ssl.PROTOCOL_TLS)
-    client.tls_insecure_set(True)
+    client.tls_insecure_set(True)  # For testing only - don't verify hostname
+    
+    print("MQTT client configuration complete")
     
     # Set callbacks
     client.on_connect = on_connect
