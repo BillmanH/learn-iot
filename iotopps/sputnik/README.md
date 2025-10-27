@@ -17,7 +17,7 @@ Sputnik continuously publishes JSON messages to an MQTT topic with the following
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### Prerequisites.
 
 - An MQTT broker running in your Kubernetes cluster
 - Docker registry access (Docker Hub or Azure Container Registry)
