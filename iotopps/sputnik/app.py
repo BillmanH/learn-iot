@@ -43,16 +43,23 @@ def on_connect(client, userdata, flags, reason_code, properties=None):
         print(f"Failed to connect: {error_message}")
         is_connected.clear()
 
-def on_disconnect(client, userdata, rc):
-    """Called when the client disconnects from the broker."""
+def on_disconnect(client, userdata, reason_code, properties=None):
+    """Called when the client disconnects from the broker. MQTT v5 includes properties parameter."""
     is_connected.clear()
+    
+    # Handle MQTT v5 ReasonCodes object
+    if hasattr(reason_code, 'value'):
+        rc = reason_code.value
+    else:
+        rc = reason_code
+        
     if rc != 0:
         print(f"Unexpected disconnection. Code: {rc}")
     else:
         print("Disconnected successfully")
 
-def on_publish(client, userdata, mid):
-    """Called when a message has been published to the broker."""
+def on_publish(client, userdata, mid, properties=None):
+    """Called when a message has been published to the broker. MQTT v5 includes properties parameter."""
     print(f"Message published (mid: {mid})")
 
 def publish_message(client, topic, message, qos=1, retain=False):
