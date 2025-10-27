@@ -32,15 +32,40 @@ def on_connect(client, userdata, flags, reason_code, properties=None):
         2: "Invalid client identifier",
         3: "Server unavailable",
         4: "Bad username or password",
-        5: "Not authorized"
+        5: "Not authorized",
+        128: "Unspecified error",
+        129: "Malformed packet",
+        130: "Protocol error",
+        131: "Implementation specific error",
+        132: "Unsupported protocol version",
+        133: "Client identifier not valid",
+        134: "Bad username or password",
+        135: "Not authorized",
+        136: "Server unavailable",
+        137: "Server busy",
+        138: "Banned",
+        140: "Bad authentication method",
+        144: "Topic name invalid",
+        149: "Packet too large",
+        151: "Quota exceeded",
+        153: "Payload format invalid",
+        155: "Retain not supported",
+        156: "QoS not supported",
+        157: "Use another server",
+        158: "Server moved",
+        159: "Connection rate exceeded"
     }
     
     if rc == 0:
-        print(f"Connected to MQTT broker at {MQTT_BROKER}:{MQTT_PORT}")
+        print(f"Connected successfully to MQTT broker at {MQTT_BROKER}:{MQTT_PORT}")
+        if properties:
+            print(f"Connection properties: {properties}")
         is_connected.set()
     else:
         error_message = connection_codes.get(rc, f"Unknown error (code: {rc})")
         print(f"Failed to connect: {error_message}")
+        if properties:
+            print(f"Error properties: {properties}")
         is_connected.clear()
 
 def on_disconnect(client, userdata, reason_code, properties=None):
@@ -101,11 +126,22 @@ def main():
                         protocol=mqtt.MQTTv5,
                         transport="tcp")  # Azure IoT Operations supports MQTT v5
     
+    # Configure TLS for Azure IoT Operations MQTT broker
+    print("Configuring TLS settings...")
+    client.tls_set(
+        cert_reqs=ssl.CERT_NONE,  # Don't verify server certificate for testing
+        tls_version=ssl.PROTOCOL_TLSv1_2,  # Use TLS 1.2
+        ciphers=None  # Use default cipher suite
+    )
+    client.tls_insecure_set(True)  # For testing only - don't verify hostname
+    
     # For MQTT v5, we need to configure specific properties
-    # CONNECT packet type is 1 in MQTT protocol
     properties = mqtt.Properties(packetType=1)  # 1 = CONNECT packet
     properties.SessionExpiryInterval = 0  # Clean session behavior
     client._connect_properties = properties
+    
+    # Configure authentication if needed
+    # client.username_pw_set("your_username", "your_password")
     
     # For demo/development only: Allow insecure TLS
     client.tls_set(cert_reqs=ssl.CERT_NONE, tls_version=ssl.PROTOCOL_TLS)
