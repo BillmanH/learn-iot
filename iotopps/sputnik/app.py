@@ -87,8 +87,8 @@ def main():
                         protocol=mqtt.MQTTv5)  # Azure IoT Operations supports MQTT v5
     
     # Set MQTT v5 properties
-    client.set_connect_properties(mqtt.Properties(mqtt.PacketTypes.CONNECT))
-    client.set_disconnect_properties(mqtt.Properties(mqtt.PacketTypes.DISCONNECT))
+    client._connect_properties = mqtt.Properties(mqtt.PacketTypes.CONNECT)
+    client._disconnect_properties = mqtt.Properties(mqtt.PacketTypes.DISCONNECT)
     
     # For demo/development only: Allow insecure TLS
     client.tls_set(cert_reqs=ssl.CERT_NONE, tls_version=ssl.PROTOCOL_TLS)
