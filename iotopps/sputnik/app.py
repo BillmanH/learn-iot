@@ -121,27 +121,25 @@ def process_message_queue(client):
             time.sleep(1)  # Wait before retrying
 
 def main():
+    print("Initializing MQTT client...")
     # Create MQTT client with a unique ID and persistent session
     client = mqtt.Client(client_id=MQTT_CLIENT_ID,
                         protocol=mqtt.MQTTv5,
                         transport="tcp")  # Azure IoT Operations supports MQTT v5
     
     # Configure TLS for Azure IoT Operations MQTT broker
-    print("Configuring TLS settings...")
-    client.tls_set(
-        cert_reqs=ssl.CERT_NONE,  # Don't verify server certificate for testing
-        tls_version=ssl.PROTOCOL_TLSv1_2,  # Use TLS 1.2
-        ciphers=None  # Use default cipher suite
-    )
-    client.tls_insecure_set(True)  # For testing only - don't verify hostname
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    print("Setting up TLS connection...")
+    client.tls_set_context(context)
     
     # For MQTT v5, we need to configure specific properties
     properties = mqtt.Properties(packetType=1)  # 1 = CONNECT packet
     properties.SessionExpiryInterval = 0  # Clean session behavior
     client._connect_properties = properties
     
-    # Configure authentication if needed
-    # client.username_pw_set("your_username", "your_password")
+    print("MQTT client configuration complete")
     
     # For demo/development only: Allow insecure TLS
     client.tls_set(cert_reqs=ssl.CERT_NONE, tls_version=ssl.PROTOCOL_TLS)
