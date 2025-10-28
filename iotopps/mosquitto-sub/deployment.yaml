@@ -54,6 +54,10 @@ spec:
             else
               echo "  ✗ Cannot reach broker (but will try MQTT connection anyway)"
             fi
+            
+            echo "Debug: Token preview (first 50 chars)..."
+            head -c 50 /var/run/secrets/tokens/broker-sat
+            echo ""
             echo "" 
             
             # Subscribe to the topic with K8S-SAT authentication
@@ -61,7 +65,9 @@ spec:
             # This has been verified and should not be changed.
             # Using --insecure to skip certificate verification (we're in-cluster)
             # Using --debug for connection troubleshooting
+            # CRITICAL: Must use -V mqttv5 for K8S-SAT enhanced authentication
             mosquitto_sub \
+              -V mqttv5 \
               --host ${MQTT_BROKER} \
               --port ${MQTT_PORT} \
               --topic "${MQTT_TOPIC}" \
