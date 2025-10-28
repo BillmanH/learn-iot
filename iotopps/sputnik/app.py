@@ -209,6 +209,8 @@ def main():
     print("[OK] TLS configured (encrypted connection, no server verification)")
     
     # Configure authentication method
+    connect_properties = None  # Will be set for SAT authentication
+    
     if AUTH_METHOD == 'K8S-SAT':
         print("\nConfiguring ServiceAccountToken (K8S-SAT) authentication...")
         token = get_sat_token()
@@ -219,14 +221,13 @@ def main():
         # For MQTT v5 K8S-SAT authentication:
         # According to Azure IoT Operations docs, we must use enhanced authentication
         # Set authentication method to 'K8S-SAT' and authentication data to the token
-        # We'll set these in connect_properties that are passed to connect()
-        global_connect_properties = mqtt.Properties(mqtt.PacketTypes.CONNECT)
-        global_connect_properties.AuthenticationMethod = 'K8S-SAT'
-        global_connect_properties.AuthenticationData = token.encode('utf-8')
+        connect_properties = mqtt.Properties(mqtt.PacketTypes.CONNECT)
+        connect_properties.AuthenticationMethod = 'K8S-SAT'
+        connect_properties.AuthenticationData = token.encode('utf-8')
         
-        # Store for use in connect() call
-        client._connect_properties = global_connect_properties
         print("[OK] K8S-SAT authentication configured (MQTT v5 enhanced auth)")
+        print(f"    - Authentication Method: K8S-SAT")
+        print(f"    - Token length: {len(token)} characters")
     else:
         print(f"\nWarning: Unknown authentication method '{AUTH_METHOD}', proceeding without auth...")
     
@@ -252,9 +253,9 @@ def main():
     # Connect to broker
     print(f"\nConnecting to MQTT broker {MQTT_BROKER}:{MQTT_PORT}...")
     try:
-        # Note: MQTT v5 enhanced auth properties are already set in client._connect_properties
-        # The paho-mqtt library will use them automatically during connect
-        client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
+        # Pass properties directly to connect() for MQTT v5 enhanced authentication
+        # This is the correct way in paho-mqtt 2.x
+        client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60, properties=connect_properties)
         client.loop_start()  # Start network loop in separate thread
         
         # Wait a moment for connection to establish
