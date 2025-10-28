@@ -101,7 +101,7 @@ Uses the same `mqtt-client` service account as Sputnik for authentication.
 ## Files
 
 - `deployment.yaml` - Kubernetes deployment manifest
-- `Dockerfile` - Container image (uses official eclipse-mosquitto)
+- `Dockerfile.reference` - Reference Dockerfile (not used - we use official image)
 - `README.md` - This file
 - `TROUBLESHOOTING.md` - Common issues and solutions
 
