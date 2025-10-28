@@ -18,4 +18,5 @@
 # 
 # ENTRYPOINT ["mosquitto_sub"]
 
-# For now, we use the official image directly in deployment.yaml
+# For now, we use the official image directly in deployment.yaml 
+ 
