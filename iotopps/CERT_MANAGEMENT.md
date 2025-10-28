@@ -50,21 +50,47 @@ Applications need the following certificates to connect securely to the Azure Io
      * Note the namespace used by the extension (typically `azure-iot-operations`)
      * Connect to your cluster using `kubectl`
      * Note, in my instance the cert names had changed and I was able to find them via `kubectl get secrets -n azure-iot-operations`
-     * Get the CA certificate from the MQTT broker's internal CA secret:
-       ```bash
-       # Get the CA certificate
-       kubectl get secret aio-broker-internal-ca -n azure-iot-operations -o jsonpath='{.data.tls\.crt}' | base64 -d > ca.crt
-       ```
-     * Get the client certificate and key from the frontend server secret:
-       ```bash
-       # Get the client certificate
-       kubectl get secret aio-broker-frontend-server-18883 -n azure-iot-operations -o jsonpath='{.data.tls\.crt}' | base64 -d > client.crt
-       
-       # Get the client private key
-       kubectl get secret aio-broker-frontend-server-18883 -n azure-iot-operations -o jsonpath='{.data.tls\.key}' | base64 -d > client.key
-       ```
-     * Store these certificates securely - you'll need them for MQTT connections
-     * These certificates will allow your client to connect to the broker's frontend port (18883)
+     
+2. **Get the CA certificate** (needed to verify the broker's certificate):
+   ```bash
+   # Get the CA certificate from the broker's internal CA
+   kubectl get secret aio-broker-internal-ca -n azure-iot-operations -o jsonpath='{.data.tls\.crt}' | base64 -d > ca.crt
+   
+   # Also get the CA key (needed to sign client certificates)
+   kubectl get secret aio-broker-internal-ca -n azure-iot-operations -o jsonpath='{.data.tls\.key}' | base64 -d > ca.key
+   ```
+
+3. **Create a client certificate** signed by the broker's CA:
+   ```bash
+   # Generate a private key for your client
+   openssl genrsa -out client.key 2048
+   
+   # Create a certificate signing request (CSR)
+   openssl req -new -key client.key -out client.csr \
+     -subj "/CN=sputnik-client/O=IoT-Operations"
+   
+   # Sign the client certificate with the broker's CA
+   openssl x509 -req -in client.csr \
+     -CA ca.crt -CAkey ca.key \
+     -CAcreateserial -out client.crt \
+     -days 365 -sha256
+   
+   # Verify the certificate was signed correctly
+   openssl verify -CAfile ca.crt client.crt
+   ```
+   
+   You should see: `client.crt: OK`
+   
+4. **Clean up** (optional - remove CA key for security):
+   ```bash
+   # Remove the CA key - you don't need it anymore and it's sensitive
+   rm ca.key ca.crt.srl client.csr
+   ```
+
+Now you have three files ready for use:
+- `ca.crt` - The CA certificate (to verify the broker)
+- `client.crt` - Your client certificate (to authenticate to the broker)
+- `client.key` - Your client private key (to authenticate to the broker)
 
 
 
