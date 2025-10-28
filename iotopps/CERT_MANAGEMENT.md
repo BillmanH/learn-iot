@@ -2,6 +2,23 @@
 
 This guide explains how to manage certificates for applications connecting to Azure IoT Operations MQTT broker.
 
+## Quick Reference: Understanding the Certificates
+
+Azure IoT Operations MQTT broker uses **two separate certificate authorities (CAs)**:
+
+1. **Broker Server CA** (`aio-broker-internal-ca`):
+   - Used to sign the broker's server certificate
+   - Clients need this CA to verify the broker's identity during TLS handshake
+   - File: `broker-ca.crt`
+
+2. **Client CA** (you create this):
+   - Used to sign client certificates
+   - Broker needs this CA to verify client identities during authentication
+   - Must be added to the broker's authentication configuration
+   - File: `client-ca.crt` (stored in ConfigMap `client-ca`)
+
+**Important**: Your client certificate must be signed by the **Client CA**, not the Broker CA!
+
 ## Prerequisites
 
 Before managing certificates, verify your Azure IoT Operations security settings:
@@ -60,7 +77,71 @@ Applications need the following certificates to connect securely to the Azure Io
    kubectl get secret aio-broker-internal-ca -n azure-iot-operations -o jsonpath='{.data.tls\.key}' | base64 -d > ca.key
    ```
 
-3. **Create a client certificate** signed by the broker's CA:
+3. **Create a client CA certificate** (separate from the broker's internal CA):
+   
+   For security, create a separate CA for client authentication:
+   ```bash
+   # Generate a client CA certificate
+   openssl genrsa -out client-ca.key 4096
+   openssl req -new -x509 -days 3650 -key client-ca.key -out client-ca.crt \
+     -subj "/CN=Client Root CA/O=IoT-Operations"
+   ```
+
+4. **Create a ConfigMap with the client CA** in the Azure IoT Operations namespace:
+   ```bash
+   kubectl create configmap client-ca \
+     --from-file=ca.pem=client-ca.crt \
+     -n azure-iot-operations
+   
+   # Verify the ConfigMap was created
+   kubectl describe configmap client-ca -n azure-iot-operations
+   ```
+
+5. **Enable X.509 authentication using Azure CLI**:
+   
+   Since BrokerAuthentication is Azure-managed, use Azure CLI to add X.509 authentication:
+   
+   ```bash
+   # Create a configuration file for X.509 authentication
+   cat > x509-authn.json << 'EOF'
+   {
+     "authenticationMethods": [
+       {
+         "method": "ServiceAccountToken",
+         "serviceAccountTokenSettings": {
+           "audiences": ["aio-internal"]
+         }
+       },
+       {
+         "method": "X509",
+         "x509Settings": {
+           "trustedClientCaCert": "client-ca"
+         }
+       }
+     ]
+   }
+   EOF
+   
+   # Apply the authentication configuration
+   az iot ops broker authn apply \
+     --resource-group IoT-Operations-Work-Edge-bel-aio \
+     --instance bel-aio-work-cluster-aio \
+     --broker default \
+     --name default \
+     --config-file x509-authn.json
+   ```
+   
+   Alternatively, use the Azure Portal:
+   - Navigate to your IoT Operations instance
+   - Under **Components**, select **MQTT Broker**
+   - Select the **Authentication** tab
+   - Select the **default** authentication policy
+   - Select **Add method** → **X.509**
+   - In **X.509 authentication details**, enter:
+     * **Trusted client CA ConfigMap**: `client-ca`
+   - Select **Apply** and **Save**
+
+6. **Create a client certificate** signed by your client CA:
    ```bash
    # Generate a private key for your client
    openssl genrsa -out client.key 2048
@@ -69,28 +150,36 @@ Applications need the following certificates to connect securely to the Azure Io
    openssl req -new -key client.key -out client.csr \
      -subj "/CN=sputnik-client/O=IoT-Operations"
    
-   # Sign the client certificate with the broker's CA
+   # Sign the client certificate with the CLIENT CA (not the broker CA)
    openssl x509 -req -in client.csr \
-     -CA ca.crt -CAkey ca.key \
+     -CA client-ca.crt -CAkey client-ca.key \
      -CAcreateserial -out client.crt \
      -days 365 -sha256
    
    # Verify the certificate was signed correctly
-   openssl verify -CAfile ca.crt client.crt
+   openssl verify -CAfile client-ca.crt client.crt
    ```
    
    You should see: `client.crt: OK`
+
+7. **Get the broker's server CA certificate** (for server verification):
+   ```bash
+   # Get the broker's server CA certificate for TLS verification
+   kubectl get secret aio-broker-internal-ca -n azure-iot-operations \
+     -o jsonpath='{.data.tls\.crt}' | base64 -d > broker-ca.crt
+   ```
    
-4. **Clean up** (optional - remove CA key for security):
+8. **Clean up** (optional - remove sensitive keys):
    ```bash
    # Remove the CA key - you don't need it anymore and it's sensitive
-   rm ca.key ca.crt.srl client.csr
+   rm client-ca.key client-ca.crt.srl client.csr
    ```
 
-Now you have three files ready for use:
-- `ca.crt` - The CA certificate (to verify the broker)
+Now you have four files ready for use:
+- `broker-ca.crt` - The broker's CA certificate (to verify the broker's server certificate)
 - `client.crt` - Your client certificate (to authenticate to the broker)
 - `client.key` - Your client private key (to authenticate to the broker)
+- `client-ca.crt` - Your client CA certificate (for reference, already in ConfigMap)
 
 
 
@@ -150,26 +239,28 @@ Now you have three files ready for use:
 
 ### 1. Store Certificates in GitHub Secrets
 
-1. Base64 encode your certificates:
+**IMPORTANT**: Certificate files (`.crt` and `.key`) are already in PEM format (base64-encoded). Do NOT base64 encode them again - just copy the raw content.
+
+1. Read the certificate file contents:
    ```bash
-   # On Linux/Mac
-   base64 -w 0 ca.crt > ca.crt.b64
-   base64 -w 0 client.crt > client.crt.b64
-   base64 -w 0 client.key > client.key.b64
+   # On Linux/Mac - just display the content
+   cat broker-ca.crt
+   cat client.crt
+   cat client.key
    
-   # On Windows PowerShell (run these commands in the folder containing your certificates)
-   $content = Get-Content -Raw -Path .\ca.crt; [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($content)) > ca.crt.b64
-   $content = Get-Content -Raw -Path .\client.crt; [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($content)) > client.crt.b64
-   $content = Get-Content -Raw -Path .\client.key; [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($content)) > client.key.b64
+   # On Windows PowerShell - display the content
+   Get-Content -Raw -Path .\broker-ca.crt
+   Get-Content -Raw -Path .\client.crt
+   Get-Content -Raw -Path .\client.key
    ```
 
-2. Add the base64-encoded certificates as GitHub Secrets:
+2. Copy and paste the **entire output** (including `-----BEGIN CERTIFICATE-----` and `-----END CERTIFICATE-----` lines) into GitHub Secrets:
    - Go to your GitHub repository
    - Navigate to Settings > Secrets and variables > Actions
    - Add new repository secrets:
-     * `MQTT_CA_CERT`: Content of ca.crt.b64
-     * `MQTT_CLIENT_CERT`: Content of client.crt.b64
-     * `MQTT_CLIENT_KEY`: Content of client.key.b64
+     * `MQTT_BROKER_CA_CERT`: Paste the entire content of `broker-ca.crt` (broker's server CA for TLS verification)
+     * `MQTT_CLIENT_CERT`: Paste the entire content of `client.crt`
+     * `MQTT_CLIENT_KEY`: Paste the entire content of `client.key`
 
 ### 2. Create Kubernetes Secret in GitHub Actions
 
@@ -180,15 +271,26 @@ Add this step to your GitHub Actions workflow:
 steps:
   - name: Create MQTT Certificates Secret
     run: |
-      # Create the secret with the certificates
+      # Write secrets to temporary files
+      echo "${{ secrets.MQTT_BROKER_CA_CERT }}" > broker-ca.crt
+      echo "${{ secrets.MQTT_CLIENT_CERT }}" > client.crt
+      echo "${{ secrets.MQTT_CLIENT_KEY }}" > client.key
+      
+      # Create the secret from files (not literals, to preserve formatting)
       kubectl create secret generic aio-mqtt-certs \
-        --namespace azure-iot-operations \
-        --from-literal=ca.crt="${{ secrets.MQTT_CA_CERT }}" \
-        --from-literal=client.crt="${{ secrets.MQTT_CLIENT_CERT }}" \
-        --from-literal=client.key="${{ secrets.MQTT_CLIENT_KEY }}" \
+        --namespace default \
+        --from-file=broker-ca.crt=broker-ca.crt \
+        --from-file=client.crt=client.crt \
+        --from-file=client.key=client.key \
         --dry-run=client -o yaml | kubectl apply -f -
+      
+      # Clean up temporary files
+      rm broker-ca.crt client.crt client.key
     env:
       KUBECONFIG: ${{ secrets.KUBECONFIG }}
+```
+
+**Note**: Update your GitHub Secrets to use `MQTT_BROKER_CA_CERT` (for the broker's server CA) instead of `MQTT_CA_CERT`.
 
 ### 3. Mount Certificates in Deployment
 
@@ -209,8 +311,8 @@ spec:
           value: "/certs/client.crt"
         - name: MQTT_CLIENT_KEY
           value: "/certs/client.key"
-        - name: MQTT_CA_CERT
-          value: "/certs/ca.crt"
+        - name: MQTT_BROKER_CA_CERT
+          value: "/certs/broker-ca.crt"
       volumes:
       - name: mqtt-certs
         secret:

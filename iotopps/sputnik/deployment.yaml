@@ -13,6 +13,7 @@ spec:
       labels:
         app: sputnik
     spec:
+      serviceAccountName: mqtt-client  # Use the service account for SAT authentication
       containers:
       - name: sputnik
         image: <YOUR_REGISTRY>/sputnik:latest
@@ -21,7 +22,7 @@ spec:
         # always use the fully qualified domain name (FQDN):
         # format: service-name.namespace.svc.cluster.local
         - name: MQTT_BROKER
-          value: "aio-broker.azure-iot-operations.svc.cluster.local"  # Azure IoT Operations MQTT broker in azure-iot-operations namespace
+          value: "aio-broker-frontend.azure-iot-operations.svc.cluster.local"  # Azure IoT Operations MQTT broker frontend
         - name: MQTT_PORT
           value: "18883"  # MQTTS port for Azure IoT Operations broker
         - name: MQTT_TOPIC
@@ -30,12 +31,11 @@ spec:
           value: "5"  # Send beep every 5 seconds
         - name: PYTHONUNBUFFERED
           value: "1"
-        - name: MQTT_CLIENT_CERT
-          value: "/certs/client.crt"
-        - name: MQTT_CLIENT_KEY
-          value: "/certs/client.key"
-        - name: MQTT_CA_CERT
-          value: "/certs/ca.crt"
+        # ServiceAccountToken authentication settings
+        - name: MQTT_AUTH_METHOD
+          value: "K8S-SAT"  # Use Kubernetes ServiceAccountToken
+        - name: SAT_TOKEN_PATH
+          value: "/var/run/secrets/tokens/broker-sat"  # Token will be mounted here
         resources:
           requests:
             memory: "128Mi"
@@ -52,10 +52,14 @@ spec:
           initialDelaySeconds: 10
           periodSeconds: 30
         volumeMounts:
-        - name: mqtt-certs
-          mountPath: "/certs"
+        - name: broker-sat
+          mountPath: /var/run/secrets/tokens
           readOnly: true
       volumes:
-      - name: mqtt-certs
-        secret:
-          secretName: aio-mqtt-certs  # This secret should contain the certificates
+      - name: broker-sat
+        projected:
+          sources:
+          - serviceAccountToken:
+              path: broker-sat
+              expirationSeconds: 86400  # 24 hours
+              audience: aio-internal  # Must match broker's audience configuration
