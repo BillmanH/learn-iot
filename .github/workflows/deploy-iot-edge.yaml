@@ -592,13 +592,14 @@ jobs:
       - name: Verify Deployment
         shell: bash
         run: |
-          echo "${{ matrix.app }} Status:"
-          kubectl get deployment ${{ matrix.app }} -n default
-          kubectl get pods -l app=${{ matrix.app }} -n default
+          APP="${{ matrix.app }}"
+          echo "${APP} Status:"
+          kubectl get deployment ${APP} -n default
+          kubectl get pods -l app=${APP} -n default
           
           echo ""
-          echo "Recent logs from ${{ matrix.app }}:"
-          kubectl logs -l app=${{ matrix.app }} -n default --tail=20 || true
+          echo "Recent logs from ${APP}:"
+          kubectl logs -l app=${APP} -n default --tail=20 || true
 
       - name: Create deployment summary
         shell: bash
