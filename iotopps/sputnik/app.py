@@ -46,13 +46,17 @@ def on_connect(client, userdata, flags, reason_code, properties=None):
     else:
         rc = reason_code  # Fall back to numeric value for MQTT v3
 
-    connection_codes = {
-        0: "Connected successfully",
-        1: "Incorrect protocol version",
-        2: "Invalid client identifier",
-        3: "Server unavailable",
-        4: "Bad username or password",
-        5: "Not authorized",
+    # MQTT v5 CONNACK Reason Codes (per MQTT v5 spec)
+    # https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901079
+    connack_codes = {
+        0: "Success",
+        # MQTT v3.1.1 codes (1-5)
+        1: "Connection refused - unacceptable protocol version",
+        2: "Connection refused - identifier rejected", 
+        3: "Connection refused - server unavailable",
+        4: "Connection refused - bad username or password",
+        5: "Connection refused - not authorized",
+        # MQTT v5 codes (128+)
         128: "Unspecified error",
         129: "Malformed packet",
         130: "Protocol error",
@@ -82,8 +86,9 @@ def on_connect(client, userdata, flags, reason_code, properties=None):
             print(f"Connection properties: {properties}")
         is_connected.set()
     else:
-        error_message = connection_codes.get(rc, f"Unknown error (code: {rc})")
+        error_message = connack_codes.get(rc, f"Unknown CONNACK error (code: {rc})")
         print(f"Failed to connect: {error_message}")
+        print(f"CONNACK reason code: {rc}")
         if properties:
             print(f"Error properties: {properties}")
         is_connected.clear()
@@ -97,9 +102,46 @@ def on_disconnect(client, userdata, reason_code, properties=None):
         rc = reason_code.value
     else:
         rc = reason_code
+    
+    # MQTT v5 DISCONNECT Reason Codes (different from CONNACK!)
+    # https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901208
+    disconnect_codes = {
+        0: "Normal disconnection",
+        4: "Disconnect with will message",
+        128: "Unspecified error",
+        129: "Malformed packet",
+        130: "Protocol error",
+        131: "Implementation specific error",
+        135: "Not authorized",
+        137: "Server busy",
+        139: "Server shutting down",
+        141: "Keep alive timeout",
+        142: "Session taken over",
+        143: "Topic filter invalid",
+        144: "Topic name invalid",
+        147: "Receive maximum exceeded",
+        148: "Topic alias invalid",
+        149: "Packet too large",
+        150: "Message rate too high",
+        151: "Quota exceeded",
+        152: "Administrative action",
+        153: "Payload format invalid",
+        154: "Retain not supported",
+        155: "QoS not supported",
+        156: "Use another server",
+        157: "Server moved",
+        158: "Shared subscriptions not supported",
+        159: "Connection rate exceeded",
+        160: "Maximum connect time",
+        161: "Subscription identifiers not supported",
+        162: "Wildcard subscriptions not supported"
+    }
         
     if rc != 0:
-        print(f"Unexpected disconnection. Code: {rc}")
+        error_message = disconnect_codes.get(rc, f"Unknown DISCONNECT reason (code: {rc})")
+        print(f"Unexpected disconnection: {error_message} (Code: {rc})")
+        if properties:
+            print(f"Disconnect properties: {properties}")
     else:
         print("Disconnected successfully")
 
