@@ -5,7 +5,7 @@ Sputnik is a simple IoT application that sends periodic "beep" messages to an MQ
 ## 🛰️ What Does It Do?
 
 Sputnik continuously publishes JSON messages to an MQTT topic with the following format:
-
+ 
 ```json
 {
   "message": "beep",
