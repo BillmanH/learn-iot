@@ -14,7 +14,7 @@ Sputnik supports two authentication methods for connecting to Azure IoT Operatio
 2. Deploy: `kubectl apply -f deployment.yaml`
 3. Done! No certificate management needed.
 
-📖 **See:** [`SAT_AUTH_SETUP.md`](../SAT_AUTH_SETUP.md) for complete guide
+📖 **See:** [`SAT_AUTH_SETUP.md`](../SAT_AUTH_SETUP.md) for complete guide 
 
 ### 🔑 X.509 Certificates (Alternative)
 **Best for external clients** - requires certificate management, suitable for devices outside the cluster.

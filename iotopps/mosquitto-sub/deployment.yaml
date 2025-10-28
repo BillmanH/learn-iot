@@ -32,7 +32,7 @@ spec:
             echo "Mosquitto MQTT Subscriber"
             echo "=================================================="
             echo ""
-            echo "Configuration:"
+            echo "Configuration:" 
             echo "  Broker: ${MQTT_BROKER}:${MQTT_PORT}"
             echo "  Topic: ${MQTT_TOPIC}"
             echo "  QoS: ${MQTT_QOS}"

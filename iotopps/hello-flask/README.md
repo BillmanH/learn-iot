@@ -54,7 +54,7 @@ For local development and testing before deployment:
 # Windows PowerShell (recommended)
 .\Deploy-Local.ps1
 
-# Windows Command Prompt
+# Windows Command Prompt 
 run-local.bat
 
 # Linux/Mac
