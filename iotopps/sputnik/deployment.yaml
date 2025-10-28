@@ -21,8 +21,12 @@ spec:
         # IMPORTANT: When accessing services across namespaces in Kubernetes,
         # always use the fully qualified domain name (FQDN):
         # format: service-name.namespace.svc.cluster.local
+        #
+        # VERIFIED SERVICE NAME: aio-broker (confirmed via kubectl get service -n azure-iot-operations)
+        # DO NOT CHANGE to aio-broker-frontend or aio-mq-dmqtt-frontend
+        # The correct service is: aio-broker.azure-iot-operations.svc.cluster.local
         - name: MQTT_BROKER
-          value: "aio-broker-frontend.azure-iot-operations.svc.cluster.local"  # Azure IoT Operations MQTT broker frontend
+          value: "aio-broker.azure-iot-operations.svc.cluster.local"  # Azure IoT Operations MQTT broker
         - name: MQTT_PORT
           value: "18883"  # MQTTS port for Azure IoT Operations broker
         - name: MQTT_TOPIC
