@@ -7,7 +7,7 @@ This folder contains everything needed to deploy and use a MQTT message subscrib
 ```
 mosquitto-sub/
 ├── deployment.yaml       # Kubernetes deployment manifest
-├── Dockerfile           # Reference (uses official image)
+├── Dockerfile.reference  # Reference (not built - uses official image)
 ├── README.md            # Full documentation
 ├── QUICKSTART.md        # Quick start guide
 └── TROUBLESHOOTING.md   # Detailed troubleshooting
