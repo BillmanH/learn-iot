@@ -142,19 +142,21 @@ def main():
         print(f"Using client certificates from {cert_path} and {key_path}")
         print(f"Using CA certificate from {ca_path}")
         
-        # Configure mutual TLS with proper certificate verification
+        # For Azure IoT Operations internal broker:
+        # - Use client certificate for authentication (mutual TLS)
+        # - Don't verify server certificate (internal self-signed certs)
+        # - Still use encrypted TLS connection
         client.tls_set(
-            ca_certs=ca_path,  # Verify server certificate against this CA
-            certfile=cert_path,  # Present this client certificate
-            keyfile=key_path,  # Use this private key
-            cert_reqs=ssl.CERT_REQUIRED,  # Require valid server certificate
+            ca_certs=None,  # Don't verify server cert (self-signed in cluster)
+            certfile=cert_path,  # Present our client certificate
+            keyfile=key_path,  # Use our private key
+            cert_reqs=ssl.CERT_NONE,  # Don't require server cert verification
             tls_version=ssl.PROTOCOL_TLS,
             ciphers=None
         )
         # Disable hostname verification for internal cluster DNS names
-        # The certificate is valid, we just don't verify the hostname matches
         client.tls_insecure_set(True)
-        print("Mutual TLS configured successfully")
+        print("Mutual TLS configured successfully (client auth only)")
     else:
         print("Warning: Client certificates not found, attempting connection without client auth...")
         client.tls_set(
