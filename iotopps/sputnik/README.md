@@ -6,7 +6,7 @@ Sputnik is a simple IoT application that sends periodic "beep" messages to an MQ
 
 Sputnik supports two authentication methods for connecting to Azure IoT Operations MQTT broker:
 
-### ✅ ServiceAccountToken (Recommended) 
+### ✅ ServiceAccountToken (Recommended)
 **Best for in-cluster applications** - simpler setup, automatic token renewal, zero maintenance.
 
 **Quick Start:**

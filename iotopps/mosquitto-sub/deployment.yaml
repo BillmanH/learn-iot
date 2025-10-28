@@ -39,7 +39,7 @@ spec:
             echo "  Auth: K8S-SAT (ServiceAccountToken)"
             echo ""
             echo "Connecting to broker..."
-            echo ""
+            echo "" 
             
             # Subscribe to the topic with K8S-SAT authentication
             # Note: The broker service name is 'aio-broker' (NOT aio-broker-frontend)
