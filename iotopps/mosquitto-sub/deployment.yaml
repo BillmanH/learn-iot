@@ -58,6 +58,10 @@ spec:
             echo "Debug: Token preview (first 50 chars)..."
             head -c 50 /var/run/secrets/tokens/broker-sat
             echo ""
+            echo ""
+            
+            echo "Debug: Attempting connection with K8S-SAT authentication..."
+            echo "Note: Using authentication-data from file instead of command substitution"
             echo "" 
             
             # Subscribe to the topic with K8S-SAT authentication
@@ -66,6 +70,7 @@ spec:
             # Using --insecure to skip certificate verification (we're in-cluster)
             # Using --debug for connection troubleshooting
             # CRITICAL: Must use -V mqttv5 for K8S-SAT enhanced authentication
+            # Using file-based auth data instead of command substitution
             mosquitto_sub \
               -V mqttv5 \
               --host ${MQTT_BROKER} \
@@ -76,7 +81,7 @@ spec:
               --debug \
               --insecure \
               -D CONNECT authentication-method 'K8S-SAT' \
-              -D CONNECT authentication-data "$(cat /var/run/secrets/tokens/broker-sat)"
+              -D CONNECT authentication-data-file '/var/run/secrets/tokens/broker-sat'
         
         env:
         # MQTT Broker configuration
