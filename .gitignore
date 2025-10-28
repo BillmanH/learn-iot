@@ -8,6 +8,7 @@ iotopps/sputnik/sputnik_config.json
 
 
 # Connection strings and keys
+certs*
 key_*.yaml
 *_keys.yaml
 key_*.yml

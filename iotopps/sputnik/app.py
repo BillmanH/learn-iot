@@ -132,10 +132,26 @@ def main():
     properties.SessionExpiryInterval = 0  # Clean session behavior
     client._connect_properties = properties
     
-    # Configure TLS for Azure IoT Operations MQTT broker
-    print("Setting up TLS connection...")
-    client.tls_set(cert_reqs=ssl.CERT_NONE, tls_version=ssl.PROTOCOL_TLS)
-    client.tls_insecure_set(True)  # For testing only - don't verify hostname
+    # Configure TLS with client certificates for Azure IoT Operations MQTT broker
+    print("Setting up TLS connection with client certificates...")
+    cert_path = os.environ.get('MQTT_CLIENT_CERT', '/certs/client.crt')
+    key_path = os.environ.get('MQTT_CLIENT_KEY', '/certs/client.key')
+    ca_path = os.environ.get('MQTT_CA_CERT', '/certs/ca.crt')
+    
+    if os.path.exists(cert_path) and os.path.exists(key_path):
+        print(f"Using client certificates from {cert_path} and {key_path}")
+        client.tls_set(
+            ca_certs=ca_path if os.path.exists(ca_path) else None,
+            certfile=cert_path,
+            keyfile=key_path,
+            cert_reqs=ssl.CERT_REQUIRED if os.path.exists(ca_path) else ssl.CERT_NONE,
+            tls_version=ssl.PROTOCOL_TLS,
+            ciphers=None
+        )
+    else:
+        print("Warning: Client certificates not found, falling back to insecure mode")
+        client.tls_set(cert_reqs=ssl.CERT_NONE, tls_version=ssl.PROTOCOL_TLS)
+        client.tls_insecure_set(True)
     
     print("MQTT client configuration complete")
     

@@ -30,6 +30,20 @@ spec:
           value: "5"  # Send beep every 5 seconds
         - name: PYTHONUNBUFFERED
           value: "1"
+        - name: MQTT_CLIENT_CERT
+          value: "/certs/client.crt"
+        - name: MQTT_CLIENT_KEY
+          value: "/certs/client.key"
+        - name: MQTT_CA_CERT
+          value: "/certs/ca.crt"
+        volumeMounts:
+        - name: mqtt-certs
+          mountPath: "/certs"
+          readOnly: true
+      volumes:
+      - name: mqtt-certs
+        secret:
+          secretName: aio-mqtt-certs  # This secret should contain the certificates
         resources:
           requests:
             memory: "128Mi"
