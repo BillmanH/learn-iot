@@ -36,14 +36,6 @@ spec:
           value: "/certs/client.key"
         - name: MQTT_CA_CERT
           value: "/certs/ca.crt"
-        volumeMounts:
-        - name: mqtt-certs
-          mountPath: "/certs"
-          readOnly: true
-      volumes:
-      - name: mqtt-certs
-        secret:
-          secretName: aio-mqtt-certs  # This secret should contain the certificates
         resources:
           requests:
             memory: "128Mi"
@@ -59,3 +51,11 @@ spec:
             - "import os; exit(0 if os.path.exists('/proc/1') else 1)"
           initialDelaySeconds: 10
           periodSeconds: 30
+        volumeMounts:
+        - name: mqtt-certs
+          mountPath: "/certs"
+          readOnly: true
+      volumes:
+      - name: mqtt-certs
+        secret:
+          secretName: aio-mqtt-certs  # This secret should contain the certificates
