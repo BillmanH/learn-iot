@@ -140,6 +140,8 @@ def main():
     
     if os.path.exists(cert_path) and os.path.exists(key_path):
         print(f"Using client certificates from {cert_path} and {key_path}")
+        # For Azure IoT Operations, we need to trust the CA but not verify the server hostname
+        # since we're using internal cluster DNS names
         client.tls_set(
             ca_certs=ca_path if os.path.exists(ca_path) else None,
             certfile=cert_path,
@@ -148,6 +150,8 @@ def main():
             tls_version=ssl.PROTOCOL_TLS,
             ciphers=None
         )
+        # Don't verify hostname for internal cluster services
+        client.tls_insecure_set(True)
     else:
         print("Warning: Client certificates not found, falling back to insecure mode")
         client.tls_set(cert_reqs=ssl.CERT_NONE, tls_version=ssl.PROTOCOL_TLS)
