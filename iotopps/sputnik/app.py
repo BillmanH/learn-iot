@@ -138,23 +138,22 @@ def main():
     key_path = os.environ.get('MQTT_CLIENT_KEY', '/certs/client.key')
     ca_path = os.environ.get('MQTT_CA_CERT', '/certs/ca.crt')
     
-    if os.path.exists(cert_path) and os.path.exists(key_path):
-        print(f"Using client certificates from {cert_path} and {key_path}")
-        
-        # For Azure IoT Operations with self-signed certificates in internal cluster,
-        # we need to disable certificate verification while still using client certs for authentication
+    # For Azure IoT Operations, try without client certificate first
+    # The broker may use other authentication methods (SAT tokens, etc.)
+    print("Attempting connection without client certificate authentication...")
+    try:
         client.tls_set(
-            ca_certs=None,  # Don't verify server certificate
-            certfile=cert_path,
-            keyfile=key_path,
-            cert_reqs=ssl.CERT_NONE,  # Don't require certificate verification
+            ca_certs=None,
+            certfile=None,
+            keyfile=None,
+            cert_reqs=ssl.CERT_NONE,
             tls_version=ssl.PROTOCOL_TLS,
             ciphers=None
         )
-        # Don't verify hostname for internal cluster services
         client.tls_insecure_set(True)
-    else:
-        print("Warning: Client certificates not found, falling back to insecure mode")
+    except Exception as e:
+        print(f"Error setting up TLS: {e}")
+        print("Falling back to insecure connection")
         client.tls_set(cert_reqs=ssl.CERT_NONE, tls_version=ssl.PROTOCOL_TLS)
         client.tls_insecure_set(True)
     
