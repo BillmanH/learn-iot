@@ -140,13 +140,14 @@ def main():
     
     if os.path.exists(cert_path) and os.path.exists(key_path):
         print(f"Using client certificates from {cert_path} and {key_path}")
-        # For Azure IoT Operations, we need to trust the CA but not verify the server hostname
-        # since we're using internal cluster DNS names
+        
+        # For Azure IoT Operations with self-signed certificates in internal cluster,
+        # we need to disable certificate verification while still using client certs for authentication
         client.tls_set(
-            ca_certs=ca_path if os.path.exists(ca_path) else None,
+            ca_certs=None,  # Don't verify server certificate
             certfile=cert_path,
             keyfile=key_path,
-            cert_reqs=ssl.CERT_REQUIRED if os.path.exists(ca_path) else ssl.CERT_NONE,
+            cert_reqs=ssl.CERT_NONE,  # Don't require certificate verification
             tls_version=ssl.PROTOCOL_TLS,
             ciphers=None
         )
