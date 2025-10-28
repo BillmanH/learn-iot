@@ -39,18 +39,35 @@ spec:
             echo "  Auth: K8S-SAT (ServiceAccountToken)"
             echo ""
             echo "Connecting to broker..."
+            echo "Debug: Checking SAT token..."
+            if [ -f /var/run/secrets/tokens/broker-sat ]; then
+              TOKEN_SIZE=$(wc -c < /var/run/secrets/tokens/broker-sat)
+              echo "  ✓ SAT token found (${TOKEN_SIZE} bytes)"
+            else
+              echo "  ✗ SAT token NOT found!"
+              exit 1
+            fi
+            
+            echo "Debug: Testing network connectivity to broker..."
+            if nc -zv ${MQTT_BROKER} ${MQTT_PORT} 2>&1; then
+              echo "  ✓ Broker reachable at ${MQTT_BROKER}:${MQTT_PORT}"
+            else
+              echo "  ✗ Cannot reach broker (but will try MQTT connection anyway)"
+            fi
             echo "" 
             
             # Subscribe to the topic with K8S-SAT authentication
             # Note: The broker service name is 'aio-broker' (NOT aio-broker-frontend)
             # This has been verified and should not be changed.
             # Using --insecure to skip certificate verification (we're in-cluster)
+            # Using --debug for connection troubleshooting
             mosquitto_sub \
               --host ${MQTT_BROKER} \
               --port ${MQTT_PORT} \
               --topic "${MQTT_TOPIC}" \
               --qos ${MQTT_QOS} \
               --verbose \
+              --debug \
               --insecure \
               -D CONNECT authentication-method 'K8S-SAT' \
               -D CONNECT authentication-data "$(cat /var/run/secrets/tokens/broker-sat)"
