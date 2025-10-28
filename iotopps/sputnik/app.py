@@ -147,7 +147,7 @@ def main():
     print("=" * 60)
     print("\nInitializing MQTT client...")
     
-    # Create MQTT client with MQTT v5 support
+    # Create MQTT client with MQTT v5 support 
     client = mqtt.Client(
         client_id=MQTT_CLIENT_ID,
         protocol=mqtt.MQTTv5,
