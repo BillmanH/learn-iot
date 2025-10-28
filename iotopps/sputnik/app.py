@@ -154,11 +154,6 @@ def main():
         transport="tcp"
     )
     
-    # For MQTT v5, configure connection properties
-    properties = mqtt.Properties(packetType=1)  # 1 = CONNECT packet
-    properties.SessionExpiryInterval = 0  # Clean session behavior
-    client._connect_properties = properties
-    
     # Configure TLS for encrypted connection
     print("\nSetting up TLS connection...")
     client.tls_set(
@@ -179,11 +174,17 @@ def main():
             print("[ERROR] Cannot connect without SAT token")
             return
         
-        # For MQTT v5 K8S-SAT authentication with paho-mqtt:
-        # Use username_pw_set with special values for Azure IoT Operations
-        # Username must be empty or specific format, password is the token
-        client.username_pw_set(username="", password=token)
-        print("[OK] K8S-SAT authentication configured")
+        # For MQTT v5 K8S-SAT authentication:
+        # According to Azure IoT Operations docs, we must use enhanced authentication
+        # Set authentication method to 'K8S-SAT' and authentication data to the token
+        # We'll set these in connect_properties that are passed to connect()
+        global_connect_properties = mqtt.Properties(mqtt.PacketTypes.CONNECT)
+        global_connect_properties.AuthenticationMethod = 'K8S-SAT'
+        global_connect_properties.AuthenticationData = token.encode('utf-8')
+        
+        # Store for use in connect() call
+        client._connect_properties = global_connect_properties
+        print("[OK] K8S-SAT authentication configured (MQTT v5 enhanced auth)")
     else:
         print(f"\nWarning: Unknown authentication method '{AUTH_METHOD}', proceeding without auth...")
     
