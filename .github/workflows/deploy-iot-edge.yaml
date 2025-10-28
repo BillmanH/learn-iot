@@ -522,10 +522,11 @@ jobs:
       - name: Deploy ${{ matrix.app }}
         shell: bash
         run: |
+          # Set variables with explicit line ending removal
           NAMESPACE="default"
-          APP="${{ matrix.app }}"
+          APP=$(echo "${{ matrix.app }}" | tr -d '\n\r')
           
-          echo "Deploying ${APP} to namespace: ${NAMESPACE}"
+          echo "Deploying app: [${APP}] to namespace: [${NAMESPACE}]"
           
           # Apply deployment directly (no image substitution needed)
           kubectl apply -f iotopps/${APP}/deployment.yaml --namespace="${NAMESPACE}"
