@@ -220,50 +220,49 @@ jobs:
             --name "$AZURE_CLUSTER_NAME" \
             --resource-group "$AZURE_RESOURCE_GROUP"
           
-          # Get cluster credentials using proxy
-          echo "Starting Arc proxy connection..."
-          timeout 120 az connectedk8s proxy \
+          # Set up KUBECONFIG
+          export KUBECONFIG="$HOME/.kube/config"
+          mkdir -p "$(dirname "$KUBECONFIG")"
+          
+          echo "Starting Arc proxy connection with extended timeout..."
+          # Start proxy with longer timeout
+          timeout 600 az connectedk8s proxy \
             --name "$AZURE_CLUSTER_NAME" \
-            --resource-group "$AZURE_RESOURCE_GROUP" &
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}" &
           
           PROXY_PID=$!
           echo "Proxy PID: $PROXY_PID"
           
-          # Wait for proxy to be ready: check proxy process, listening port, and lightweight kubectl server check
-          echo "Waiting for proxy to be ready..."
-          # give proxy a moment to start
-          sleep 1
-          PROXY_OK=0
+          # More robust connection check
+          echo "Waiting for cluster connection..."
+          CONNECTED=0
           for i in {1..30}; do
-            # ensure proxy process still exists
-            if ! kill -0 "$PROXY_PID" 2>/dev/null; then
-              echo "Proxy process $PROXY_PID is not running"
-              exit 1
+            if kubectl get nodes --request-timeout=5s > /dev/null 2>&1; then
+              echo "Successfully connected to cluster"
+              CONNECTED=1
+              break
             fi
-
-              # lightweight kubectl check that usually works with minimal permissions
-              if kubectl version --output=json --request-timeout='5s' 2>&1 | grep -q 'serverVersion'; then
-                echo "Successfully connected to API server (kubectl can reach server)"
-                PROXY_OK=1
-                break
-              else
-                # capture last kubectl error for diagnostics
-                KUBECTL_ERR=$(kubectl version --output=json --request-timeout='5s' 2>&1 || true)
-                echo "kubectl version output:"
-                echo "$KUBECTL_ERR"
-                # If Forbidden appears, show a helpful hint for RBAC
-                if echo "$KUBECTL_ERR" | grep -qi forbidden; then
-                  echo "Detected RBAC Forbidden when contacting the API server."
-                  echo "Your identity may lack permission to query cluster resources."
-                  echo "To allow basic diagnostics, a cluster admin can run:" 
-                  echo "kubectl create clusterrolebinding gha-actions-view --clusterrole=view --user=<YOUR_SP_CLIENT_ID>"
-                  # don't break here; maybe server becomes reachable for other reasons
-                fi
-              fi
-
+            
+            # Check if proxy is still running
+            if ! kill -0 "$PROXY_PID" 2>/dev/null; then
+              echo "ERROR: Proxy process $PROXY_PID died unexpectedly"
+              echo "Restarting proxy..."
+              timeout 600 az connectedk8s proxy \
+                --name "$AZURE_CLUSTER_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}" &
+              PROXY_PID=$!
+            fi
+            
             echo "Waiting for connection... ($i/30)"
-            sleep 2
+            sleep 5
           done
+          
+          if [ "$CONNECTED" -ne 1 ]; then
+            echo "ERROR: Failed to establish connection to cluster"
+            exit 1
+          fi
 
           if [ "$PROXY_OK" -ne 1 ]; then
             echo "Proxy didn't become ready within the timeout. Running final diagnostic:"
@@ -331,16 +330,46 @@ jobs:
             exit 1
           fi
           
-          # Check deployment status (ensure no line endings in command)
-          DEPLOY_CMD="kubectl rollout status deployment/${APP} --namespace=${NAMESPACE} --timeout=300s"
-          echo "Running: $DEPLOY_CMD"
-          $DEPLOY_CMD
+          # More resilient deployment check
+          echo "Monitoring deployment status..."
+          DEPLOYMENT_SUCCESS=0
           
-          if [ $? -eq 0 ]; then
-            echo "Deployment completed successfully"
-          else
-            echo "Deployment failed"
-            kubectl describe deployment/"${APP}" --namespace="${NAMESPACE}"
+          for i in {1..60}; do
+            # Get current deployment status
+            READY=$(kubectl get deployment ${APP} -n ${NAMESPACE} -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+            DESIRED=$(kubectl get deployment ${APP} -n ${NAMESPACE} -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
+            UPDATED=$(kubectl get deployment ${APP} -n ${NAMESPACE} -o jsonpath='{.status.updatedReplicas}' 2>/dev/null || echo "0")
+            
+            # Check if deployment is complete
+            if [ "$READY" == "$DESIRED" ] && [ "$UPDATED" == "$DESIRED" ]; then
+              echo "Deployment successful: ${READY}/${DESIRED} replicas ready"
+              DEPLOYMENT_SUCCESS=1
+              break
+            fi
+            
+            # Show detailed status
+            echo "Deployment status: ${READY}/${DESIRED} replicas ready, ${UPDATED} updated ($i/60)"
+            
+            # Show recent events
+            echo "Recent events:"
+            kubectl get events --namespace=${NAMESPACE} --sort-by='.lastTimestamp' | grep ${APP} | tail -3 || true
+            
+            # Check for specific failure conditions
+            if kubectl get deployment ${APP} -n ${NAMESPACE} -o jsonpath='{.status.conditions[?(@.type=="Available")].message}' 2>/dev/null | grep -q "exceeded"; then
+              echo "ERROR: Deployment failed: Resource quota exceeded"
+              kubectl describe deployment/${APP} -n ${NAMESPACE}
+              exit 1
+            fi
+            
+            sleep 5
+          done
+          
+          if [ "$DEPLOYMENT_SUCCESS" -ne 1 ]; then
+            echo "ERROR: Deployment failed to complete within timeout"
+            echo "Deployment details:"
+            kubectl describe deployment/${APP} -n ${NAMESPACE}
+            echo "Pod details:"
+            kubectl get pods -n ${NAMESPACE} -l app=${APP} -o wide
             exit 1
           fi
 
