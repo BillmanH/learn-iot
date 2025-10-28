@@ -64,28 +64,53 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED_FILES"
           
-          # Find unique app folders
+          # Find unique app folders (all folders under iotopps/)
           APPS=$(echo "$CHANGED_FILES" | grep '^iotopps/' | cut -d'/' -f2 | sort -u | grep -v '^$' || true)
           
-          # Filter to only valid app directories (containing Dockerfile)
-          VALID_APPS=""
+          # Separate apps into those needing Docker build vs deployment-only
+          BUILD_APPS=""
+          DEPLOY_ONLY_APPS=""
+          
           for app in $APPS; do
             if [ -f "iotopps/$app/Dockerfile" ]; then
-              VALID_APPS="$VALID_APPS $app"
+              BUILD_APPS="$BUILD_APPS $app"
+            elif [ -f "iotopps/$app/deployment.yaml" ]; then
+              DEPLOY_ONLY_APPS="$DEPLOY_ONLY_APPS $app"
             fi
           done
           
-          # Convert to JSON array
-          if [ -z "$VALID_APPS" ]; then
+          # Convert to JSON arrays
+          if [ -z "$BUILD_APPS" ]; then
+            echo "build_apps=[]" >> $GITHUB_OUTPUT
+            echo "has_build_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_build_changes=true" >> $GITHUB_OUTPUT
+            JSON_BUILD=$(echo $BUILD_APPS | jq -R -s -c 'split(" ") | map(select(length > 0))')
+            echo "build_apps=$JSON_BUILD" >> $GITHUB_OUTPUT
+          fi
+          
+          if [ -z "$DEPLOY_ONLY_APPS" ]; then
+            echo "deploy_only_apps=[]" >> $GITHUB_OUTPUT
+            echo "has_deploy_only_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_deploy_only_changes=true" >> $GITHUB_OUTPUT
+            JSON_DEPLOY=$(echo $DEPLOY_ONLY_APPS | jq -R -s -c 'split(" ") | map(select(length > 0))')
+            echo "deploy_only_apps=$JSON_DEPLOY" >> $GITHUB_OUTPUT
+          fi
+          
+          # Legacy output for backward compatibility
+          if [ -z "$BUILD_APPS" ] && [ -z "$DEPLOY_ONLY_APPS" ]; then
             echo "has_changes=false" >> $GITHUB_OUTPUT
             echo "apps=[]" >> $GITHUB_OUTPUT
           else
             echo "has_changes=true" >> $GITHUB_OUTPUT
-            JSON_APPS=$(echo $VALID_APPS | jq -R -s -c 'split(" ") | map(select(length > 0))')
-            echo "apps=$JSON_APPS" >> $GITHUB_OUTPUT
+            ALL_APPS="$BUILD_APPS $DEPLOY_ONLY_APPS"
+            JSON_ALL=$(echo $ALL_APPS | jq -R -s -c 'split(" ") | map(select(length > 0))')
+            echo "apps=$JSON_ALL" >> $GITHUB_OUTPUT
           fi
           
-          echo "Detected apps: $VALID_APPS"
+          echo "Apps needing build: $BUILD_APPS"
+          echo "Apps needing deployment only: $DEPLOY_ONLY_APPS"
 
   build-and-deploy:
     name: Build & Deploy ${{ matrix.app || inputs.app_folder }}
@@ -93,10 +118,10 @@ jobs:
     needs: [detect-changes]
     if: |
       always() && 
-      (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.has_changes == 'true')
+      (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.has_build_changes == 'true')
     strategy:
       matrix:
-        app: ${{ github.event_name == 'workflow_dispatch' && fromJson(format('["{0}"]', inputs.app_folder)) || fromJson(needs.detect-changes.outputs.apps) }}
+        app: ${{ github.event_name == 'workflow_dispatch' && fromJson(format('["{0}"]', inputs.app_folder)) || fromJson(needs.detect-changes.outputs.build_apps) }}
       fail-fast: false
     
     steps:
@@ -459,3 +484,115 @@ jobs:
               
               [View workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`
             })
+
+  deploy-only:
+    name: Deploy ${{ matrix.app }} (No Build)
+    runs-on: ubuntu-latest
+    needs: [detect-changes]
+    if: always() && needs.detect-changes.outputs.has_deploy_only_changes == 'true'
+    strategy:
+      matrix:
+        app: ${{ fromJson(needs.detect-changes.outputs.deploy_only_apps) }}
+      fail-fast: false
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set up kubeconfig
+        run: |
+          az connectedk8s proxy \
+            --name ${{ env.AZURE_CLUSTER_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --file kubeconfig &
+          
+          sleep 10
+          export KUBECONFIG=$(pwd)/kubeconfig
+          echo "KUBECONFIG=$(pwd)/kubeconfig" >> $GITHUB_ENV
+
+      - name: Deploy ${{ matrix.app }}
+        shell: bash
+        run: |
+          NAMESPACE="default"
+          APP="${{ matrix.app }}"
+          
+          echo "Deploying ${APP} to namespace: ${NAMESPACE}"
+          
+          # Apply deployment directly (no image substitution needed)
+          kubectl apply -f iotopps/${APP}/deployment.yaml --namespace="${NAMESPACE}"
+          
+          if [ $? -ne 0 ]; then
+            echo "Failed to apply ${APP} deployment"
+            exit 1
+          fi
+          
+          # Monitor deployment status
+          echo "Monitoring deployment status..."
+          DEPLOYMENT_SUCCESS=0
+          
+          for i in {1..60}; do
+            READY=$(kubectl get deployment ${APP} -n ${NAMESPACE} -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+            DESIRED=$(kubectl get deployment ${APP} -n ${NAMESPACE} -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
+            UPDATED=$(kubectl get deployment ${APP} -n ${NAMESPACE} -o jsonpath='{.status.updatedReplicas}' 2>/dev/null || echo "0")
+            
+            if [ "$READY" == "$DESIRED" ] && [ "$UPDATED" == "$DESIRED" ]; then
+              echo "✅ ${APP} deployment successful: ${READY}/${DESIRED} replicas ready"
+              DEPLOYMENT_SUCCESS=1
+              break
+            fi
+            
+            echo "Waiting for ${APP} deployment... (${READY}/${DESIRED} ready, ${UPDATED} updated) [${i}/60]"
+            sleep 5
+          done
+          
+          if [ $DEPLOYMENT_SUCCESS -eq 0 ]; then
+            echo "❌ Deployment did not complete successfully within timeout"
+            kubectl describe deployment ${APP} -n ${NAMESPACE}
+            kubectl get pods -l app=${APP} -n ${NAMESPACE}
+            kubectl logs -l app=${APP} -n ${NAMESPACE} --tail=50 || true
+            exit 1
+          fi
+          
+          echo "Deployment completed successfully!"
+
+      - name: Verify Deployment
+        shell: bash
+        run: |
+          echo "${{ matrix.app }} Status:"
+          kubectl get deployment ${{ matrix.app }} -n default
+          kubectl get pods -l app=${{ matrix.app }} -n default
+          
+          echo ""
+          echo "Recent logs from ${{ matrix.app }}:"
+          kubectl logs -l app=${{ matrix.app }} -n default --tail=20 || true
+
+      - name: Create deployment summary
+        shell: bash
+        run: |
+          APP="${{ matrix.app }}"
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          ## � ${APP} Deployed
+          
+          **Status:** ✅ Successfully deployed
+          **Namespace:** \`default\`
+          **Type:** Deployment-only (uses official/external image)
+          
+          ### View Logs
+          
+          \`\`\`bash
+          kubectl logs -n default -l app=${APP} -f
+          \`\`\`
+          
+          ### Check Status
+          
+          \`\`\`bash
+          kubectl get pods -n default -l app=${APP}
+          kubectl describe deployment ${APP} -n default
+          \`\`\`
+          
+          EOF
