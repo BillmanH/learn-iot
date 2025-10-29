@@ -45,7 +45,7 @@ All deployment scripts read configuration from `hello_flask_config.json`. To get
 
 See the [Configuration Guide](#configuration-reference) below for all available options.
 
-## 🏠 Local Development
+## 🏠 Local Development.
 
 For local development and testing before deployment:
 
@@ -54,7 +54,7 @@ For local development and testing before deployment:
 # Windows PowerShell (recommended)
 .\Deploy-Local.ps1
 
-# Windows Command Prompt
+# Windows Command Prompt 
 run-local.bat
 
 # Linux/Mac

@@ -79,6 +79,20 @@ Follow the detailed setup guide in **[GITHUB_SECRETS_SETUP.md](./GITHUB_SECRETS_
 - [ ] Set `REGISTRY_TYPE` variable (`dockerhub` or `acr`)
 - [ ] Set `REGISTRY_NAME` variable
 
+**Quick Setup Checklist (secrets in alphabetical order):**
+- [ ] Create Azure service principal
+- [ ] Add `ACR_PASSWORD` (if using ACR)
+- [ ] Add `ACR_USERNAME` (if using ACR)
+- [ ] Add `AZURE_CREDENTIALS` secret
+- [ ] Add `AZURE_SUBSCRIPTION_ID` (if not using `AZURE_CREDENTIALS`)
+- [ ] Add `DOCKER_PASSWORD` (if using Docker Hub)
+- [ ] Add `DOCKER_USERNAME` (if using Docker Hub)
+- [ ] Set `AZURE_RESOURCE_GROUP` variable
+- [ ] Set `AZURE_CLUSTER_NAME` variable
+- [ ] Set `AZURE_LOCATION` variable
+- [ ] Set `REGISTRY_TYPE` variable (`dockerhub` or `acr`)
+- [ ] Set `REGISTRY_NAME` variable
+
 ## Usage
 
 ### Building and Testing (PR Workflow)

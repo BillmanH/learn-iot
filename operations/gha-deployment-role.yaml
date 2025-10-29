@@ -1,0 +1,33 @@
+# Combined ClusterRole for GitHub Actions
+# Provides permissions for both deployment operations and node viewing
+# Apply with: kubectl apply -f operations/gha-combined-role.yaml
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: gha-actions-role
+rules:
+# Deployment permissions
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+- apiGroups: [""]
+  resources: ["services", "pods", "configmaps", "secrets"]
+  verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+# Node viewing permissions
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: gha-actions-role-binding
+subjects:
+- kind: User
+  name: "YOUR_SP_CLIENT_ID"  # Your service principal ID
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: gha-actions-role
+  apiGroup: rbac.authorization.k8s.io

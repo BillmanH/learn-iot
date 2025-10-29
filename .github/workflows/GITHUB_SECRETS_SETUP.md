@@ -4,62 +4,68 @@ This document describes all the secrets and variables you need to configure in y
 
 ## Required Secrets
 
-Navigate to your repository → **Settings** → **Secrets and variables** → **Actions** to add these secrets.
+Navigate to your repository → **Settings** → **Secrets and variables** → **Actions** to add these secrets. The workflows only reference the secrets listed below — I trimmed anything unused.
 
-### Azure Authentication Secrets
+List of secrets referenced by the workflows (alphabetical):
 
-#### `AZURE_CREDENTIALS`
-Service Principal credentials for Azure authentication. Create using:
+- `ACR_PASSWORD` — Azure Container Registry admin password (only required if you authenticate to ACR with username/password). Used by the ACR login step.
+- `ACR_USERNAME` — Azure Container Registry admin username (only required if you authenticate to ACR with username/password). Used by the ACR login step.
+- `AZURE_CREDENTIALS` — Preferred: service principal JSON used by `azure/login` (recommended). See creation snippet below.
+- `AZURE_SUBSCRIPTION_ID` — Subscription ID used for `az account set` when `AZURE_CREDENTIALS` is not used.
+- `DOCKER_PASSWORD` — Docker Hub password or access token (required if using Docker Hub credentials).
+- `DOCKER_USERNAME` — Docker Hub username (used for login and as the fallback namespace when `REGISTRY_NAME` is empty).
 
-```bash
-az ad sp create-for-rbac --name "github-actions-iot-edge" \
-  --role contributor \
-  --scopes /subscriptions/{subscription-id}/resourceGroups/{resource-group-name} \
-  --sdk-auth
+Only add the registry secrets for the provider you use (ACR vs Docker Hub). The registry namespace/name itself should be configured as the repository variable `REGISTRY_NAME` (see Variables section below).
+
+### Azure Authentication (create `AZURE_CREDENTIALS`)
+
+Create an Azure service principal with appropriate rights and store the JSON in `AZURE_CREDENTIALS`. Example (CLI):
+
+```powershell
+$sp = az ad sp create-for-rbac --name "github-actions-iot-edge" `
+  --role Contributor `
+  --scopes "/subscriptions/{subscription-id}/resourceGroups/{resource-group-name}" `
+  --sdk-auth | ConvertFrom-Json
+
+# Save the JSON output of $sp as the AZURE_CREDENTIALS secret
+# For example: $sp | ConvertTo-Json -Depth 10 | Out-File -Encoding UTF8 azure_credentials.json
+# Then copy the file contents into the GitHub secret value for AZURE_CREDENTIALS
 ```
 
-The output JSON should be stored as-is in this secret. Format:
+Save the entire JSON output as the `AZURE_CREDENTIALS` secret. The workflow also supports using `AZURE_SUBSCRIPTION_ID` when `AZURE_CREDENTIALS` is not provided, but `AZURE_CREDENTIALS` is the recommended approach.
+
+Example output (truncated):
+
 ```json
 {
   "clientId": "<GUID>",
   "clientSecret": "<GUID>",
   "subscriptionId": "<GUID>",
-  "tenantId": "<GUID>",
-  "activeDirectoryEndpointUrl": "https://login.microsoftonline.com",
-  "resourceManagerEndpointUrl": "https://management.azure.com/",
-  "activeDirectoryGraphResourceId": "https://graph.windows.net/",
-  "sqlManagementEndpointUrl": "https://management.core.windows.net:8443/",
-  "galleryEndpointUrl": "https://gallery.azure.com/",
-  "managementEndpointUrl": "https://management.core.windows.net/"
+  "tenantId": "<GUID>"
 }
 ```
 
-#### `AZURE_SUBSCRIPTION_ID`
-Your Azure subscription ID (GUID format)
+### Assign the role on the Arc-connected cluster resource
+The service principal must also have permissions on the Arc-connected cluster resource so kubectl (via the connectedk8s proxy) can access Kubernetes resources.
 
-Example: `12345678-1234-1234-1234-123456789012`
+Run these steps after creating the service principal (replace placeholders):
 
-### Container Registry Secrets
+```powershell
+# Get the connected cluster resource id
+$clusterId = az resource show `
+  --resource-group "{resource-group-name}" `
+  --resource-type "Microsoft.Kubernetes/connectedClusters" `
+  --name "{cluster-name}" `
+  --query id -o tsv
 
-Choose **ONE** of the following registry types:
+# Assign the Contributor role to the SP (uses clientId from $sp created above)
+az role assignment create `
+  --assignee $sp.clientId `
+  --role "Contributor" `
+  --scope $clusterId
+```
 
-#### For Docker Hub:
-- **`DOCKER_USERNAME`**: Your Docker Hub username
-- **`DOCKER_PASSWORD`**: Your Docker Hub password or access token
-
-#### For Azure Container Registry (ACR):
-- **`ACR_NAME`**: Name of your ACR (e.g., `myiotregistry`)
-- **`ACR_USERNAME`**: ACR admin username (found in ACR → Access keys)
-- **`ACR_PASSWORD`**: ACR admin password (found in ACR → Access keys)
-
-**Note:** If using ACR with the Azure service principal, you may not need separate ACR credentials if the service principal has `acrpull` and `acrpush` roles.
-
-### SSH Secrets (Optional - for direct edge device access)
-
-These are optional and only needed if you want to deploy directly to edge devices without using Arc:
-
-- **`EDGE_DEVICE_SSH_KEY`**: Private SSH key for accessing edge devices
-- **`EDGE_DEVICE_USER`**: SSH username (default: `azureuser`)
+This gives the service principal rights on the connected cluster resource. For Kubernetes RBAC-level permissions, apply the corresponding ClusterRoleBinding on the cluster (see troubleshooting section).
 
 ## Repository Variables
 
@@ -89,17 +95,6 @@ Type of container registry: `dockerhub` or `acr`
 - For Docker Hub: Your Docker Hub username
 - For ACR: Your ACR name (without `.azurecr.io`)
 
-### Optional Variables
-
-#### `IMAGE_TAG_PREFIX`
-Prefix for image tags (default: `v`)
-
-Example: `v` will create tags like `v1.0.0`
-
-#### `EDGE_DEVICE_IP`
-IP address of edge device (if deploying directly without Arc)
-
-Example: `192.168.1.100`
 
 ## Environments (Recommended)
 
@@ -128,9 +123,12 @@ For better organization, create GitHub Environments for different deployment sta
 Before running workflows, verify:
 
 - [ ] Azure service principal created with appropriate permissions
+- [ ] `ACR_PASSWORD` (if using ACR) added
+- [ ] `ACR_USERNAME` (if using ACR) added
 - [ ] `AZURE_CREDENTIALS` secret added with valid JSON
-- [ ] `AZURE_SUBSCRIPTION_ID` secret added
-- [ ] Container registry credentials added (Docker Hub OR ACR)
+- [ ] `AZURE_SUBSCRIPTION_ID` secret added (if not using `AZURE_CREDENTIALS`)
+- [ ] `DOCKER_PASSWORD` (if using Docker Hub) added
+- [ ] `DOCKER_USERNAME` (if using Docker Hub) added
 - [ ] `AZURE_RESOURCE_GROUP` variable set
 - [ ] `AZURE_CLUSTER_NAME` variable set
 - [ ] `AZURE_LOCATION` variable set

@@ -13,29 +13,57 @@ spec:
       labels:
         app: sputnik
     spec:
+      serviceAccountName: mqtt-client  # Use the service account for SAT authentication
       containers:
       - name: sputnik
         image: <YOUR_REGISTRY>/sputnik:latest
         env:
+        # IMPORTANT: When accessing services across namespaces in Kubernetes,
+        # always use the fully qualified domain name (FQDN):
+        # format: service-name.namespace.svc.cluster.local
+        #
+        # VERIFIED SERVICE NAME: aio-broker (confirmed via kubectl get service -n azure-iot-operations)
+        # DO NOT CHANGE to aio-broker-frontend or aio-mq-dmqtt-frontend
+        # The correct service is: aio-broker.azure-iot-operations.svc.cluster.local
         - name: MQTT_BROKER
-          value: "aio-broker"  # Azure IoT Operations MQTT broker
+          value: "aio-broker.azure-iot-operations.svc.cluster.local"  # Azure IoT Operations MQTT broker
         - name: MQTT_PORT
-          value: "1883"
+          value: "18883"  # MQTTS port for Azure IoT Operations broker
         - name: MQTT_TOPIC
           value: "sputnik/beep"
         - name: BEEP_INTERVAL
           value: "5"  # Send beep every 5 seconds
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        # ServiceAccountToken authentication settings
+        - name: MQTT_AUTH_METHOD
+          value: "K8S-SAT"  # Use Kubernetes ServiceAccountToken
+        - name: SAT_TOKEN_PATH
+          value: "/var/run/secrets/tokens/broker-sat"  # Token will be mounted here
         resources:
           requests:
-            memory: "32Mi"
-            cpu: "50m"
-          limits:
-            memory: "64Mi"
+            memory: "128Mi"
             cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
         livenessProbe:
           exec:
             command:
-            - pgrep
-            - python
+            - python3
+            - -c
+            - "import os; exit(0 if os.path.exists('/proc/1') else 1)"
           initialDelaySeconds: 10
           periodSeconds: 30
+        volumeMounts:
+        - name: broker-sat
+          mountPath: /var/run/secrets/tokens
+          readOnly: true
+      volumes:
+      - name: broker-sat
+        projected:
+          sources:
+          - serviceAccountToken:
+              path: broker-sat
+              expirationSeconds: 86400  # 24 hours
+              audience: aio-internal  # Must match broker's audience configuration

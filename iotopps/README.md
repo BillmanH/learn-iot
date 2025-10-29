@@ -4,7 +4,35 @@ This directory contains containerized applications designed to be deployed to Az
 
 ## Available Applications
 
-### 📦 hello-flask
+### � sputnik
+An MQTT publisher that sends periodic "beep" messages to the Azure IoT Operations MQTT broker.
+
+**Features:**
+- MQTT v5 with ServiceAccountToken (K8S-SAT) authentication
+- Sends timestamped beep messages every 5 seconds
+- Demonstrates in-cluster MQTT publishing
+- Auto-reconnection and error handling
+
+**Quick Deploy:** Automatically deployed via GitHub Actions when pushing to `dev` branch
+  
+[📖 Read the docs →](./sputnik/README.md)
+
+### 👂 mosquitto-sub
+An MQTT subscriber that displays messages from the Azure IoT Operations MQTT broker in real-time.
+
+**Features:**
+- Subscribe to any MQTT topic (with wildcard support)
+- Uses official eclipse-mosquitto image (no build needed)
+- Same K8S-SAT authentication as Sputnik
+- Perfect for testing and debugging MQTT message flow
+
+**Quick Deploy:** Automatically deployed via GitHub Actions when pushing to `dev` branch
+
+**View Messages:** `kubectl logs -n default -l app=mosquitto-sub -f`
+  
+[📖 Read the docs →](./mosquitto-sub/README.md) | [⚡ Quick Start →](./mosquitto-sub/QUICKSTART.md)
+
+### �📦 hello-flask
 A simple Flask "Hello World" REST API that demonstrates:
 - Container deployment to IoT Operations
 - Remote deployment from Windows to edge devices

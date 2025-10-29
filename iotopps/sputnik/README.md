@@ -2,7 +2,31 @@
 
 Sputnik is a simple IoT application that sends periodic "beep" messages to an MQTT broker. It's designed to be deployed to your Azure IoT Operations Kubernetes cluster on an edge device.
 
-## 🛰️ What Does It Do?
+## � Authentication Methods
+
+Sputnik supports two authentication methods for connecting to Azure IoT Operations MQTT broker:
+
+### ✅ ServiceAccountToken (Recommended)
+**Best for in-cluster applications** - simpler setup, automatic token renewal, zero maintenance.
+
+**Quick Start:**
+1. Run setup: `.\setup-sat-auth.ps1` (Windows) or `./setup-sat-auth.sh` (Linux/Mac)
+2. Deploy: `kubectl apply -f deployment.yaml`
+3. Done! No certificate management needed.
+
+📖 **See:** [`SAT_AUTH_SETUP.md`](../SAT_AUTH_SETUP.md) for complete guide 
+
+### 🔑 X.509 Certificates (Alternative)
+**Best for external clients** - requires certificate management, suitable for devices outside the cluster.
+
+📖 **See:** [`X509_AUTH_SETUP.md`](../X509_AUTH_SETUP.md) for complete guide
+
+### 📊 Comparison
+See [`AUTH_COMPARISON.md`](../AUTH_COMPARISON.md) for detailed comparison.
+
+---
+
+## �🛰️ What Does It Do?
 
 Sputnik continuously publishes JSON messages to an MQTT topic with the following format:
 
@@ -17,7 +41,7 @@ Sputnik continuously publishes JSON messages to an MQTT topic with the following
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### Prerequisites.
 
 - An MQTT broker running in your Kubernetes cluster
 - Docker registry access (Docker Hub or Azure Container Registry)

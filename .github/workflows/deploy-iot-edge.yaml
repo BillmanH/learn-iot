@@ -30,7 +30,6 @@ on:
 
   push:
     branches:
-      - main
       - dev
     paths:
       - 'iotopps/**'
@@ -39,8 +38,8 @@ on:
 env:
   REGISTRY_TYPE: ${{ vars.REGISTRY_TYPE || 'dockerhub' }}
   REGISTRY_NAME: ${{ vars.REGISTRY_NAME }}
-  AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
-  AZURE_CLUSTER_NAME: ${{ vars.AZURE_CLUSTER_NAME }}
+  AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+  AZURE_CLUSTER_NAME: ${{ secrets.AZURE_CLUSTER_NAME }}
   AZURE_LOCATION: ${{ vars.AZURE_LOCATION || 'eastus' }}
 
 jobs:
@@ -51,6 +50,10 @@ jobs:
     outputs:
       apps: ${{ steps.detect.outputs.apps }}
       has_changes: ${{ steps.detect.outputs.has_changes }}
+      build_apps: ${{ steps.detect.outputs.build_apps }}
+      has_build_changes: ${{ steps.detect.outputs.has_build_changes }}
+      deploy_only_apps: ${{ steps.detect.outputs.deploy_only_apps }}
+      has_deploy_only_changes: ${{ steps.detect.outputs.has_deploy_only_changes }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -65,28 +68,53 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED_FILES"
           
-          # Find unique app folders
+          # Find unique app folders (all folders under iotopps/)
           APPS=$(echo "$CHANGED_FILES" | grep '^iotopps/' | cut -d'/' -f2 | sort -u | grep -v '^$' || true)
           
-          # Filter to only valid app directories (containing Dockerfile)
-          VALID_APPS=""
+          # Separate apps into those needing Docker build vs deployment-only
+          BUILD_APPS=""
+          DEPLOY_ONLY_APPS=""
+          
           for app in $APPS; do
             if [ -f "iotopps/$app/Dockerfile" ]; then
-              VALID_APPS="$VALID_APPS $app"
+              BUILD_APPS="$BUILD_APPS $app"
+            elif [ -f "iotopps/$app/deployment.yaml" ]; then
+              DEPLOY_ONLY_APPS="$DEPLOY_ONLY_APPS $app"
             fi
           done
           
-          # Convert to JSON array
-          if [ -z "$VALID_APPS" ]; then
+          # Convert to JSON arrays
+          if [ -z "$BUILD_APPS" ]; then
+            echo "build_apps=[]" >> $GITHUB_OUTPUT
+            echo "has_build_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_build_changes=true" >> $GITHUB_OUTPUT
+            JSON_BUILD=$(echo $BUILD_APPS | jq -R -s -c 'split(" ") | map(select(length > 0))')
+            echo "build_apps=$JSON_BUILD" >> $GITHUB_OUTPUT
+          fi
+          
+          if [ -z "$DEPLOY_ONLY_APPS" ]; then
+            echo "deploy_only_apps=[]" >> $GITHUB_OUTPUT
+            echo "has_deploy_only_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_deploy_only_changes=true" >> $GITHUB_OUTPUT
+            JSON_DEPLOY=$(echo $DEPLOY_ONLY_APPS | jq -R -s -c 'split(" ") | map(select(length > 0))')
+            echo "deploy_only_apps=$JSON_DEPLOY" >> $GITHUB_OUTPUT
+          fi
+          
+          # Legacy output for backward compatibility
+          if [ -z "$BUILD_APPS" ] && [ -z "$DEPLOY_ONLY_APPS" ]; then
             echo "has_changes=false" >> $GITHUB_OUTPUT
             echo "apps=[]" >> $GITHUB_OUTPUT
           else
             echo "has_changes=true" >> $GITHUB_OUTPUT
-            JSON_APPS=$(echo $VALID_APPS | jq -R -s -c 'split(" ") | map(select(length > 0))')
-            echo "apps=$JSON_APPS" >> $GITHUB_OUTPUT
+            ALL_APPS="$BUILD_APPS $DEPLOY_ONLY_APPS"
+            JSON_ALL=$(echo $ALL_APPS | jq -R -s -c 'split(" ") | map(select(length > 0))')
+            echo "apps=$JSON_ALL" >> $GITHUB_OUTPUT
           fi
           
-          echo "Detected apps: $VALID_APPS"
+          echo "Apps needing build: $BUILD_APPS"
+          echo "Apps needing deployment only: $DEPLOY_ONLY_APPS"
 
   build-and-deploy:
     name: Build & Deploy ${{ matrix.app || inputs.app_folder }}
@@ -94,10 +122,10 @@ jobs:
     needs: [detect-changes]
     if: |
       always() && 
-      (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.has_changes == 'true')
+      (github.event_name == 'workflow_dispatch' || needs.detect-changes.outputs.has_build_changes == 'true')
     strategy:
       matrix:
-        app: ${{ github.event_name == 'workflow_dispatch' && fromJson(format('["{0}"]', inputs.app_folder)) || fromJson(needs.detect-changes.outputs.apps) }}
+        app: ${{ github.event_name == 'workflow_dispatch' && fromJson(format('["{0}"]', inputs.app_folder)) || fromJson(needs.detect-changes.outputs.build_apps) }}
       fail-fast: false
     
     steps:
@@ -107,11 +135,8 @@ jobs:
       - name: Set image tag
         id: set_tag
         run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ inputs.image_tag }}" ]; then
-            TAG="${{ inputs.image_tag }}"
-          else
-            TAG="${{ github.sha }}"
-          fi
+          # Demo environment: always use 'latest' as the image tag
+          TAG="latest"
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "Image tag: $TAG"
 
@@ -137,11 +162,31 @@ jobs:
       - name: Build full image name
         id: image_name
         run: |
-          if [ "${{ env.REGISTRY_TYPE }}" == "acr" ]; then
-            FULL_IMAGE="${{ env.REGISTRY_NAME }}.azurecr.io/${{ matrix.app }}:${{ steps.set_tag.outputs.tag }}"
+          REG_TYPE="$REGISTRY_TYPE"
+          REG_NAME="$REGISTRY_NAME"
+          APP_RAW="${{ matrix.app }}"
+          # Trim whitespace and newlines from app name
+          APP=$(printf '%s' "$APP_RAW" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+          echo "App raw: [$APP_RAW]"
+          echo "App trimmed: [$APP]"
+
+          # Demo: always use latest
+          if [ "$REG_TYPE" = "acr" ]; then
+            if [ -n "$REG_NAME" ]; then
+              FULL_IMAGE="$REG_NAME.azurecr.io/$APP:latest"
+            else
+              FULL_IMAGE="$APP:latest"
+            fi
           else
-            FULL_IMAGE="${{ env.REGISTRY_NAME }}/${{ matrix.app }}:${{ steps.set_tag.outputs.tag }}"
+            # dockerhub: if REGISTRY_NAME is empty, fall back to secrets.DOCKER_USERNAME
+            if [ -n "$REG_NAME" ]; then
+              NAMESPACE="$REG_NAME"
+            else
+              NAMESPACE="${{ secrets.DOCKER_USERNAME }}"
+            fi
+            FULL_IMAGE="$NAMESPACE/$APP:latest"
           fi
+
           echo "full_image=$FULL_IMAGE" >> $GITHUB_OUTPUT
           echo "Full image name: $FULL_IMAGE"
 
@@ -153,7 +198,6 @@ jobs:
           push: true
           tags: |
             ${{ steps.image_name.outputs.full_image }}
-            ${{ env.REGISTRY_TYPE == 'acr' && format('{0}.azurecr.io/{1}:latest', env.REGISTRY_NAME, matrix.app) || format('{0}/{1}:latest', env.REGISTRY_NAME, matrix.app) }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -174,95 +218,223 @@ jobs:
         run: |
           echo "Connecting to Arc-enabled cluster..."
           
+          # Trim and export secrets to avoid accidental whitespace/newlines
+          AZURE_CLUSTER_NAME=$(printf '%s' "$AZURE_CLUSTER_NAME" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+          AZURE_RESOURCE_GROUP=$(printf '%s' "$AZURE_RESOURCE_GROUP" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+
+          # Debug: confirm variables are present (do not print secret values)
+          if [ -n "$AZURE_CLUSTER_NAME" ]; then
+            echo "AZURE_CLUSTER_NAME is set"
+          else
+            echo "AZURE_CLUSTER_NAME is empty"
+          fi
+          if [ -n "$AZURE_RESOURCE_GROUP" ]; then
+            echo "AZURE_RESOURCE_GROUP is set"
+          else
+            echo "AZURE_RESOURCE_GROUP is empty"
+          fi
+
+          # Fail fast if required environment variables are empty
+          if [ -z "$AZURE_CLUSTER_NAME" ] || [ -z "$AZURE_RESOURCE_GROUP" ]; then
+            echo "Error: AZURE_CLUSTER_NAME and AZURE_RESOURCE_GROUP must be set."
+            echo "Set repository secrets accordingly."
+            exit 2
+          fi
+
           # Install connectedk8s extension if not present
           az extension add --name connectedk8s --upgrade
-          
+
           # Verify cluster is connected
           az connectedk8s show \
-            --name ${{ env.AZURE_CLUSTER_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }}
+            --name "$AZURE_CLUSTER_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP"
           
-          # Get cluster credentials using proxy
-          echo "Starting Arc proxy connection..."
-          timeout 120 az connectedk8s proxy \
-            --name ${{ env.AZURE_CLUSTER_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} &
+          # Set up KUBECONFIG
+          export KUBECONFIG="$HOME/.kube/config"
+          mkdir -p "$(dirname "$KUBECONFIG")"
+          
+          echo "Starting Arc proxy connection with extended timeout..."
+          # Start proxy with longer timeout
+          timeout 600 az connectedk8s proxy \
+            --name "$AZURE_CLUSTER_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}" &
           
           PROXY_PID=$!
           echo "Proxy PID: $PROXY_PID"
           
-          # Wait for proxy to be ready (check kubeconfig)
-          echo "Waiting for proxy to be ready..."
+          # More robust connection check
+          echo "Waiting for cluster connection..."
+          CONNECTED=0
           for i in {1..30}; do
-            if kubectl cluster-info &>/dev/null; then
+            if kubectl get nodes --request-timeout=5s > /dev/null 2>&1; then
               echo "Successfully connected to cluster"
+              CONNECTED=1
               break
             fi
+            
+            # Check if proxy is still running
+            if ! kill -0 "$PROXY_PID" 2>/dev/null; then
+              echo "ERROR: Proxy process $PROXY_PID died unexpectedly"
+              echo "Restarting proxy..."
+              timeout 600 az connectedk8s proxy \
+                --name "$AZURE_CLUSTER_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}" &
+              PROXY_PID=$!
+            fi
+            
             echo "Waiting for connection... ($i/30)"
-            sleep 2
+            sleep 5
           done
           
-          # Verify connection
-          kubectl cluster-info
-          kubectl get nodes
+          if [ "$CONNECTED" -ne 1 ]; then
+            echo "ERROR: Failed to establish connection to cluster"
+            exit 1
+          fi
+
+          if [ "$PROXY_OK" -ne 1 ]; then
+            echo "Proxy didn't become ready within the timeout. Running final diagnostic:"
+            kubectl cluster-info || true
+            kubectl get nodes || true
+            exit 1
+          fi
 
       - name: Create deployment manifest
         run: |
-          # Read deployment template
-          DEPLOYMENT_FILE="iotopps/${{ matrix.app }}/deployment.yaml"
+          # Construct deployment file path carefully
+          APP_NAME=$(echo "${{ matrix.app }}" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+          DEPLOYMENT_FILE="iotopps/${APP_NAME}/deployment.yaml"
+          
+          echo "Looking for deployment file at: ${DEPLOYMENT_FILE}"
           
           if [ ! -f "$DEPLOYMENT_FILE" ]; then
-            echo "Error: deployment.yaml not found for ${{ matrix.app }}"
+            echo "Error: deployment.yaml not found at ${DEPLOYMENT_FILE}"
+            echo "Current directory contents:"
+            ls -la iotopps/
+            echo "Application directory contents:"
+            ls -la "iotopps/${APP_NAME}/" || true
             exit 1
           fi
           
+          # Build registry prefix based on registry type
+          if [ "$REGISTRY_TYPE" = "acr" ]; then
+            if [ -n "$REGISTRY_NAME" ]; then
+              REGISTRY_PREFIX="$REGISTRY_NAME.azurecr.io"
+            else
+              echo "Error: REGISTRY_NAME is required for ACR"
+              exit 1
+            fi
+          else
+            # Docker Hub
+            if [ -n "$REGISTRY_NAME" ]; then
+              REGISTRY_PREFIX="$REGISTRY_NAME"
+            else
+              REGISTRY_PREFIX="${{ secrets.DOCKER_USERNAME }}"
+            fi
+          fi
+
+          echo "Using registry prefix: $REGISTRY_PREFIX"
+
           # Replace placeholders
-          sed "s|<YOUR_REGISTRY>|${{ env.REGISTRY_NAME }}|g" "$DEPLOYMENT_FILE" | \
+          sed "s|<YOUR_REGISTRY>|$REGISTRY_PREFIX|g" "$DEPLOYMENT_FILE" | \
           sed "s|:latest|:${{ steps.set_tag.outputs.tag }}|g" > deployment-temp.yaml
           
           echo "Generated deployment manifest:"
           cat deployment-temp.yaml
 
       - name: Deploy to Kubernetes
+        shell: bash
         run: |
-          kubectl apply -f deployment-temp.yaml
+          # Set variables with explicit line ending removal
+          NAMESPACE="default"
+          APP=$(echo "${{ matrix.app }}" | tr -d '\n\r')
           
-          # Wait for deployment to be ready
-          kubectl rollout status deployment/${{ matrix.app }} --timeout=5m
+          echo "Deploying app: [$APP] to namespace: [$NAMESPACE]"
           
-          echo "Deployment completed successfully"
+          # Apply deployment
+          kubectl apply -f deployment-temp.yaml --namespace="$NAMESPACE"
+          if [ $? -ne 0 ]; then
+            echo "Failed to apply deployment"
+            exit 1
+          fi
+          
+          # More resilient deployment check
+          echo "Monitoring deployment status..."
+          DEPLOYMENT_SUCCESS=0
+          
+          for i in {1..60}; do
+            # Get current deployment status
+            READY=$(kubectl get deployment ${APP} -n ${NAMESPACE} -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+            DESIRED=$(kubectl get deployment ${APP} -n ${NAMESPACE} -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
+            UPDATED=$(kubectl get deployment ${APP} -n ${NAMESPACE} -o jsonpath='{.status.updatedReplicas}' 2>/dev/null || echo "0")
+            
+            # Check if deployment is complete
+            if [ "$READY" == "$DESIRED" ] && [ "$UPDATED" == "$DESIRED" ]; then
+              echo "Deployment successful: ${READY}/${DESIRED} replicas ready"
+              DEPLOYMENT_SUCCESS=1
+              break
+            fi
+            
+            # Show detailed status
+            echo "Deployment status: ${READY}/${DESIRED} replicas ready, ${UPDATED} updated ($i/60)"
+            
+            # Show recent events
+            echo "Recent events:"
+            kubectl get events --namespace=${NAMESPACE} --sort-by='.lastTimestamp' | grep ${APP} | tail -3 || true
+            
+            # Check for specific failure conditions
+            if kubectl get deployment ${APP} -n ${NAMESPACE} -o jsonpath='{.status.conditions[?(@.type=="Available")].message}' 2>/dev/null | grep -q "exceeded"; then
+              echo "ERROR: Deployment failed: Resource quota exceeded"
+              kubectl describe deployment/${APP} -n ${NAMESPACE}
+              exit 1
+            fi
+            
+            sleep 5
+          done
+          
+          if [ "$DEPLOYMENT_SUCCESS" -ne 1 ]; then
+            echo "ERROR: Deployment failed to complete within timeout"
+            echo "Deployment details:"
+            kubectl describe deployment/${APP} -n ${NAMESPACE}
+            echo "Pod details:"
+            kubectl get pods -n ${NAMESPACE} -l app=${APP} -o wide
+            exit 1
+          fi
 
       - name: Get service information
         id: service_info
+        continue-on-error: true
         run: |
           SERVICE_NAME="${{ matrix.app }}-service"
           
-          # Get service details
-          kubectl get service $SERVICE_NAME
+          # Get service details (continue even if this fails)
+          kubectl get service $SERVICE_NAME -n default || echo "Service info not available"
           
           # Try to get node port
-          NODE_PORT=$(kubectl get service $SERVICE_NAME -o jsonpath='{.spec.ports[0].nodePort}' || echo "N/A")
-          echo "node_port=$NODE_PORT" >> $GITHUB_OUTPUT
+          NODE_PORT=$(kubectl get service $SERVICE_NAME -n default -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "N/A")
+          echo "node_port=${NODE_PORT:-N/A}" >> $GITHUB_OUTPUT
           
           # Get node IP (if available)
-          NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' || echo "N/A")
-          echo "node_ip=$NODE_IP" >> $GITHUB_OUTPUT
+          NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || echo "N/A")
+          echo "node_ip=${NODE_IP:-N/A}" >> $GITHUB_OUTPUT
           
-          echo "Service exposed on port: $NODE_PORT"
+          echo "Service exposed on port: ${NODE_PORT:-N/A}"
 
       - name: Verify deployment
+        continue-on-error: true
         run: |
           echo "=== Deployment Status ==="
-          kubectl get deployment ${{ matrix.app }}
+          kubectl get deployment ${{ matrix.app }} -n default || echo "Deployment info not available"
           
           echo -e "\n=== Pods ==="
-          kubectl get pods -l app=${{ matrix.app }}
+          kubectl get pods -l app=${{ matrix.app }} -n default || echo "Pod info not available"
           
           echo -e "\n=== Service ==="
-          kubectl get service ${{ matrix.app }}-service
+          kubectl get service ${{ matrix.app }}-service -n default || echo "Service info not available"
           
           echo -e "\n=== Recent Events ==="
-          kubectl get events --sort-by='.lastTimestamp' | grep ${{ matrix.app }} | tail -10
+          kubectl get events -n default --sort-by='.lastTimestamp' | grep ${{ matrix.app }} 2>/dev/null | tail -10 || echo "No recent events found"
 
       - name: Cleanup proxy
         if: always()
@@ -278,23 +450,23 @@ jobs:
           
           **Application:** ${{ matrix.app }}  
           **Image:** ${{ steps.image_name.outputs.full_image }}  
-          **Cluster:** ${{ env.AZURE_CLUSTER_NAME }}  
-          **Resource Group:** ${{ env.AZURE_RESOURCE_GROUP }}  
+          **Cluster:** (secret)  
+          **Resource Group:** (secret)  
           **Node Port:** ${{ steps.service_info.outputs.node_port }}
           
           ### Useful Commands
           \`\`\`bash
           # View pods
-          kubectl get pods -l app=${{ matrix.app }}
+          kubectl get pods -l app=${{ matrix.app }} -n default
           
           # View logs
-          kubectl logs -l app=${{ matrix.app }}
+          kubectl logs -l app=${{ matrix.app }} -n default
           
           # View service
-          kubectl get service ${{ matrix.app }}-service
+          kubectl get service ${{ matrix.app }}-service -n default
           
           # Describe deployment
-          kubectl describe deployment ${{ matrix.app }}
+          kubectl describe deployment ${{ matrix.app }} -n default
           \`\`\`
           EOF
 
@@ -309,10 +481,148 @@ jobs:
               repo: context.repo.repo,
               body: `## 🚀 Deployment Status: ${{ matrix.app }}
               
-              ✅ Successfully deployed to **${{ env.AZURE_CLUSTER_NAME }}**
+              ✅ Successfully deployed to **(secret cluster)**
               
               **Image:** \`${{ steps.image_name.outputs.full_image }}\`
               **Node Port:** \`${{ steps.service_info.outputs.node_port }}\`
               
               [View workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`
             })
+
+  deploy-only:
+    name: Deploy ${{ matrix.app }} (No Build)
+    runs-on: ubuntu-latest
+    needs: [detect-changes]
+    if: always() && needs.detect-changes.outputs.has_deploy_only_changes == 'true'
+    strategy:
+      matrix:
+        app: ${{ fromJson(needs.detect-changes.outputs.deploy_only_apps) }}
+      fail-fast: false
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set up kubeconfig
+        run: |
+          # Set up KUBECONFIG
+          export KUBECONFIG="$HOME/.kube/config"
+          mkdir -p "$(dirname "$KUBECONFIG")"
+          echo "KUBECONFIG=$HOME/.kube/config" >> $GITHUB_ENV
+          
+          echo "Starting Arc proxy connection..."
+          timeout 600 az connectedk8s proxy \
+            --name ${{ env.AZURE_CLUSTER_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }} &
+          
+          PROXY_PID=$!
+          echo "Proxy PID: $PROXY_PID"
+          
+          # Wait for cluster connection
+          echo "Waiting for cluster connection..."
+          CONNECTED=0
+          for i in {1..30}; do
+            if kubectl get nodes --request-timeout=5s > /dev/null 2>&1; then
+              echo "Successfully connected to cluster"
+              CONNECTED=1
+              break
+            fi
+            
+            echo "Waiting for proxy... attempt $i/30"
+            sleep 2
+          done
+          
+          if [ $CONNECTED -eq 0 ]; then
+            echo "Failed to connect to cluster"
+            exit 1
+          fi
+
+      - name: Deploy ${{ matrix.app }}
+        shell: bash
+        run: |
+          # Set variables with explicit line ending removal
+          NAMESPACE="default"
+          APP=$(echo "${{ matrix.app }}" | tr -d '\n\r')
+          
+          echo "Deploying app: [${APP}] to namespace: [${NAMESPACE}]"
+          
+          # Apply deployment directly (no image substitution needed)
+          kubectl apply -f iotopps/${APP}/deployment.yaml --namespace="${NAMESPACE}"
+          
+          if [ $? -ne 0 ]; then
+            echo "Failed to apply ${APP} deployment"
+            exit 1
+          fi
+          
+          # Monitor deployment status
+          echo "Monitoring deployment status..."
+          DEPLOYMENT_SUCCESS=0
+          
+          for i in {1..60}; do
+            READY=$(kubectl get deployment ${APP} -n ${NAMESPACE} -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+            DESIRED=$(kubectl get deployment ${APP} -n ${NAMESPACE} -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
+            UPDATED=$(kubectl get deployment ${APP} -n ${NAMESPACE} -o jsonpath='{.status.updatedReplicas}' 2>/dev/null || echo "0")
+            
+            if [ "$READY" == "$DESIRED" ] && [ "$UPDATED" == "$DESIRED" ]; then
+              echo "✅ ${APP} deployment successful: ${READY}/${DESIRED} replicas ready"
+              DEPLOYMENT_SUCCESS=1
+              break
+            fi
+            
+            echo "Waiting for ${APP} deployment... (${READY}/${DESIRED} ready, ${UPDATED} updated) [${i}/60]"
+            sleep 5
+          done
+          
+          if [ $DEPLOYMENT_SUCCESS -eq 0 ]; then
+            echo "❌ Deployment did not complete successfully within timeout"
+            kubectl describe deployment ${APP} -n ${NAMESPACE}
+            kubectl get pods -l app=${APP} -n ${NAMESPACE}
+            kubectl logs -l app=${APP} -n ${NAMESPACE} --tail=50 || true
+            exit 1
+          fi
+          
+          echo "Deployment completed successfully!"
+
+      - name: Verify Deployment
+        shell: bash
+        run: |
+          APP="${{ matrix.app }}"
+          echo "${APP} Status:"
+          kubectl get deployment ${APP} -n default
+          kubectl get pods -l app=${APP} -n default
+          
+          echo ""
+          echo "Recent logs from ${APP}:"
+          kubectl logs -l app=${APP} -n default --tail=20 || true
+
+      - name: Create deployment summary
+        shell: bash
+        run: |
+          APP="${{ matrix.app }}"
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          ## � ${APP} Deployed
+          
+          **Status:** ✅ Successfully deployed
+          **Namespace:** \`default\`
+          **Type:** Deployment-only (uses official/external image)
+          
+          ### View Logs
+          
+          \`\`\`bash
+          kubectl logs -n default -l app=${APP} -f
+          \`\`\`
+          
+          ### Check Status
+          
+          \`\`\`bash
+          kubectl get pods -n default -l app=${APP}
+          kubectl describe deployment ${APP} -n default
+          \`\`\`
+          
+          EOF

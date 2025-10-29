@@ -1,0 +1,69 @@
+apiVersion: connectivity.iotoperations.azure.com/v1
+kind: Dataflow
+metadata:
+  name: iot-to-fabric
+  namespace: azure-iot-operations
+spec:
+  # Profile reference for the dataflow
+  profileRef: default
+  
+  # Mode: Enabled to start the dataflow
+  mode: Enabled
+  
+  # Source: MQTT broker (subscribe to all topics)
+  operations:
+    - operationType: Source
+      name: mqtt-source
+      sourceSettings:
+        endpointRef: default  # Default MQTT broker endpoint
+        dataSources:
+          - "#"  # Subscribe to all MQTT topics
+          # Alternative: Subscribe to specific topics only
+          # - "sputnik/#"
+          # - "devices/+/telemetry"
+        
+    # Optional: Transformation step to enrich or filter data
+    # Uncomment and customize as needed
+    # - operationType: Transform
+    #   name: enrich-metadata
+    #   transformSettings:
+    #     serializationFormat: Json
+    #     schemaRef: "" # Optional: reference to a schema
+    #     datasets:
+    #       - key: ".metadata.source"
+    #         value: "azure-iot-operations"
+    #       - key: ".metadata.cluster"
+    #         value: "edge-cluster-01"
+    
+    # Destination: Fabric Real-Time Intelligence
+    - operationType: Destination
+      name: fabric-destination
+      destinationSettings:
+        endpointRef: fabric-realtime  # Reference to the endpoint we created
+        dataDestination: "es_YOUR_TOPIC_NAME_FROM_FABRIC"  # REPLACE with your Fabric topic
+        # The topic name format from Fabric is: es_aaaaaaaa-0000-1111-2222-bbbbbbbbbbbb
+        
+---
+# Alternative Dataflow: Subscribe to specific topics only
+apiVersion: connectivity.iotoperations.azure.com/v1
+kind: Dataflow
+metadata:
+  name: sputnik-to-fabric
+  namespace: azure-iot-operations
+spec:
+  profileRef: default
+  mode: Enabled
+  
+  operations:
+    - operationType: Source
+      name: sputnik-source
+      sourceSettings:
+        endpointRef: default
+        dataSources:
+          - "sputnik/beep"  # Only Sputnik beep messages
+        
+    - operationType: Destination
+      name: fabric-destination
+      destinationSettings:
+        endpointRef: fabric-realtime
+        dataDestination: "es_YOUR_TOPIC_NAME_FROM_FABRIC"  # REPLACE with your Fabric topic

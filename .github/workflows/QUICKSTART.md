@@ -27,21 +27,20 @@ az ad sp create-for-rbac \
 2. Click **Settings** → **Secrets and variables** → **Actions**
 3. Click **New repository secret** for each:
 
-### Required Secrets:
+### Required Secrets (add only what you need)
 
-| Secret Name | Value | Where to Find |
-|-------------|-------|---------------|
-| `AZURE_CREDENTIALS` | JSON from Step 1 | Paste entire JSON output |
-| `AZURE_SUBSCRIPTION_ID` | Your subscription ID | Azure Portal or `az account show` |
-| `DOCKER_USERNAME` | Your Docker Hub username | hub.docker.com |
-| `DOCKER_PASSWORD` | Your Docker Hub password | hub.docker.com (or create token) |
+Add these secrets under Settings → Secrets and variables → Actions. List is alphabetical (how GitHub presents secrets).
 
-**For Azure Container Registry instead of Docker Hub:**
-| Secret Name | Value |
-|-------------|-------|
-| `ACR_NAME` | Your ACR name (without .azurecr.io) |
-| `ACR_USERNAME` | ACR username from Access Keys |
-| `ACR_PASSWORD` | ACR password from Access Keys |
+| Secret Name | Value | Notes |
+|-------------|-------|-------|
+| `ACR_PASSWORD` | ACR admin password | Only if you authenticate to ACR with username/password |
+| `ACR_USERNAME` | ACR admin username | Only if you authenticate to ACR with username/password |
+| `AZURE_CREDENTIALS` | JSON from Step 1 | Preferred method for Azure auth (service principal JSON) |
+| `AZURE_SUBSCRIPTION_ID` | Your subscription ID | Only required if not using `AZURE_CREDENTIALS` |
+| `DOCKER_PASSWORD` | Docker Hub password or access token | Only if using Docker Hub |
+| `DOCKER_USERNAME` | Your Docker Hub username | Used for login and as fallback namespace if `REGISTRY_NAME` is empty |
+
+Note: the registry namespace/name is a repository variable named `REGISTRY_NAME` (see Step 3). Do not store the registry name as a secret.
 
 ## Step 3: Configure GitHub Variables (3 minutes)
 
