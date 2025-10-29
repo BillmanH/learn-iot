@@ -60,24 +60,15 @@ spec:
             echo ""
             echo ""
             
-            echo "Debug: Checking mosquitto_sub version and property syntax..."
-            mosquitto_sub --help | grep -A5 "property" || echo "No property help found"
-            echo ""
-            
             echo "Debug: Attempting connection with K8S-SAT authentication..."
+            echo "Using official Azure IoT Operations mosquitto_sub syntax"
             echo "" 
             
             # Subscribe to the topic with K8S-SAT authentication
-            # Note: The broker service name is 'aio-broker' (NOT aio-broker-frontend)
-            # This has been verified and should not be changed.
-            # Using --insecure to skip certificate verification (we're in-cluster)
-            # Using --debug for connection troubleshooting
-            # CRITICAL: Must use -V mqttv5 for K8S-SAT enhanced authentication
-            # Read token into variable to avoid shell interpretation issues
-            SAT_TOKEN=$(cat /var/run/secrets/tokens/broker-sat)
-            
+            # Syntax verified from Microsoft docs:
+            # https://learn.microsoft.com/en-us/azure/iot-operations/manage-mqtt-broker/howto-test-connection
+            # Using --insecure instead of --cafile (same as Sputnik's ssl.CERT_NONE)
             mosquitto_sub \
-              -V mqttv5 \
               --host ${MQTT_BROKER} \
               --port ${MQTT_PORT} \
               --topic "${MQTT_TOPIC}" \
@@ -85,8 +76,8 @@ spec:
               --verbose \
               --debug \
               --insecure \
-              --property "authentication-method=K8S-SAT" \
-              --property "authentication-data=${SAT_TOKEN}"
+              -D CONNECT authentication-method 'K8S-SAT' \
+              -D CONNECT authentication-data $(cat /var/run/secrets/tokens/broker-sat)
         
         env:
         # MQTT Broker configuration
