@@ -19,7 +19,7 @@ message_types:
   cnc_machine:
     enabled: true
     # Messages per interval (relative weight)
-    frequency_weight: 3
+    frequency_weight: 2
     # Typical cycle time range in seconds
     cycle_time_range: [10.0, 15.0]
     # Quality distribution (percentage)
@@ -52,7 +52,7 @@ message_types:
   # 3D Printer Telemetry
   printer_3d:
     enabled: true
-    frequency_weight: 2
+    frequency_weight: 1
     # Progress is tracked for in-progress prints
     progress_increment: 0.05
     quality_distribution:
@@ -80,7 +80,7 @@ message_types:
   # Welding Station Telemetry
   welding:
     enabled: true
-    frequency_weight: 2
+    frequency_weight: 1
     cycle_time_range: [6.0, 10.0]
     quality_distribution:
       good: 0.93
