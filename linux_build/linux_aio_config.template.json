@@ -10,7 +10,8 @@
   "deployment": {
     "skip_system_update": false,
     "force_reinstall": false,
-    "deployment_mode": "test"
+    "deployment_mode": "test",
+    "deploy_opc_ua_bridge": true
   },
   "comments": {
     "subscription_id": "Leave empty to use current logged-in subscription, or provide your Azure subscription GUID",
@@ -20,6 +21,7 @@
     "cluster_name": "Name for your Arc-enabled Kubernetes cluster",
     "namespace_name": "Name for Azure Device Registry namespace",
     "deployment_mode": "Options: 'test' for development, 'secure' for production (future)",
+    "deploy_opc_ua_bridge": "Set to true to automatically deploy OPC UA bridge for factory integration",
     "skip_system_update": "Set to true to skip apt update/upgrade for faster runs",
     "force_reinstall": "Set to true to reinstall components even if they already exist"
   },
@@ -30,7 +32,8 @@
       "cluster_name": "dev-iot-cluster",
       "namespace_name": "dev-namespace",
       "skip_system_update": true,
-      "deployment_mode": "test"
+      "deployment_mode": "test",
+      "deploy_opc_ua_bridge": true
     },
     "production": {
       "resource_group": "rg-iot-prod",
@@ -38,7 +41,8 @@
       "cluster_name": "prod-iot-cluster",
       "namespace_name": "prod-namespace",
       "skip_system_update": false,
-      "deployment_mode": "secure"
+      "deployment_mode": "secure",
+      "deploy_opc_ua_bridge": true
     }
   },
   "usage_instructions": {

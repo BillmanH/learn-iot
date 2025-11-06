@@ -254,16 +254,20 @@ load_config() {
         SKIP_SYSTEM_UPDATE=$(jq -r '.deployment.skip_system_update // false' "$config_file")
         FORCE_REINSTALL=$(jq -r '.deployment.force_reinstall // false' "$config_file")
         DEPLOYMENT_MODE=$(jq -r '.deployment.deployment_mode // "test"' "$config_file")
+        DEPLOY_OPC_UA_BRIDGE=$(jq -r '.deployment.deploy_opc_ua_bridge // true' "$config_file")
         
         # Export variables
         export SUBSCRIPTION_ID SUBSCRIPTION_NAME RESOURCE_GROUP LOCATION CLUSTER_NAME NAMESPACE_NAME
-        export SKIP_SYSTEM_UPDATE FORCE_REINSTALL DEPLOYMENT_MODE
+        export SKIP_SYSTEM_UPDATE FORCE_REINSTALL DEPLOYMENT_MODE DEPLOY_OPC_UA_BRIDGE
         
         log "Configuration loaded from $config_file"
         log "Resource Group: $RESOURCE_GROUP, Location: $LOCATION, Cluster: $CLUSTER_NAME"
         return 0
     else
         log "Configuration file $config_file not found. Will prompt for values interactively."
+        # Set default values
+        DEPLOY_OPC_UA_BRIDGE="true"
+        export DEPLOY_OPC_UA_BRIDGE
         return 1
     fi
 }
@@ -952,6 +956,79 @@ deploy_iot_operations() {
     log "Azure IoT Operations deployed successfully!"
 }
 
+# Deploy OPC UA Bridge components
+deploy_opc_ua_bridge() {
+    # Check if OPC UA bridge deployment is enabled
+    if [ "$DEPLOY_OPC_UA_BRIDGE" = "false" ]; then
+        log "OPC UA Bridge deployment disabled in configuration"
+        log "To enable: set 'deploy_opc_ua_bridge: true' in linux_aio_config.json"
+        return 0
+    fi
+    
+    log "Deploying OPC UA Bridge components for factory integration..."
+    
+    # Check if OPC UA config directory exists
+    local opcua_config_dir="./opcua/assets"
+    if [ ! -d "$opcua_config_dir" ]; then
+        opcua_config_dir="../opcua/assets"
+        if [ ! -d "$opcua_config_dir" ]; then
+            warn "OPC UA configuration directory not found. Skipping OPC UA bridge deployment."
+            warn "To manually deploy later, run: kubectl apply -f opcua/assets/opc-plc-simulator.yaml"
+            return 0
+        fi
+    fi
+    
+    local opc_simulator_file="$opcua_config_dir/opc-plc-simulator.yaml"
+    local asset_endpoint_file="$opcua_config_dir/asset-endpoint-profile.yaml"
+    
+    # Check if OPC UA simulator YAML exists
+    if [ ! -f "$opc_simulator_file" ]; then
+        warn "OPC PLC Simulator configuration file not found at: $opc_simulator_file"
+        warn "Skipping OPC UA bridge deployment."
+        return 0
+    fi
+    
+    # Deploy OPC PLC Simulator
+    log "Deploying OPC PLC Simulator..."
+    kubectl apply -f "$opc_simulator_file"
+    
+    # Wait for OPC PLC Simulator to be ready
+    log "Waiting for OPC PLC Simulator to be ready..."
+    kubectl wait --for=condition=available --timeout=300s deployment/opc-plc-simulator -n azure-iot-operations
+    
+    if [ $? -eq 0 ]; then
+        log "OPC PLC Simulator deployed successfully"
+    else
+        warn "OPC PLC Simulator deployment may have timed out. Checking status..."
+        kubectl get pods -n azure-iot-operations -l app=opc-plc-simulator
+    fi
+    
+    # Deploy Asset Endpoint Profile if it exists
+    if [ -f "$asset_endpoint_file" ]; then
+        log "Deploying Asset Endpoint Profile..."
+        kubectl apply -f "$asset_endpoint_file"
+        log "Asset Endpoint Profile deployed"
+    else
+        log "Asset Endpoint Profile file not found. You can deploy it later with:"
+        log "kubectl apply -f opcua/assets/asset-endpoint-profile.yaml"
+    fi
+    
+    # Display OPC UA endpoint information
+    log "OPC UA Bridge deployment completed!"
+    echo
+    log "OPC UA Endpoint Details:"
+    log "- Internal URL: opc.tcp://opc-plc-service.azure-iot-operations.svc.cluster.local:50000"
+    log "- Namespace: azure-iot-operations"
+    log "- Authentication: Anonymous (development setup)"
+    echo
+    log "Next Steps for OPC UA Bridge:"
+    log "1. Access Azure IoT Operations Portal"
+    log "2. Navigate to 'Asset endpoints' and verify 'spaceship-factory-opcua' appears"
+    log "3. Create assets using the portal with the OPC UA endpoint"
+    log "4. Configure data flows and dashboards"
+    echo
+}
+
 # Verify deployment
 verify_deployment() {
     log "Verifying Azure IoT Operations deployment..."
@@ -981,11 +1058,17 @@ show_next_steps() {
     echo "1. View your Azure IoT Operations instance in the Azure Portal:"
     echo "   https://portal.azure.com/#blade/HubsExtension/BrowseResource/resourceType/Microsoft.IoTOperations%2Finstances"
     echo
-    echo "2. Configure assets and data flows:"
+    echo "2. Access OPC UA Bridge for factory integration:"
+    echo "   - Navigate to 'Asset endpoints' in the portal"
+    echo "   - Verify 'spaceship-factory-opcua' endpoint is available"
+    echo "   - Create assets using the OPC UA endpoint"
+    echo "   - Configure data flows for factory data processing"
+    echo
+    echo "3. Configure assets and data flows:"
     echo "   - Create assets to represent your industrial equipment"
     echo "   - Set up data flows to process and route data"
     echo
-    echo "3. Monitor your deployment:"
+    echo "4. Monitor your deployment:"
     echo "   kubectl get pods -n azure-iot-operations"
     echo "   az iot ops check"
     echo
@@ -995,6 +1078,11 @@ show_next_steps() {
     echo "   Namespace: $NAMESPACE_NAME"
     echo "   Location: $LOCATION"
     echo
+    echo -e "${BLUE}OPC UA Bridge Details:${NC}"
+    echo "   Endpoint URL: opc.tcp://opc-plc-service.azure-iot-operations.svc.cluster.local:50000"
+    echo "   Authentication: Anonymous (development setup)"
+    echo "   Factory Nodes: CNC, 3D Printer, Welding, Painting, Testing stations"
+    echo
     echo -e "${BLUE}Useful Commands:${NC}"
     echo "   # Check cluster status"
     echo "   kubectl get nodes"
@@ -1002,11 +1090,22 @@ show_next_steps() {
     echo "   # View Azure IoT Operations pods"
     echo "   kubectl get pods -n azure-iot-operations"
     echo
+    echo "   # Check OPC UA Bridge status"
+    echo "   kubectl get pods -n azure-iot-operations -l app=opc-plc-simulator"
+    echo "   kubectl get svc -n azure-iot-operations opc-plc-service"
+    echo
     echo "   # Check Azure IoT Operations health"
     echo "   az iot ops check"
     echo
+    echo "   # View logs for OPC UA simulator"
+    echo "   kubectl logs deployment/opc-plc-simulator -n azure-iot-operations"
+    echo
     echo "   # View logs for a specific pod"
     echo "   kubectl logs <pod-name> -n azure-iot-operations"
+    echo
+    echo -e "${BLUE}Documentation:${NC}"
+    echo "   For complete OPC UA bridge setup and asset registration:"
+    echo "   See: opcua/assets/opc-ua-bridge.md"
     echo
 }
 
@@ -1037,6 +1136,7 @@ main() {
     arc_enable_cluster
     create_namespace
     deploy_iot_operations
+    deploy_opc_ua_bridge
     verify_deployment
     show_next_steps
     
