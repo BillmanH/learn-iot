@@ -104,6 +104,18 @@ docker push <YOUR_REGISTRY>/spaceshipfactorysim:latest
 kubectl apply -f deployment.yaml
 ```
 
+### Register Assets in Azure IoT Operations
+
+After deployment, register the factory assets in Azure IoT Operations for monitoring and management:
+
+**📋 See the comprehensive guide: [AZURE_ASSET_REGISTRATION.md](./AZURE_ASSET_REGISTRATION.md)**
+
+This guide provides:
+- Complete asset definitions for all factory equipment
+- Datapoint configurations and event mappings
+- MQTT topic structure recommendations
+- Step-by-step registration process
+
 ### Verify Deployment
 
 ```bash
