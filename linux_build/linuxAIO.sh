@@ -947,40 +947,77 @@ deploy_iot_operations() {
     log "Creating namespace resource for Azure IoT Operations..."
     NAMESPACE_RESOURCE_NAME="${NAMESPACE_NAME}-namespace"
     
-    # Ensure the cluster is properly initialized
-    az iot ops init --cluster "$CLUSTER_NAME" --resource-group "$RESOURCE_GROUP" --enable-rsync-rules || log "Cluster already initialized"
+    # Check Azure CLI extension version and available commands
+    log "Checking available Azure IoT Operations CLI commands..."
+    az iot ops --help > /tmp/aio-help.txt 2>/dev/null || true
     
-    # Create namespace using az iot ops asset endpoint create namespace
+    # Try to create namespace resource using various methods
     log "Creating namespace resource: $NAMESPACE_RESOURCE_NAME"
-    az iot ops asset endpoint create namespace \
-        --name "$NAMESPACE_RESOURCE_NAME" \
-        --resource-group "$RESOURCE_GROUP" \
-        --cluster "$CLUSTER_NAME" \
-        --namespace-name "$NAMESPACE_NAME" || {
-            log "Namespace creation may have failed, attempting to find existing namespace..."
-        }
     
-    # Get namespace resource ID
-    NAMESPACE_RESOURCE_ID=$(az iot ops asset endpoint show namespace --name "$NAMESPACE_RESOURCE_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv 2>/dev/null)
+    # Method 1: Try az iot ops asset endpoint create namespace
+    if az iot ops asset endpoint create namespace --help >/dev/null 2>&1; then
+        log "Trying: az iot ops asset endpoint create namespace"
+        az iot ops asset endpoint create namespace \
+            --name "$NAMESPACE_RESOURCE_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --cluster "$CLUSTER_NAME" \
+            --namespace-name "$NAMESPACE_NAME" && NAMESPACE_CREATED=true
+    fi
+    
+    # Method 2: Try az iot ops namespace create (if first method failed)
+    if [ "$NAMESPACE_CREATED" != "true" ] && az iot ops namespace create --help >/dev/null 2>&1; then
+        log "Trying: az iot ops namespace create"
+        az iot ops namespace create \
+            --name "$NAMESPACE_RESOURCE_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --cluster "$CLUSTER_NAME" && NAMESPACE_CREATED=true
+    fi
+    
+    # Method 3: Try az iot ops asset create namespace (alternative syntax)
+    if [ "$NAMESPACE_CREATED" != "true" ] && az iot ops asset create namespace --help >/dev/null 2>&1; then
+        log "Trying: az iot ops asset create namespace"
+        az iot ops asset create namespace \
+            --name "$NAMESPACE_RESOURCE_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --cluster "$CLUSTER_NAME" && NAMESPACE_CREATED=true
+    fi
+    
+    if [ "$NAMESPACE_CREATED" != "true" ]; then
+        log "All namespace creation methods failed. This may be expected if namespace already exists."
+    fi
+    
+    # Try to get namespace resource ID using multiple methods
+    log "Retrieving namespace resource ID..."
+    
+    # Try different show commands
+    NAMESPACE_RESOURCE_ID=$(az iot ops asset endpoint show namespace --name "$NAMESPACE_RESOURCE_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv 2>/dev/null) || \
+    NAMESPACE_RESOURCE_ID=$(az iot ops namespace show --name "$NAMESPACE_RESOURCE_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv 2>/dev/null) || \
+    NAMESPACE_RESOURCE_ID=$(az iot ops asset show namespace --name "$NAMESPACE_RESOURCE_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv 2>/dev/null)
+    
+    # Try to list namespaces if show commands failed
+    if [ -z "$NAMESPACE_RESOURCE_ID" ]; then
+        log "Direct namespace lookup failed, trying to list existing namespaces..."
+        NAMESPACE_RESOURCE_ID=$(az iot ops asset endpoint list namespace --resource-group "$RESOURCE_GROUP" --query "[?contains(name, '$NAMESPACE_NAME')].id" -o tsv 2>/dev/null | head -1) || \
+        NAMESPACE_RESOURCE_ID=$(az iot ops namespace list --resource-group "$RESOURCE_GROUP" --query "[?contains(name, '$NAMESPACE_NAME')].id" -o tsv 2>/dev/null | head -1) || \
+        NAMESPACE_RESOURCE_ID=$(az iot ops asset list namespace --resource-group "$RESOURCE_GROUP" --query "[?contains(name, '$NAMESPACE_NAME')].id" -o tsv 2>/dev/null | head -1)
+    fi
+    
+    # Final fallback: list all namespaces and take the first one
+    if [ -z "$NAMESPACE_RESOURCE_ID" ]; then
+        log "Specific namespace not found, looking for any namespace in resource group..."
+        NAMESPACE_RESOURCE_ID=$(az iot ops asset endpoint list namespace --resource-group "$RESOURCE_GROUP" --query "[0].id" -o tsv 2>/dev/null) || \
+        NAMESPACE_RESOURCE_ID=$(az iot ops namespace list --resource-group "$RESOURCE_GROUP" --query "[0].id" -o tsv 2>/dev/null) || \
+        NAMESPACE_RESOURCE_ID=$(az iot ops asset list namespace --resource-group "$RESOURCE_GROUP" --query "[0].id" -o tsv 2>/dev/null)
+    fi
     
     if [ -z "$NAMESPACE_RESOURCE_ID" ]; then
-        # Try to find any existing namespace in the resource group
-        log "Attempting to find existing namespace resources..."
-        NAMESPACE_RESOURCE_ID=$(az iot ops asset endpoint list namespace --resource-group "$RESOURCE_GROUP" --query "[0].id" -o tsv 2>/dev/null)
-        
-        if [ -z "$NAMESPACE_RESOURCE_ID" ]; then
-            error "Could not create or find namespace resource. Please ensure Azure CLI is up to date and check the documentation for namespace creation syntax."
-        else
-            log "Using existing namespace resource: $NAMESPACE_RESOURCE_ID"
-        fi
+        error "Could not create or find namespace resource. Please ensure you have the latest azure-iot-ops extension and check the Azure CLI documentation for the current namespace creation syntax."
     fi
     
     # Deploy Azure IoT Operations with schema registry and namespace
     log "Deploying Azure IoT Operations (this may take several minutes)..."
     log "Note: Using schema registry '$SCHEMA_REGISTRY_NAME'"
-    log "Note: Using namespace resource '$NAMESPACE_RESOURCE_NAME'"
-    log "Schema Registry ID: $SCHEMA_REGISTRY_RESOURCE_ID"
-    log "Namespace Resource ID: $NAMESPACE_RESOURCE_ID"
+    log "Note: Using namespace resource ID: $NAMESPACE_RESOURCE_ID"
     
     az iot ops create \
         --cluster "$CLUSTER_NAME" \
