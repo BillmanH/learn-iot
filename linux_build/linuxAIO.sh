@@ -943,15 +943,51 @@ deploy_iot_operations() {
     # Get schema registry resource ID
     SCHEMA_REGISTRY_RESOURCE_ID=$(az iot ops schema registry show --name "$SCHEMA_REGISTRY_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv)
     
-    # Deploy Azure IoT Operations with schema registry
+    # Create namespace resource (required for newer AIO versions)
+    log "Creating namespace resource for Azure IoT Operations..."
+    NAMESPACE_RESOURCE_NAME="${NAMESPACE_NAME}-namespace"
+    
+    # Ensure the cluster is properly initialized
+    az iot ops init --cluster "$CLUSTER_NAME" --resource-group "$RESOURCE_GROUP" --enable-rsync-rules || log "Cluster already initialized"
+    
+    # Create namespace using az iot ops asset endpoint create namespace
+    log "Creating namespace resource: $NAMESPACE_RESOURCE_NAME"
+    az iot ops asset endpoint create namespace \
+        --name "$NAMESPACE_RESOURCE_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --cluster "$CLUSTER_NAME" \
+        --namespace-name "$NAMESPACE_NAME" || {
+            log "Namespace creation may have failed, attempting to find existing namespace..."
+        }
+    
+    # Get namespace resource ID
+    NAMESPACE_RESOURCE_ID=$(az iot ops asset endpoint show namespace --name "$NAMESPACE_RESOURCE_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv 2>/dev/null)
+    
+    if [ -z "$NAMESPACE_RESOURCE_ID" ]; then
+        # Try to find any existing namespace in the resource group
+        log "Attempting to find existing namespace resources..."
+        NAMESPACE_RESOURCE_ID=$(az iot ops asset endpoint list namespace --resource-group "$RESOURCE_GROUP" --query "[0].id" -o tsv 2>/dev/null)
+        
+        if [ -z "$NAMESPACE_RESOURCE_ID" ]; then
+            error "Could not create or find namespace resource. Please ensure Azure CLI is up to date and check the documentation for namespace creation syntax."
+        else
+            log "Using existing namespace resource: $NAMESPACE_RESOURCE_ID"
+        fi
+    fi
+    
+    # Deploy Azure IoT Operations with schema registry and namespace
     log "Deploying Azure IoT Operations (this may take several minutes)..."
     log "Note: Using schema registry '$SCHEMA_REGISTRY_NAME'"
+    log "Note: Using namespace resource '$NAMESPACE_RESOURCE_NAME'"
+    log "Schema Registry ID: $SCHEMA_REGISTRY_RESOURCE_ID"
+    log "Namespace Resource ID: $NAMESPACE_RESOURCE_ID"
     
     az iot ops create \
         --cluster "$CLUSTER_NAME" \
         --resource-group "$RESOURCE_GROUP" \
         --name "${CLUSTER_NAME}-aio" \
-        --sr-resource-id "$SCHEMA_REGISTRY_RESOURCE_ID"
+        --sr-resource-id "$SCHEMA_REGISTRY_RESOURCE_ID" \
+        --ns-resource-id "$NAMESPACE_RESOURCE_ID"
     
     log "Azure IoT Operations deployed successfully!"
 }
