@@ -962,35 +962,51 @@ deploy_iot_operations() {
     # Method 1: Try az iot ops asset endpoint create namespace (if available)
     if az iot ops asset endpoint create namespace --help >/dev/null 2>&1; then
         log "METHOD 1: Trying command: az iot ops asset endpoint create namespace --name $NAMESPACE_RESOURCE_NAME --resource-group $RESOURCE_GROUP --cluster $CLUSTER_NAME --namespace-name $NAMESPACE_NAME"
-        if az iot ops asset endpoint create namespace \
+        CREATE_OUTPUT=$(az iot ops asset endpoint create namespace \
             --name "$NAMESPACE_RESOURCE_NAME" \
             --resource-group "$RESOURCE_GROUP" \
             --cluster "$CLUSTER_NAME" \
-            --namespace-name "$NAMESPACE_NAME" 2>&1; then
+            --namespace-name "$NAMESPACE_NAME" 2>&1)
+        CREATE_EXIT_CODE=$?
+        
+        if [ $CREATE_EXIT_CODE -eq 0 ]; then
             NAMESPACE_CREATED=true
             log "SUCCESS: Namespace created successfully using asset endpoint method"
+            log "OUTPUT: $CREATE_OUTPUT"
         else
-            log "FAILED: Asset endpoint namespace creation failed"
+            log "FAILED: Asset endpoint namespace creation failed with exit code $CREATE_EXIT_CODE"
+            log "ERROR OUTPUT: $CREATE_OUTPUT"
         fi
     else
         log "SKIPPED: az iot ops asset endpoint create namespace command not available"
+        # Show what the help check returned
+        HELP_OUTPUT=$(az iot ops asset endpoint create namespace --help 2>&1)
+        log "HELP ERROR: $HELP_OUTPUT"
     fi
     
     # Method 2: Try az iot ops namespace create (if first method failed or unavailable)
     if [ "$NAMESPACE_CREATED" != "true" ]; then
         if az iot ops namespace --help >/dev/null 2>&1; then
             log "METHOD 2: Trying command: az iot ops namespace create --name $NAMESPACE_RESOURCE_NAME --resource-group $RESOURCE_GROUP --cluster $CLUSTER_NAME"
-            if az iot ops namespace create \
+            CREATE_OUTPUT=$(az iot ops namespace create \
                 --name "$NAMESPACE_RESOURCE_NAME" \
                 --resource-group "$RESOURCE_GROUP" \
-                --cluster "$CLUSTER_NAME" 2>&1; then
+                --cluster "$CLUSTER_NAME" 2>&1)
+            CREATE_EXIT_CODE=$?
+            
+            if [ $CREATE_EXIT_CODE -eq 0 ]; then
                 NAMESPACE_CREATED=true
                 log "SUCCESS: Namespace created successfully using direct namespace method"
+                log "OUTPUT: $CREATE_OUTPUT"
             else
-                log "FAILED: Direct namespace creation failed"
+                log "FAILED: Direct namespace creation failed with exit code $CREATE_EXIT_CODE"
+                log "ERROR OUTPUT: $CREATE_OUTPUT"
             fi
         else
             log "SKIPPED: az iot ops namespace command not available"
+            # Show what the help check returned
+            HELP_OUTPUT=$(az iot ops namespace --help 2>&1)
+            log "HELP ERROR: $HELP_OUTPUT"
         fi
     fi
     
@@ -1004,19 +1020,27 @@ deploy_iot_operations() {
     
     # Method 1: Try asset endpoint show
     log "LOOKUP 1: Trying command: az iot ops asset endpoint show namespace --name $NAMESPACE_RESOURCE_NAME --resource-group $RESOURCE_GROUP --query id -o tsv"
-    NAMESPACE_RESOURCE_ID=$(az iot ops asset endpoint show namespace --name "$NAMESPACE_RESOURCE_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv 2>/dev/null)
-    if [ -n "$NAMESPACE_RESOURCE_ID" ]; then
+    LOOKUP_OUTPUT=$(az iot ops asset endpoint show namespace --name "$NAMESPACE_RESOURCE_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv 2>&1)
+    LOOKUP_EXIT_CODE=$?
+    
+    if [ $LOOKUP_EXIT_CODE -eq 0 ] && [ -n "$LOOKUP_OUTPUT" ]; then
+        NAMESPACE_RESOURCE_ID="$LOOKUP_OUTPUT"
         log "SUCCESS: Found namespace resource ID using asset endpoint show: $NAMESPACE_RESOURCE_ID"
     else
-        log "FAILED: Asset endpoint show method failed"
+        log "FAILED: Asset endpoint show method failed with exit code $LOOKUP_EXIT_CODE"
+        log "ERROR OUTPUT: $LOOKUP_OUTPUT"
         
         # Method 2: Try direct namespace show
         log "LOOKUP 2: Trying command: az iot ops namespace show --name $NAMESPACE_RESOURCE_NAME --resource-group $RESOURCE_GROUP --query id -o tsv"
-        NAMESPACE_RESOURCE_ID=$(az iot ops namespace show --name "$NAMESPACE_RESOURCE_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv 2>/dev/null)
-        if [ -n "$NAMESPACE_RESOURCE_ID" ]; then
+        LOOKUP_OUTPUT=$(az iot ops namespace show --name "$NAMESPACE_RESOURCE_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv 2>&1)
+        LOOKUP_EXIT_CODE=$?
+        
+        if [ $LOOKUP_EXIT_CODE -eq 0 ] && [ -n "$LOOKUP_OUTPUT" ]; then
+            NAMESPACE_RESOURCE_ID="$LOOKUP_OUTPUT"
             log "SUCCESS: Found namespace resource ID using direct namespace show: $NAMESPACE_RESOURCE_ID"
         else
-            log "FAILED: Direct namespace show method failed"
+            log "FAILED: Direct namespace show method failed with exit code $LOOKUP_EXIT_CODE"
+            log "ERROR OUTPUT: $LOOKUP_OUTPUT"
         fi
     fi
     
@@ -1026,19 +1050,27 @@ deploy_iot_operations() {
         
         # Method 3: List asset endpoint namespaces
         log "LOOKUP 3: Trying command: az iot ops asset endpoint list namespace --resource-group $RESOURCE_GROUP --query \"[?contains(name, '$NAMESPACE_NAME')].id\" -o tsv"
-        NAMESPACE_RESOURCE_ID=$(az iot ops asset endpoint list namespace --resource-group "$RESOURCE_GROUP" --query "[?contains(name, '$NAMESPACE_NAME')].id" -o tsv 2>/dev/null | head -1)
-        if [ -n "$NAMESPACE_RESOURCE_ID" ]; then
+        LIST_OUTPUT=$(az iot ops asset endpoint list namespace --resource-group "$RESOURCE_GROUP" --query "[?contains(name, '$NAMESPACE_NAME')].id" -o tsv 2>&1)
+        LIST_EXIT_CODE=$?
+        
+        if [ $LIST_EXIT_CODE -eq 0 ] && [ -n "$LIST_OUTPUT" ]; then
+            NAMESPACE_RESOURCE_ID=$(echo "$LIST_OUTPUT" | head -1)
             log "SUCCESS: Found namespace resource ID by listing asset endpoints: $NAMESPACE_RESOURCE_ID"
         else
-            log "FAILED: Asset endpoint list method failed"
+            log "FAILED: Asset endpoint list method failed with exit code $LIST_EXIT_CODE"
+            log "ERROR OUTPUT: $LIST_OUTPUT"
             
             # Method 4: List direct namespaces
             log "LOOKUP 4: Trying command: az iot ops namespace list --resource-group $RESOURCE_GROUP --query \"[?contains(name, '$NAMESPACE_NAME')].id\" -o tsv"
-            NAMESPACE_RESOURCE_ID=$(az iot ops namespace list --resource-group "$RESOURCE_GROUP" --query "[?contains(name, '$NAMESPACE_NAME')].id" -o tsv 2>/dev/null | head -1)
-            if [ -n "$NAMESPACE_RESOURCE_ID" ]; then
+            LIST_OUTPUT=$(az iot ops namespace list --resource-group "$RESOURCE_GROUP" --query "[?contains(name, '$NAMESPACE_NAME')].id" -o tsv 2>&1)
+            LIST_EXIT_CODE=$?
+            
+            if [ $LIST_EXIT_CODE -eq 0 ] && [ -n "$LIST_OUTPUT" ]; then
+                NAMESPACE_RESOURCE_ID=$(echo "$LIST_OUTPUT" | head -1)
                 log "SUCCESS: Found namespace resource ID by listing namespaces: $NAMESPACE_RESOURCE_ID"
             else
-                log "FAILED: Direct namespace list method failed"
+                log "FAILED: Direct namespace list method failed with exit code $LIST_EXIT_CODE"
+                log "ERROR OUTPUT: $LIST_OUTPUT"
             fi
         fi
     fi
@@ -1049,19 +1081,27 @@ deploy_iot_operations() {
         
         # Method 5: List all asset endpoint namespaces
         log "LOOKUP 5: Trying command: az iot ops asset endpoint list namespace --resource-group $RESOURCE_GROUP --query \"[0].id\" -o tsv"
-        NAMESPACE_RESOURCE_ID=$(az iot ops asset endpoint list namespace --resource-group "$RESOURCE_GROUP" --query "[0].id" -o tsv 2>/dev/null)
-        if [ -n "$NAMESPACE_RESOURCE_ID" ]; then
+        LIST_OUTPUT=$(az iot ops asset endpoint list namespace --resource-group "$RESOURCE_GROUP" --query "[0].id" -o tsv 2>&1)
+        LIST_EXIT_CODE=$?
+        
+        if [ $LIST_EXIT_CODE -eq 0 ] && [ -n "$LIST_OUTPUT" ]; then
+            NAMESPACE_RESOURCE_ID="$LIST_OUTPUT"
             log "SUCCESS: Found first available namespace resource ID from asset endpoints: $NAMESPACE_RESOURCE_ID"
         else
-            log "FAILED: No asset endpoint namespaces found"
+            log "FAILED: No asset endpoint namespaces found, exit code $LIST_EXIT_CODE"
+            log "ERROR OUTPUT: $LIST_OUTPUT"
             
             # Method 6: List all direct namespaces
             log "LOOKUP 6: Trying command: az iot ops namespace list --resource-group $RESOURCE_GROUP --query \"[0].id\" -o tsv"
-            NAMESPACE_RESOURCE_ID=$(az iot ops namespace list --resource-group "$RESOURCE_GROUP" --query "[0].id" -o tsv 2>/dev/null)
-            if [ -n "$NAMESPACE_RESOURCE_ID" ]; then
+            LIST_OUTPUT=$(az iot ops namespace list --resource-group "$RESOURCE_GROUP" --query "[0].id" -o tsv 2>&1)
+            LIST_EXIT_CODE=$?
+            
+            if [ $LIST_EXIT_CODE -eq 0 ] && [ -n "$LIST_OUTPUT" ]; then
+                NAMESPACE_RESOURCE_ID="$LIST_OUTPUT"
                 log "SUCCESS: Found first available namespace resource ID from direct namespaces: $NAMESPACE_RESOURCE_ID"
             else
-                log "FAILED: No direct namespaces found"
+                log "FAILED: No direct namespaces found, exit code $LIST_EXIT_CODE"
+                log "ERROR OUTPUT: $LIST_OUTPUT"
             fi
         fi
     fi
