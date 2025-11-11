@@ -1044,15 +1044,13 @@ deploy_iot_operations() {
         else
             log "WARNING: No existing asset endpoint profiles found or command failed"
             log "OUTPUT: $EXISTING_ENDPOINTS"
-        fi
-    fi
-        
-        # Method 2: Try creating a basic asset endpoint profile to use as namespace
-        log "METHOD 2: Attempting to create a basic asset endpoint profile..."
-        
-        # Create a temporary asset endpoint profile that can serve as namespace
-        TEMP_ENDPOINT_NAME="temp-namespace-${NAMESPACE_NAME}"
-        CREATE_EP_OUTPUT=$(timeout 60 az iot ops asset endpoint create \
+            
+            # Method 2: Try creating a basic asset endpoint profile to use as namespace
+            log "METHOD 2: Attempting to create a basic asset endpoint profile..."
+            
+            # Create a temporary asset endpoint profile that can serve as namespace
+            TEMP_ENDPOINT_NAME="temp-namespace-${NAMESPACE_NAME}"
+            CREATE_EP_OUTPUT=$(timeout 60 az iot ops asset endpoint create \
             --name "$TEMP_ENDPOINT_NAME" \
             --resource-group "$RESOURCE_GROUP" \
             --cluster "$CLUSTER_NAME" \
@@ -1074,6 +1072,7 @@ deploy_iot_operations() {
         else
             log "FAILED: Could not create asset endpoint profile"
             log "ERROR: $CREATE_EP_OUTPUT"
+        fi
         fi
     fi
     
