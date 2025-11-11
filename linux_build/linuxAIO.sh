@@ -330,8 +330,29 @@ install_azure_cli() {
     
     # Install required Azure CLI extensions
     log "Installing Azure CLI extensions..."
-    az extension add --upgrade --name azure-iot-ops
-    az extension add --upgrade --name connectedk8s
+    
+    log "Installing azure-iot-ops extension..."
+    if az extension add --upgrade --name azure-iot-ops 2>/dev/null; then
+        log "SUCCESS: azure-iot-ops extension installed"
+    else
+        log "WARNING: Failed to install azure-iot-ops extension, will attempt to continue"
+    fi
+    
+    log "Installing connectedk8s extension..."
+    if az extension add --upgrade --name connectedk8s 2>/dev/null; then
+        log "SUCCESS: connectedk8s extension installed"
+    else
+        log "WARNING: Failed to install connectedk8s extension, will attempt to continue"
+    fi
+    
+    # Verify that the azure-iot-ops extension works
+    log "Verifying azure-iot-ops extension functionality..."
+    if az iot ops --help >/dev/null 2>&1; then
+        log "SUCCESS: azure-iot-ops extension is working"
+    else
+        log "WARNING: azure-iot-ops extension may not be fully functional"
+        log "Some asset endpoint features may not work"
+    fi
 }
 
 # Install kubectl
@@ -977,6 +998,28 @@ deploy_iot_operations() {
     log "WARNING: Based on Azure CLI errors, the namespace subcommands don't exist in the current CLI version"
     log "Attempting alternative approach to find or create namespace resource..."
     
+    # First, let's check if the asset endpoint commands work at all
+    log "Testing if azure-iot-ops extension commands are available..."
+    TEST_OUTPUT=$(timeout 10 az iot ops --help 2>&1 || echo "Extension test failed")
+    
+    if [[ "$TEST_OUTPUT" == *"Extension test failed"* ]] || [[ "$TEST_OUTPUT" == *"ERROR"* ]] || [[ "$TEST_OUTPUT" == *"not recognized"* ]]; then
+        log "WARNING: azure-iot-ops extension commands are not available or not working"
+        log "Will attempt deployment without namespace resource ID (may work with newer Azure IoT Operations)"
+        NAMESPACE_RESOURCE_ID="skip"
+        return 0
+    fi
+    
+    # Check if asset endpoint commands specifically work
+    log "Testing asset endpoint commands..."
+    ASSET_TEST=$(timeout 10 az iot ops asset endpoint --help 2>&1 || echo "Asset endpoint test failed")
+    
+    if [[ "$ASSET_TEST" == *"test failed"* ]] || [[ "$ASSET_TEST" == *"ERROR"* ]] || [[ "$ASSET_TEST" == *"not recognized"* ]]; then
+        log "WARNING: Asset endpoint commands are not available"
+        log "Will attempt deployment without namespace resource ID"
+        NAMESPACE_RESOURCE_ID="skip"
+        return 0
+    fi
+    
     # Check if user provided a custom asset endpoint name
     if [ -n "$CUSTOM_ASSET_ENDPOINT" ]; then
         log "Using custom asset endpoint specified: $CUSTOM_ASSET_ENDPOINT"
@@ -1096,32 +1139,62 @@ deploy_iot_operations() {
     
     # Final validation and error handling
     if [ -z "$NAMESPACE_RESOURCE_ID" ]; then
-        error "ERROR: Could not create or find a suitable namespace resource. The Azure IoT Operations CLI may have changed, or the required commands may not be available in this version. Please check the Azure CLI documentation for the current namespace creation syntax."
+        log "WARNING: Could not create or find a suitable namespace resource"
+        log "Will attempt deployment without namespace resource ID (this may work with current Azure IoT Operations versions)"
+        NAMESPACE_RESOURCE_ID="skip"
     fi
     
-    # Validate that we have a proper Azure resource ID format
-    if [[ ! "$NAMESPACE_RESOURCE_ID" =~ ^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/[^/]+/.+ ]]; then
-        error "ERROR: The namespace resource ID is not in the correct Azure resource ID format. Got: $NAMESPACE_RESOURCE_ID"
+    # Validate that we have a proper Azure resource ID format (unless we're skipping)
+    if [ "$NAMESPACE_RESOURCE_ID" != "skip" ] && [[ ! "$NAMESPACE_RESOURCE_ID" =~ ^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/[^/]+/.+ ]]; then
+        log "WARNING: The namespace resource ID is not in the correct Azure resource ID format. Got: $NAMESPACE_RESOURCE_ID"
+        log "Will attempt deployment without namespace resource ID instead"
+        NAMESPACE_RESOURCE_ID="skip"
     fi
     
-    log "FINAL RESULT: Using namespace resource ID: $NAMESPACE_RESOURCE_ID"
+    if [ "$NAMESPACE_RESOURCE_ID" = "skip" ]; then
+        log "DEPLOYMENT APPROACH: Will deploy Azure IoT Operations WITHOUT --ns-resource-id parameter"
+    else
+        log "FINAL RESULT: Using namespace resource ID: $NAMESPACE_RESOURCE_ID"
+    fi
     
-    # Deploy Azure IoT Operations with schema registry and namespace
+    # Deploy Azure IoT Operations with schema registry and optional namespace
     log "Deploying Azure IoT Operations (this may take several minutes)..."
     log "Note: Using schema registry '$SCHEMA_REGISTRY_NAME'"
     log "Note: Schema Registry ID: $SCHEMA_REGISTRY_RESOURCE_ID"
-    log "Note: Namespace Resource ID: $NAMESPACE_RESOURCE_ID"
     
-    log "EXECUTING: az iot ops create --cluster $CLUSTER_NAME --resource-group $RESOURCE_GROUP --name ${CLUSTER_NAME}-aio --sr-resource-id $SCHEMA_REGISTRY_RESOURCE_ID --ns-resource-id $NAMESPACE_RESOURCE_ID"
-    
-    az iot ops create \
-        --cluster "$CLUSTER_NAME" \
-        --resource-group "$RESOURCE_GROUP" \
-        --name "${CLUSTER_NAME}-aio" \
-        --sr-resource-id "$SCHEMA_REGISTRY_RESOURCE_ID" \
-        --ns-resource-id "$NAMESPACE_RESOURCE_ID"
-    
-    log "Azure IoT Operations deployed successfully!"
+    if [ "$NAMESPACE_RESOURCE_ID" = "skip" ]; then
+        log "Note: Deploying WITHOUT namespace resource ID (newer Azure IoT Operations approach)"
+        log "EXECUTING: az iot ops create --cluster $CLUSTER_NAME --resource-group $RESOURCE_GROUP --name ${CLUSTER_NAME}-aio --sr-resource-id $SCHEMA_REGISTRY_RESOURCE_ID"
+        
+        if az iot ops create \
+            --cluster "$CLUSTER_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "${CLUSTER_NAME}-aio" \
+            --sr-resource-id "$SCHEMA_REGISTRY_RESOURCE_ID"; then
+            log "Azure IoT Operations deployed successfully!"
+        else
+            warn "Azure IoT Operations deployment failed without --ns-resource-id parameter"
+            warn "This may be due to version compatibility. Consider:"
+            warn "1. Updating Azure CLI: az upgrade"
+            warn "2. Updating azure-iot-ops extension: az extension update --name azure-iot-ops"
+            warn "3. Creating a custom asset endpoint manually and specifying it in CUSTOM_ASSET_ENDPOINT"
+            error "Azure IoT Operations deployment failed"
+        fi
+    else
+        log "Note: Namespace Resource ID: $NAMESPACE_RESOURCE_ID"
+        log "EXECUTING: az iot ops create --cluster $CLUSTER_NAME --resource-group $RESOURCE_GROUP --name ${CLUSTER_NAME}-aio --sr-resource-id $SCHEMA_REGISTRY_RESOURCE_ID --ns-resource-id $NAMESPACE_RESOURCE_ID"
+        
+        if az iot ops create \
+            --cluster "$CLUSTER_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "${CLUSTER_NAME}-aio" \
+            --sr-resource-id "$SCHEMA_REGISTRY_RESOURCE_ID" \
+            --ns-resource-id "$NAMESPACE_RESOURCE_ID"; then
+            log "Azure IoT Operations deployed successfully!"
+        else
+            error "Azure IoT Operations deployment failed with namespace resource ID"
+        fi
+    fi
 }
 
 # Deploy OPC UA Bridge components
