@@ -5,7 +5,8 @@
     "resource_group": "rg-iot-operations",
     "location": "eastus",
     "cluster_name": "iot-ops-cluster",
-    "namespace_name": "iot-operations-ns"
+    "namespace_name": "iot-operations-ns",
+    "custom_asset_endpoint": ""
   },
   "deployment": {
     "skip_system_update": false,
@@ -20,6 +21,7 @@
     "location": "Azure region (e.g., eastus, westus2, westeurope, northeurope)",
     "cluster_name": "Name for your Arc-enabled Kubernetes cluster",
     "namespace_name": "Name for Azure Device Registry namespace",
+    "custom_asset_endpoint": "OPTIONAL: Name of existing asset endpoint to use as namespace resource (create this manually first)",
     "deployment_mode": "Options: 'test' for development, 'secure' for production (future)",
     "deploy_opc_ua_bridge": "Set to true to automatically deploy OPC UA bridge for factory integration",
     "skip_system_update": "Set to true to skip apt update/upgrade for faster runs",

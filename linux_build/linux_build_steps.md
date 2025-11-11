@@ -173,6 +173,38 @@ You can safely re-run the script:
 - Use `force_reinstall: true` in config to reinstall components
 - Use `skip_system_update: true` in config for faster subsequent runs
 
+## Using Custom Asset Endpoints
+
+If you encounter Azure CLI command compatibility issues or want to use an existing asset endpoint as the namespace resource, you can specify a custom asset endpoint:
+
+### Option 1: Environment Variable
+```bash
+export CUSTOM_ASSET_ENDPOINT="your-existing-asset-endpoint-name"
+sudo -E ./linuxAIO.sh
+```
+
+### Option 2: Configuration File
+Add to your `linux_aio_config.json`:
+```json
+{
+  "azure": {
+    "resource_group": "your-resource-group",
+    "custom_asset_endpoint": "your-existing-asset-endpoint-name"
+  }
+}
+```
+
+### Requirements for Custom Asset Endpoints
+1. The asset endpoint must already exist in your resource group
+2. You must have permissions to access the asset endpoint
+3. The asset endpoint resource ID will be used for the `--ns-resource-id` parameter
+
+### When to Use Custom Asset Endpoints
+- Azure CLI commands for namespace creation are failing
+- You want to use a specific pre-configured asset endpoint
+- Working around Azure CLI version compatibility issues
+- Standardizing on existing asset endpoints across deployments
+
 ## Additional Resources
 
 - Azure IoT Operations Documentation: [Microsoft Learn](https://learn.microsoft.com/azure/iot-operations/)
