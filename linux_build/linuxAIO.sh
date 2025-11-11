@@ -960,13 +960,30 @@ deploy_iot_operations() {
     NAMESPACE_CREATED=false
     
     # Method 1: Try az iot ops asset endpoint create namespace (if available)
-    if az iot ops asset endpoint create namespace --help >/dev/null 2>&1; then
+    log "DEBUG: Testing if 'az iot ops asset endpoint create namespace' command exists..."
+    
+    # Test command availability with timeout
+    HELP_TEST_OUTPUT=""
+    if timeout 10 az iot ops asset endpoint create namespace --help >/dev/null 2>&1; then
+        HELP_AVAILABLE=true
+        log "DEBUG: Help command succeeded - command is available"
+    else
+        HELP_AVAILABLE=false
+        log "DEBUG: Help command failed or timed out - command not available"
+        # Try to get the error message
+        HELP_TEST_OUTPUT=$(timeout 5 az iot ops asset endpoint create namespace --help 2>&1 || echo "Command timed out or failed")
+        log "DEBUG: Help error output: $HELP_TEST_OUTPUT"
+    fi
+    
+    if [ "$HELP_AVAILABLE" = "true" ]; then
         log "METHOD 1: Trying command: az iot ops asset endpoint create namespace --name $NAMESPACE_RESOURCE_NAME --resource-group $RESOURCE_GROUP --cluster $CLUSTER_NAME --namespace-name $NAMESPACE_NAME"
-        CREATE_OUTPUT=$(az iot ops asset endpoint create namespace \
+        
+        # Use timeout to prevent hanging
+        CREATE_OUTPUT=$(timeout 30 az iot ops asset endpoint create namespace \
             --name "$NAMESPACE_RESOURCE_NAME" \
             --resource-group "$RESOURCE_GROUP" \
             --cluster "$CLUSTER_NAME" \
-            --namespace-name "$NAMESPACE_NAME" 2>&1)
+            --namespace-name "$NAMESPACE_NAME" 2>&1 || echo "Command timed out after 30 seconds")
         CREATE_EXIT_CODE=$?
         
         if [ $CREATE_EXIT_CODE -eq 0 ]; then
@@ -979,19 +996,34 @@ deploy_iot_operations() {
         fi
     else
         log "SKIPPED: az iot ops asset endpoint create namespace command not available"
-        # Show what the help check returned
-        HELP_OUTPUT=$(az iot ops asset endpoint create namespace --help 2>&1)
-        log "HELP ERROR: $HELP_OUTPUT"
+        log "HELP ERROR: $HELP_TEST_OUTPUT"
     fi
+    
+    log "DEBUG: Completed Method 1, proceeding to Method 2..."
     
     # Method 2: Try az iot ops namespace create (if first method failed or unavailable)
     if [ "$NAMESPACE_CREATED" != "true" ]; then
-        if az iot ops namespace --help >/dev/null 2>&1; then
+        log "DEBUG: Testing if 'az iot ops namespace' command exists..."
+        
+        # Test command availability with timeout
+        if timeout 10 az iot ops namespace --help >/dev/null 2>&1; then
+            NAMESPACE_HELP_AVAILABLE=true
+            log "DEBUG: Namespace help command succeeded - command is available"
+        else
+            NAMESPACE_HELP_AVAILABLE=false
+            log "DEBUG: Namespace help command failed or timed out - command not available"
+            NAMESPACE_HELP_OUTPUT=$(timeout 5 az iot ops namespace --help 2>&1 || echo "Command timed out or failed")
+            log "DEBUG: Namespace help error output: $NAMESPACE_HELP_OUTPUT"
+        fi
+        
+        if [ "$NAMESPACE_HELP_AVAILABLE" = "true" ]; then
             log "METHOD 2: Trying command: az iot ops namespace create --name $NAMESPACE_RESOURCE_NAME --resource-group $RESOURCE_GROUP --cluster $CLUSTER_NAME"
-            CREATE_OUTPUT=$(az iot ops namespace create \
+            
+            # Use timeout to prevent hanging
+            CREATE_OUTPUT=$(timeout 30 az iot ops namespace create \
                 --name "$NAMESPACE_RESOURCE_NAME" \
                 --resource-group "$RESOURCE_GROUP" \
-                --cluster "$CLUSTER_NAME" 2>&1)
+                --cluster "$CLUSTER_NAME" 2>&1 || echo "Command timed out after 30 seconds")
             CREATE_EXIT_CODE=$?
             
             if [ $CREATE_EXIT_CODE -eq 0 ]; then
@@ -1004,15 +1036,17 @@ deploy_iot_operations() {
             fi
         else
             log "SKIPPED: az iot ops namespace command not available"
-            # Show what the help check returned
-            HELP_OUTPUT=$(az iot ops namespace --help 2>&1)
-            log "HELP ERROR: $HELP_OUTPUT"
+            log "HELP ERROR: $NAMESPACE_HELP_OUTPUT"
         fi
     fi
+    
+    log "DEBUG: Completed both creation methods. NAMESPACE_CREATED=$NAMESPACE_CREATED"
     
     if [ "$NAMESPACE_CREATED" != "true" ]; then
         log "WARNING: Namespace creation failed or namespace already exists. Proceeding to find existing namespace..."
     fi
+    
+    log "DEBUG: Starting namespace resource ID lookup phase..."
     
     # Try to get namespace resource ID using multiple methods
     log "Attempting to retrieve namespace resource ID..."
@@ -1020,10 +1054,12 @@ deploy_iot_operations() {
     
     # Method 1: Try asset endpoint show
     log "LOOKUP 1: Trying command: az iot ops asset endpoint show namespace --name $NAMESPACE_RESOURCE_NAME --resource-group $RESOURCE_GROUP --query id -o tsv"
-    LOOKUP_OUTPUT=$(az iot ops asset endpoint show namespace --name "$NAMESPACE_RESOURCE_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv 2>&1)
+    LOOKUP_OUTPUT=$(timeout 30 az iot ops asset endpoint show namespace --name "$NAMESPACE_RESOURCE_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv 2>&1 || echo "Command timed out after 30 seconds")
     LOOKUP_EXIT_CODE=$?
     
-    if [ $LOOKUP_EXIT_CODE -eq 0 ] && [ -n "$LOOKUP_OUTPUT" ]; then
+    log "DEBUG: Lookup 1 completed with exit code $LOOKUP_EXIT_CODE"
+    
+    if [ $LOOKUP_EXIT_CODE -eq 0 ] && [ -n "$LOOKUP_OUTPUT" ] && [ "$LOOKUP_OUTPUT" != "Command timed out after 30 seconds" ]; then
         NAMESPACE_RESOURCE_ID="$LOOKUP_OUTPUT"
         log "SUCCESS: Found namespace resource ID using asset endpoint show: $NAMESPACE_RESOURCE_ID"
     else
@@ -1032,10 +1068,12 @@ deploy_iot_operations() {
         
         # Method 2: Try direct namespace show
         log "LOOKUP 2: Trying command: az iot ops namespace show --name $NAMESPACE_RESOURCE_NAME --resource-group $RESOURCE_GROUP --query id -o tsv"
-        LOOKUP_OUTPUT=$(az iot ops namespace show --name "$NAMESPACE_RESOURCE_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv 2>&1)
+        LOOKUP_OUTPUT=$(timeout 30 az iot ops namespace show --name "$NAMESPACE_RESOURCE_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv 2>&1 || echo "Command timed out after 30 seconds")
         LOOKUP_EXIT_CODE=$?
         
-        if [ $LOOKUP_EXIT_CODE -eq 0 ] && [ -n "$LOOKUP_OUTPUT" ]; then
+        log "DEBUG: Lookup 2 completed with exit code $LOOKUP_EXIT_CODE"
+        
+        if [ $LOOKUP_EXIT_CODE -eq 0 ] && [ -n "$LOOKUP_OUTPUT" ] && [ "$LOOKUP_OUTPUT" != "Command timed out after 30 seconds" ]; then
             NAMESPACE_RESOURCE_ID="$LOOKUP_OUTPUT"
             log "SUCCESS: Found namespace resource ID using direct namespace show: $NAMESPACE_RESOURCE_ID"
         else
