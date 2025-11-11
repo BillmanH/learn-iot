@@ -1058,8 +1058,10 @@ deploy_iot_operations() {
     LOOKUP_EXIT_CODE=$?
     
     log "DEBUG: Lookup 1 completed with exit code $LOOKUP_EXIT_CODE"
+    log "DEBUG: Lookup 1 output: $LOOKUP_OUTPUT"
     
-    if [ $LOOKUP_EXIT_CODE -eq 0 ] && [ -n "$LOOKUP_OUTPUT" ] && [ "$LOOKUP_OUTPUT" != "Command timed out after 30 seconds" ]; then
+    # Check if output contains error messages or is a valid resource ID
+    if [ $LOOKUP_EXIT_CODE -eq 0 ] && [ -n "$LOOKUP_OUTPUT" ] && [ "$LOOKUP_OUTPUT" != "Command timed out after 30 seconds" ] && [[ ! "$LOOKUP_OUTPUT" == *"ERROR:"* ]] && [[ ! "$LOOKUP_OUTPUT" == *"unrecognized arguments"* ]]; then
         NAMESPACE_RESOURCE_ID="$LOOKUP_OUTPUT"
         log "SUCCESS: Found namespace resource ID using asset endpoint show: $NAMESPACE_RESOURCE_ID"
     else
@@ -1072,8 +1074,9 @@ deploy_iot_operations() {
         LOOKUP_EXIT_CODE=$?
         
         log "DEBUG: Lookup 2 completed with exit code $LOOKUP_EXIT_CODE"
+        log "DEBUG: Lookup 2 output: $LOOKUP_OUTPUT"
         
-        if [ $LOOKUP_EXIT_CODE -eq 0 ] && [ -n "$LOOKUP_OUTPUT" ] && [ "$LOOKUP_OUTPUT" != "Command timed out after 30 seconds" ]; then
+        if [ $LOOKUP_EXIT_CODE -eq 0 ] && [ -n "$LOOKUP_OUTPUT" ] && [ "$LOOKUP_OUTPUT" != "Command timed out after 30 seconds" ] && [[ ! "$LOOKUP_OUTPUT" == *"ERROR:"* ]] && [[ ! "$LOOKUP_OUTPUT" == *"unrecognized arguments"* ]]; then
             NAMESPACE_RESOURCE_ID="$LOOKUP_OUTPUT"
             log "SUCCESS: Found namespace resource ID using direct namespace show: $NAMESPACE_RESOURCE_ID"
         else
