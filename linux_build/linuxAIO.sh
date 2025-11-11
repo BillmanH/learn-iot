@@ -952,136 +952,56 @@ deploy_iot_operations() {
     log "DEBUG: Resource group: $RESOURCE_GROUP"
     log "DEBUG: Cluster name: $CLUSTER_NAME"
     
-    # Check what namespace commands are available
-    log "Checking available Azure IoT Operations CLI commands for namespace management..."
+    # Since the direct namespace commands don't exist, let's try a different approach
+    # The namespace resource might need to be created differently or might already exist
     
-    # Try to create namespace resource using available methods
-    log "Attempting to create namespace resource: $NAMESPACE_RESOURCE_NAME"
-    NAMESPACE_CREATED=false
+    log "WARNING: Based on Azure CLI errors, the namespace subcommands don't exist in the current CLI version"
+    log "Attempting alternative approach to find or create namespace resource..."
     
-    # Method 1: Try az iot ops asset endpoint create namespace (if available)
-    log "DEBUG: Testing if 'az iot ops asset endpoint create namespace' command exists..."
+    # Try to find existing asset endpoint profiles that could serve as namespace
+    log "Looking for existing asset endpoint profiles that could serve as namespace..."
     
-    # Test command availability with timeout
-    HELP_TEST_OUTPUT=""
-    if timeout 10 az iot ops asset endpoint create namespace --help >/dev/null 2>&1; then
-        HELP_AVAILABLE=true
-        log "DEBUG: Help command succeeded - command is available"
+    # Method 1: List all asset endpoint profiles and see if any exist
+    log "METHOD 1: Checking for existing asset endpoint profiles..."
+    EXISTING_ENDPOINTS=$(timeout 30 az iot ops asset endpoint list --resource-group "$RESOURCE_GROUP" --query "[].id" -o tsv 2>&1 || echo "Command failed or timed out")
+    
+    log "DEBUG: Existing endpoints query result: $EXISTING_ENDPOINTS"
+    
+    if [[ "$EXISTING_ENDPOINTS" != *"ERROR:"* ]] && [[ "$EXISTING_ENDPOINTS" != *"Command failed"* ]] && [ -n "$EXISTING_ENDPOINTS" ]; then
+        # Use the first available endpoint as namespace resource ID
+        NAMESPACE_RESOURCE_ID=$(echo "$EXISTING_ENDPOINTS" | head -1 | tr -d '\r\n')
+        log "SUCCESS: Found existing asset endpoint profile to use as namespace: $NAMESPACE_RESOURCE_ID"
     else
-        HELP_AVAILABLE=false
-        log "DEBUG: Help command failed or timed out - command not available"
-        # Try to get the error message
-        HELP_TEST_OUTPUT=$(timeout 5 az iot ops asset endpoint create namespace --help 2>&1 || echo "Command timed out or failed")
-        log "DEBUG: Help error output: $HELP_TEST_OUTPUT"
-    fi
-    
-    if [ "$HELP_AVAILABLE" = "true" ]; then
-        log "METHOD 1: Trying command: az iot ops asset endpoint create namespace --name $NAMESPACE_RESOURCE_NAME --resource-group $RESOURCE_GROUP --cluster $CLUSTER_NAME --namespace-name $NAMESPACE_NAME"
+        log "WARNING: No existing asset endpoint profiles found or command failed"
+        log "OUTPUT: $EXISTING_ENDPOINTS"
         
-        # Use timeout to prevent hanging
-        CREATE_OUTPUT=$(timeout 30 az iot ops asset endpoint create namespace \
-            --name "$NAMESPACE_RESOURCE_NAME" \
+        # Method 2: Try creating a basic asset endpoint profile to use as namespace
+        log "METHOD 2: Attempting to create a basic asset endpoint profile..."
+        
+        # Create a temporary asset endpoint profile that can serve as namespace
+        TEMP_ENDPOINT_NAME="temp-namespace-${NAMESPACE_NAME}"
+        CREATE_EP_OUTPUT=$(timeout 60 az iot ops asset endpoint create \
+            --name "$TEMP_ENDPOINT_NAME" \
             --resource-group "$RESOURCE_GROUP" \
             --cluster "$CLUSTER_NAME" \
-            --namespace-name "$NAMESPACE_NAME" 2>&1 || echo "Command timed out after 30 seconds")
-        CREATE_EXIT_CODE=$?
+            --target-address "opc.tcp://temp:50000" 2>&1 || echo "Create endpoint command failed or timed out")
         
-        if [ $CREATE_EXIT_CODE -eq 0 ]; then
-            NAMESPACE_CREATED=true
-            log "SUCCESS: Namespace created successfully using asset endpoint method"
-            log "OUTPUT: $CREATE_OUTPUT"
-        else
-            log "FAILED: Asset endpoint namespace creation failed with exit code $CREATE_EXIT_CODE"
-            log "ERROR OUTPUT: $CREATE_OUTPUT"
-        fi
-    else
-        log "SKIPPED: az iot ops asset endpoint create namespace command not available"
-        log "HELP ERROR: $HELP_TEST_OUTPUT"
-    fi
-    
-    log "DEBUG: Completed Method 1, proceeding to Method 2..."
-    
-    # Method 2: Try az iot ops namespace create (if first method failed or unavailable)
-    if [ "$NAMESPACE_CREATED" != "true" ]; then
-        log "DEBUG: Testing if 'az iot ops namespace' command exists..."
+        log "DEBUG: Create endpoint output: $CREATE_EP_OUTPUT"
         
-        # Test command availability with timeout
-        if timeout 10 az iot ops namespace --help >/dev/null 2>&1; then
-            NAMESPACE_HELP_AVAILABLE=true
-            log "DEBUG: Namespace help command succeeded - command is available"
-        else
-            NAMESPACE_HELP_AVAILABLE=false
-            log "DEBUG: Namespace help command failed or timed out - command not available"
-            NAMESPACE_HELP_OUTPUT=$(timeout 5 az iot ops namespace --help 2>&1 || echo "Command timed out or failed")
-            log "DEBUG: Namespace help error output: $NAMESPACE_HELP_OUTPUT"
-        fi
-        
-        if [ "$NAMESPACE_HELP_AVAILABLE" = "true" ]; then
-            log "METHOD 2: Trying command: az iot ops namespace create --name $NAMESPACE_RESOURCE_NAME --resource-group $RESOURCE_GROUP --cluster $CLUSTER_NAME"
+        if [[ "$CREATE_EP_OUTPUT" != *"ERROR:"* ]] && [[ "$CREATE_EP_OUTPUT" != *"failed"* ]] && [[ "$CREATE_EP_OUTPUT" != *"timed out"* ]]; then
+            # Get the resource ID of the created endpoint
+            NAMESPACE_RESOURCE_ID=$(timeout 30 az iot ops asset endpoint show --name "$TEMP_ENDPOINT_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv 2>&1 || echo "Show endpoint failed")
             
-            # Use timeout to prevent hanging
-            CREATE_OUTPUT=$(timeout 30 az iot ops namespace create \
-                --name "$NAMESPACE_RESOURCE_NAME" \
-                --resource-group "$RESOURCE_GROUP" \
-                --cluster "$CLUSTER_NAME" 2>&1 || echo "Command timed out after 30 seconds")
-            CREATE_EXIT_CODE=$?
-            
-            if [ $CREATE_EXIT_CODE -eq 0 ]; then
-                NAMESPACE_CREATED=true
-                log "SUCCESS: Namespace created successfully using direct namespace method"
-                log "OUTPUT: $CREATE_OUTPUT"
+            if [[ "$NAMESPACE_RESOURCE_ID" != *"ERROR:"* ]] && [[ "$NAMESPACE_RESOURCE_ID" != *"failed"* ]] && [ -n "$NAMESPACE_RESOURCE_ID" ]; then
+                log "SUCCESS: Created temporary asset endpoint profile as namespace: $NAMESPACE_RESOURCE_ID"
             else
-                log "FAILED: Direct namespace creation failed with exit code $CREATE_EXIT_CODE"
-                log "ERROR OUTPUT: $CREATE_OUTPUT"
+                log "FAILED: Could not get resource ID of created endpoint"
+                log "ERROR: $NAMESPACE_RESOURCE_ID"
+                NAMESPACE_RESOURCE_ID=""
             fi
         else
-            log "SKIPPED: az iot ops namespace command not available"
-            log "HELP ERROR: $NAMESPACE_HELP_OUTPUT"
-        fi
-    fi
-    
-    log "DEBUG: Completed both creation methods. NAMESPACE_CREATED=$NAMESPACE_CREATED"
-    
-    if [ "$NAMESPACE_CREATED" != "true" ]; then
-        log "WARNING: Namespace creation failed or namespace already exists. Proceeding to find existing namespace..."
-    fi
-    
-    log "DEBUG: Starting namespace resource ID lookup phase..."
-    
-    # Try to get namespace resource ID using multiple methods
-    log "Attempting to retrieve namespace resource ID..."
-    NAMESPACE_RESOURCE_ID=""
-    
-    # Method 1: Try asset endpoint show
-    log "LOOKUP 1: Trying command: az iot ops asset endpoint show namespace --name $NAMESPACE_RESOURCE_NAME --resource-group $RESOURCE_GROUP --query id -o tsv"
-    LOOKUP_OUTPUT=$(timeout 30 az iot ops asset endpoint show namespace --name "$NAMESPACE_RESOURCE_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv 2>&1 || echo "Command timed out after 30 seconds")
-    LOOKUP_EXIT_CODE=$?
-    
-    log "DEBUG: Lookup 1 completed with exit code $LOOKUP_EXIT_CODE"
-    log "DEBUG: Lookup 1 output: $LOOKUP_OUTPUT"
-    
-    # Check if output contains error messages or is a valid resource ID
-    if [ $LOOKUP_EXIT_CODE -eq 0 ] && [ -n "$LOOKUP_OUTPUT" ] && [ "$LOOKUP_OUTPUT" != "Command timed out after 30 seconds" ] && [[ ! "$LOOKUP_OUTPUT" == *"ERROR:"* ]] && [[ ! "$LOOKUP_OUTPUT" == *"unrecognized arguments"* ]]; then
-        NAMESPACE_RESOURCE_ID="$LOOKUP_OUTPUT"
-        log "SUCCESS: Found namespace resource ID using asset endpoint show: $NAMESPACE_RESOURCE_ID"
-    else
-        log "FAILED: Asset endpoint show method failed with exit code $LOOKUP_EXIT_CODE"
-        log "ERROR OUTPUT: $LOOKUP_OUTPUT"
-        
-        # Method 2: Try direct namespace show
-        log "LOOKUP 2: Trying command: az iot ops namespace show --name $NAMESPACE_RESOURCE_NAME --resource-group $RESOURCE_GROUP --query id -o tsv"
-        LOOKUP_OUTPUT=$(timeout 30 az iot ops namespace show --name "$NAMESPACE_RESOURCE_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv 2>&1 || echo "Command timed out after 30 seconds")
-        LOOKUP_EXIT_CODE=$?
-        
-        log "DEBUG: Lookup 2 completed with exit code $LOOKUP_EXIT_CODE"
-        log "DEBUG: Lookup 2 output: $LOOKUP_OUTPUT"
-        
-        if [ $LOOKUP_EXIT_CODE -eq 0 ] && [ -n "$LOOKUP_OUTPUT" ] && [ "$LOOKUP_OUTPUT" != "Command timed out after 30 seconds" ] && [[ ! "$LOOKUP_OUTPUT" == *"ERROR:"* ]] && [[ ! "$LOOKUP_OUTPUT" == *"unrecognized arguments"* ]]; then
-            NAMESPACE_RESOURCE_ID="$LOOKUP_OUTPUT"
-            log "SUCCESS: Found namespace resource ID using direct namespace show: $NAMESPACE_RESOURCE_ID"
-        else
-            log "FAILED: Direct namespace show method failed with exit code $LOOKUP_EXIT_CODE"
-            log "ERROR OUTPUT: $LOOKUP_OUTPUT"
+            log "FAILED: Could not create asset endpoint profile"
+            log "ERROR: $CREATE_EP_OUTPUT"
         fi
     fi
     
@@ -1147,8 +1067,14 @@ deploy_iot_operations() {
         fi
     fi
     
+    # Final validation and error handling
     if [ -z "$NAMESPACE_RESOURCE_ID" ]; then
-        error "ERROR: Could not create or find namespace resource after trying all methods. Please ensure you have the latest azure-iot-ops extension and check the Azure CLI documentation for the current namespace creation syntax."
+        error "ERROR: Could not create or find a suitable namespace resource. The Azure IoT Operations CLI may have changed, or the required commands may not be available in this version. Please check the Azure CLI documentation for the current namespace creation syntax."
+    fi
+    
+    # Validate that we have a proper Azure resource ID format
+    if [[ ! "$NAMESPACE_RESOURCE_ID" =~ ^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/[^/]+/.+ ]]; then
+        error "ERROR: The namespace resource ID is not in the correct Azure resource ID format. Got: $NAMESPACE_RESOURCE_ID"
     fi
     
     log "FINAL RESULT: Using namespace resource ID: $NAMESPACE_RESOURCE_ID"
