@@ -35,6 +35,8 @@ spec:
           value: "opc.tcp://0.0.0.0:50000"
         - name: OPC_PLC_AUTOACCEPT
           value: "true"
+        - name: _OPC_UA_PKI_PATH
+          value: "/tmp/pki"
         command:
         - "/app/opcplc"
         args:
