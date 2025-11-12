@@ -13,9 +13,18 @@ spec:
       labels:
         app: opc-plc-simulator
     spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
       containers:
       - name: opc-plc
         image: mcr.microsoft.com/iotedge/opc-plc:latest
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          allowPrivilegeEscalation: false
         ports:
         - containerPort: 50000
           name: opc-ua
@@ -33,14 +42,26 @@ spec:
         - "--autoaccept"
         - "--unsecuretransport"
         - "--addnodesfile=/app/factory-nodes.json"
+        - "--pki=/tmp/pki"
         volumeMounts:
         - name: factory-nodes
           mountPath: /app/factory-nodes.json
           subPath: factory-nodes.json
+        - name: pki-storage
+          mountPath: /tmp/pki
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
       volumes:
       - name: factory-nodes
         configMap:
           name: factory-opc-nodes
+      - name: pki-storage
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

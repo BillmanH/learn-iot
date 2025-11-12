@@ -194,10 +194,37 @@ kubectl describe asset cnc-line-1-station-a -n azure-iot-operations
 
 ### Common Issues
 
-1. **Asset Endpoint Not Found**: Verify OPC PLC simulator is running and service is accessible
-2. **Node Connection Errors**: Check OPC UA node IDs match the ConfigMap definitions
-3. **Authentication Failures**: Ensure Anonymous authentication is configured correctly
-4. **Data Not Flowing**: Verify asset datapoint mappings and OPC UA node accessibility
+1. **Pod CrashLoopBackOff - Permission Denied**: 
+   - **Symptom**: `System.UnauthorizedAccessException: Access to the path '/app/pki' is denied`
+   - **Cause**: OPC PLC simulator cannot create certificate directory due to insufficient permissions
+   - **Solution**: The YAML configuration has been updated with proper security context and writable volume mounts
+
+2. **Asset Endpoint Not Found**: Verify OPC PLC simulator is running and service is accessible
+3. **Node Connection Errors**: Check OPC UA node IDs match the ConfigMap definitions  
+4. **Authentication Failures**: Ensure Anonymous authentication is configured correctly
+5. **Data Not Flowing**: Verify asset datapoint mappings and OPC UA node accessibility
+
+### Fix for CrashLoopBackOff Issue
+
+If you're experiencing pod crashes with permission errors, apply the updated configuration:
+
+```bash
+# Delete the existing deployment
+kubectl delete deployment opc-plc-simulator -n azure-iot-operations
+
+# Apply the corrected configuration with proper security context
+kubectl apply -f opc-plc-simulator.yaml
+
+# Verify the fix
+kubectl get pods -n azure-iot-operations -l app=opc-plc-simulator
+kubectl logs deployment/opc-plc-simulator -n azure-iot-operations
+```
+
+The updated configuration includes:
+- **Security Context**: Runs as non-root user with proper permissions
+- **PKI Storage**: Writable volume mount for certificate storage at `/tmp/pki`  
+- **Resource Limits**: Memory and CPU limits to prevent resource conflicts
+- **PKI Directory Override**: Uses `--pki=/tmp/pki` argument for writable location
 
 ### Debug Commands
 
