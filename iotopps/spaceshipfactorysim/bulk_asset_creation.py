@@ -6,8 +6,10 @@ Creates Azure IoT Operations assets and data points via Azure CLI automation.
 import json
 import subprocess
 import sys
+import os
+import shutil
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 
 class AzureIoTOpsAssetManager:
@@ -17,6 +19,9 @@ class AzureIoTOpsAssetManager:
         self.resource_group = resource_group
         self.instance_name = instance_name
         self.assets_config = self._load_asset_definitions()
+        self.az_path = self._find_azure_cli()
+        self.device_name = "spaceship-factory-device"
+        self.endpoint_name = "spaceship-factory-endpoint"
     
     def _load_asset_definitions(self) -> Dict[str, Any]:
         """Define asset configurations based on message structure."""
@@ -123,11 +128,41 @@ class AzureIoTOpsAssetManager:
             }
         }
     
+    def _find_azure_cli(self) -> Optional[str]:
+        """Find Azure CLI executable path."""
+        # Try common locations for Azure CLI
+        possible_paths = [
+            r"C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin\az.cmd",  # Most common location
+            "az.cmd",  # If it's in PATH
+            "az",  # If it's in PATH
+            r"C:\Program Files (x86)\Microsoft SDKs\Azure\CLI2\wbin\az.cmd",
+            os.path.expanduser(r"~\AppData\Local\Programs\Microsoft\Azure CLI\Scripts\az.cmd"),
+            r"C:\Program Files\Azure CLI\Scripts\az.cmd",
+        ]
+        
+        for path in possible_paths:
+            # Use shutil.which for PATH lookup
+            if path in ["az", "az.cmd"]:
+                found_path = shutil.which(path)
+                if found_path:
+                    return found_path
+            # Check if file exists for absolute paths
+            elif os.path.isfile(path):
+                return path
+        
+        return None
+    
     def _run_az_command(self, command: List[str]) -> Dict[str, Any]:
         """Execute Azure CLI command and return JSON result."""
         try:
+            if not self.az_path:
+                return {"error": "Azure CLI not found"}
+            
+            # Replace 'az' with the full path
+            az_command = [self.az_path] + command[1:]
+            
             result = subprocess.run(
-                command,
+                az_command,
                 capture_output=True,
                 text=True,
                 check=True
@@ -137,14 +172,79 @@ class AzureIoTOpsAssetManager:
                 return json.loads(result.stdout)
             return {"success": True}
             
+        except FileNotFoundError:
+            return {"error": "Azure CLI (az) not found in PATH. Please install Azure CLI."}
         except subprocess.CalledProcessError as e:
-            print(f"❌ Command failed: {' '.join(command)}")
+            print(f"❌ Command failed: {' '.join(az_command)}")
             print(f"Error: {e.stderr}")
             return {"error": e.stderr}
         except json.JSONDecodeError as e:
             print(f"❌ JSON decode error: {e}")
             print(f"Output: {result.stdout}")
             return {"error": f"JSON decode error: {e}"}
+    
+    def _check_az_cli(self) -> bool:
+        """Check if Azure CLI is available."""
+        if not self.az_path:
+            return False
+            
+        try:
+            result = subprocess.run(
+                [self.az_path, "--version"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            return True
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            return False
+    
+    def _check_and_create_device_endpoint(self) -> bool:
+        """Check if device and endpoint exist, create them if they don't."""
+        print("\n🔍 Checking device and endpoint requirements...")
+        
+        # Try to create device (will fail if it already exists, which is fine)
+        print(f"📱 Creating device: {self.device_name}")
+        create_device_cmd = [
+            "az", "iot", "ops", "ns", "device", "create",
+            "--name", self.device_name,
+            "--instance", self.instance_name,
+            "--resource-group", self.resource_group
+        ]
+        
+        result = self._run_az_command(create_device_cmd)
+        if "error" in result:
+            if "already exists" in result["error"] or "Conflict" in result["error"]:
+                print(f"✅ Device already exists: {self.device_name}")
+            else:
+                print(f"❌ Failed to create device: {result['error']}")
+                return False
+        else:
+            print(f"✅ Created device: {self.device_name}")
+        
+        # Try to create custom endpoint (will fail if it already exists, which is fine)
+        print(f"🔌 Creating custom endpoint: {self.endpoint_name}")
+        create_endpoint_cmd = [
+            "az", "iot", "ops", "ns", "device", "endpoint", "inbound", "add", "custom",
+            "--name", self.endpoint_name,
+            "--device", self.device_name,
+            "--instance", self.instance_name,
+            "--resource-group", self.resource_group,
+            "--endpoint-type", "Microsoft.Custom",
+            "--address", "mqtt://localhost:1883"  # Default MQTT address
+        ]
+        
+        result = self._run_az_command(create_endpoint_cmd)
+        if "error" in result:
+            if "already exists" in result["error"] or "Conflict" in result["error"]:
+                print(f"✅ Endpoint already exists: {self.endpoint_name}")
+            else:
+                print(f"❌ Failed to create endpoint: {result['error']}")
+                return False
+        else:
+            print(f"✅ Created endpoint: {self.endpoint_name}")
+        
+        return True
     
     def create_custom_asset(self, asset_name: str, asset_config: Dict[str, Any]) -> bool:
         """Create a custom MQTT asset with datasets and data points."""
@@ -156,16 +256,22 @@ class AzureIoTOpsAssetManager:
             "--name", asset_name,
             "--instance", self.instance_name,
             "--resource-group", self.resource_group,
+            "--device", self.device_name,
+            "--endpoint", self.endpoint_name,
             "--description", asset_config["description"]
         ]
         
         result = self._run_az_command(create_asset_cmd)
         if "error" in result:
-            return False
+            if "already exists" in result["error"] or "Conflict" in result["error"]:
+                print(f"  ✅ Asset already exists: {asset_name}")
+            else:
+                print(f"  ❌ Failed to create asset: {asset_name}")
+                return False
+        else:
+            print(f"  ✅ Asset created: {asset_name}")
         
-        print(f"✅ Created asset: {asset_name}")
-        
-        # Create dataset
+        # Create dataset (without destination first)
         dataset_config = asset_config["dataset"]
         create_dataset_cmd = [
             "az", "iot", "ops", "ns", "asset", "custom", "dataset", "add",
@@ -173,15 +279,37 @@ class AzureIoTOpsAssetManager:
             "--name", dataset_config["name"],
             "--instance", self.instance_name,
             "--resource-group", self.resource_group,
-            "--data-source", "mqtt",  # For MQTT-based assets
-            "--dest", f"topic={dataset_config['topic']},qos=Qos1,retain=Never,ttl=3600"
+            "--data-source", "mqtt"  # For MQTT-based assets
         ]
         
         result = self._run_az_command(create_dataset_cmd)
         if "error" in result:
-            return False
+            if "already exists" in result["error"] or "Conflict" in result["error"]:
+                print(f"  ✅ Dataset already exists: {dataset_config['name']}")
+            else:
+                print(f"  ❌ Failed to create dataset: {dataset_config['name']}")
+                print(f"❌ Failed to create asset: {asset_name}")
+                return False
+        else:
+            print(f"  ✅ Created dataset: {dataset_config['name']}")
         
-        print(f"✅ Created dataset: {dataset_config['name']}")
+        # Update dataset with MQTT destination
+        update_dataset_cmd = [
+            "az", "iot", "ops", "ns", "asset", "custom", "dataset", "update",
+            "--asset", asset_name,
+            "--name", dataset_config["name"],
+            "--instance", self.instance_name,
+            "--resource-group", self.resource_group,
+            "--destination", f"topic=\"{dataset_config['topic']}\" retain=Never qos=Qos1 ttl=3600"
+        ]
+        
+        result = self._run_az_command(update_dataset_cmd)
+        if "error" in result:
+            print(f"  ❌ Failed to update dataset destination: {dataset_config['name']}")
+            print(f"❌ Failed to create asset: {asset_name}")
+            return False
+        else:
+            print(f"  ✅ Updated dataset destination: {dataset_config['name']}")
         
         # Add data points
         for data_point in asset_config["data_points"]:
@@ -197,11 +325,15 @@ class AzureIoTOpsAssetManager:
             
             result = self._run_az_command(add_datapoint_cmd)
             if "error" in result:
-                print(f"❌ Failed to add data point: {data_point['name']}")
-                continue
-            
-            print(f"  ✅ Added data point: {data_point['name']} -> {data_point['source']}")
+                if "already exists" in result["error"] or "Conflict" in result["error"]:
+                    print(f"  ✅ Data point already exists: {data_point['name']}")
+                else:
+                    print(f"❌ Failed to add data point: {data_point['name']}")
+                    continue
+            else:
+                print(f"  ✅ Added data point: {data_point['name']} -> {data_point['source']}")
         
+        print(f"✅ Successfully created asset: {asset_name}")
         return True
     
     def create_all_assets(self):
@@ -209,6 +341,11 @@ class AzureIoTOpsAssetManager:
         print("🚀 Starting Spaceship Factory Asset Creation...")
         print(f"Resource Group: {self.resource_group}")
         print(f"IoT Operations Instance: {self.instance_name}")
+        
+        # Check and create device/endpoint first
+        if not self._check_and_create_device_endpoint():
+            print("❌ Failed to set up device and endpoint. Cannot continue.")
+            return
         
         success_count = 0
         total_count = 0
@@ -219,7 +356,8 @@ class AzureIoTOpsAssetManager:
             
             for i in range(1, count + 1):
                 total_count += 1
-                asset_name = f"spaceship-factory-{asset_type}-{i:02d}"
+                # Fix asset name to comply with Azure pattern: ^[a-z0-9][a-z0-9-]*[a-z0-9]$
+                asset_name = f"spaceship-factory-{asset_type.replace('_', '-')}-{i:02d}"
                 
                 if self.create_custom_asset(asset_name, config):
                     success_count += 1
@@ -239,15 +377,18 @@ class AzureIoTOpsAssetManager:
     def _print_next_steps(self):
         """Print next steps for the user."""
         print("\n📋 Next Steps:")
-        print("1. ✅ Assets and data points created")
-        print("2. 🔄 Update your simulator to publish to AIO topics:")
+        print("1. ✅ Device and endpoint created/verified")
+        print("2. ✅ Assets and data points created")
+        print("3. 🔄 Update your simulator to publish to AIO topics:")
         
         for asset_group, config in self.assets_config.items():
             topic = config["dataset"]["topic"]
             print(f"   - {asset_group}: {topic}")
         
-        print("3. 🔍 Verify data flow in Azure IoT Operations portal")
-        print("4. 📊 Set up data flows to route data to cloud services")
+        print("4. 🔍 Verify data flow in Azure IoT Operations portal")
+        print("5. 📊 Set up data flows to route data to cloud services")
+        print(f"\nCreated device: {self.device_name}")
+        print(f"Created endpoint: {self.endpoint_name}")
 
     def generate_asset_summary(self) -> str:
         """Generate a summary of assets to be created."""
@@ -283,6 +424,28 @@ def main():
     
     # Create asset manager
     manager = AzureIoTOpsAssetManager(resource_group, instance_name)
+    
+    # Check if Azure CLI is available
+    if not manager.az_path:
+        print("❌ Azure CLI not found!")
+        print(f"\nSearched in common locations:")
+        print("- System PATH")
+        print("- C:\\Program Files (x86)\\Microsoft SDKs\\Azure\\CLI2\\wbin\\")
+        print("- C:\\Program Files\\Microsoft SDKs\\Azure\\CLI2\\wbin\\")
+        print("- %USERPROFILE%\\AppData\\Local\\Programs\\Microsoft\\Azure CLI\\Scripts\\")
+        print("- C:\\Program Files\\Azure CLI\\Scripts\\")
+        print("\nPlease ensure Azure CLI is properly installed and accessible.")
+        print("You can test by running 'az --version' in a new terminal.")
+        print("\nAlternatives:")
+        print("1. Use generate_cli_commands.py to get manual commands")
+        print("2. Create assets manually in Azure portal")
+        sys.exit(1)
+    
+    print(f"✅ Found Azure CLI at: {manager.az_path}")
+    
+    if not manager._check_az_cli():
+        print("❌ Azure CLI found but not working properly!")
+        sys.exit(1)
     
     # Show summary first
     print(manager.generate_asset_summary())

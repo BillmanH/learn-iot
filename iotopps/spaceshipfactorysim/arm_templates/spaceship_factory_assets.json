@@ -1,0 +1,1785 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "ARM template for Spaceship Factory Asset deployment",
+    "generatedOn": "2025-12-02 01:24:16.823489+00:00",
+    "assetCount": 22
+  },
+  "parameters": {
+    "namespaceName": {
+      "type": "string",
+      "defaultValue": "iot-operations-work-edge-bel-aio",
+      "metadata": {
+        "description": "Name of the Device Registry namespace"
+      }
+    },
+    "deviceName": {
+      "type": "string",
+      "defaultValue": "spaceship-factory-device",
+      "metadata": {
+        "description": "Name of the device to reference"
+      }
+    },
+    "endpointName": {
+      "type": "string",
+      "defaultValue": "spaceship-factory-endpoint",
+      "metadata": {
+        "description": "Name of the endpoint on the device"
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Location for all resources"
+      }
+    },
+    "customLocationId": {
+      "type": "string",
+      "metadata": {
+        "description": "The resource ID of the custom location"
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.DeviceRegistry/namespaces/assets",
+      "apiVersion": "2025-10-01",
+      "name": "[concat(parameters('namespaceName'), '/', 'spaceship-factory-cnc-machines-01')]",
+      "location": "[parameters('location')]",
+      "extendedLocation": {
+        "type": "CustomLocation",
+        "name": "[parameters('customLocationId')]"
+      },
+      "properties": {
+        "deviceRef": {
+          "deviceName": "[parameters('deviceName')]",
+          "endpointName": "[parameters('endpointName')]"
+        },
+        "enabled": true,
+        "externalAssetId": "spaceship-factory-cnc-machines-01",
+        "displayName": "spaceship-factory-cnc-machines-01",
+        "description": "CNC Machine for precision part manufacturing",
+        "attributes": {
+          "assetType": "cnc-machine",
+          "dataPointCount": "7",
+          "generatedOn": "2025-12-02 01:24:16.823489+00:00"
+        },
+        "datasets": [
+          {
+            "name": "cnc_telemetry",
+            "datasetConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}",
+            "dataPoints": [
+              {
+                "name": "machine_identifier",
+                "dataSource": "machine_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "machine_status",
+                "dataSource": "status",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "operation_cycle_time",
+                "dataSource": "cycle_time",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_quality",
+                "dataSource": "quality",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "manufactured_part_type",
+                "dataSource": "part_type",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_identifier",
+                "dataSource": "part_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "station_location",
+                "dataSource": "station_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              }
+            ],
+            "destinations": [
+              {
+                "target": "Mqtt",
+                "configuration": {
+                  "qos": "Qos1",
+                  "retain": "Never",
+                  "topic": "azure-iot-operations/data/cnc-machines",
+                  "ttl": 3600
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.DeviceRegistry/namespaces/assets",
+      "apiVersion": "2025-10-01",
+      "name": "[concat(parameters('namespaceName'), '/', 'spaceship-factory-cnc-machines-02')]",
+      "location": "[parameters('location')]",
+      "extendedLocation": {
+        "type": "CustomLocation",
+        "name": "[parameters('customLocationId')]"
+      },
+      "properties": {
+        "deviceRef": {
+          "deviceName": "[parameters('deviceName')]",
+          "endpointName": "[parameters('endpointName')]"
+        },
+        "enabled": true,
+        "externalAssetId": "spaceship-factory-cnc-machines-02",
+        "displayName": "spaceship-factory-cnc-machines-02",
+        "description": "CNC Machine for precision part manufacturing",
+        "attributes": {
+          "assetType": "cnc-machine",
+          "dataPointCount": "7",
+          "generatedOn": "2025-12-02 01:24:16.823489+00:00"
+        },
+        "datasets": [
+          {
+            "name": "cnc_telemetry",
+            "datasetConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}",
+            "dataPoints": [
+              {
+                "name": "machine_identifier",
+                "dataSource": "machine_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "machine_status",
+                "dataSource": "status",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "operation_cycle_time",
+                "dataSource": "cycle_time",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_quality",
+                "dataSource": "quality",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "manufactured_part_type",
+                "dataSource": "part_type",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_identifier",
+                "dataSource": "part_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "station_location",
+                "dataSource": "station_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              }
+            ],
+            "destinations": [
+              {
+                "target": "Mqtt",
+                "configuration": {
+                  "qos": "Qos1",
+                  "retain": "Never",
+                  "topic": "azure-iot-operations/data/cnc-machines",
+                  "ttl": 3600
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.DeviceRegistry/namespaces/assets",
+      "apiVersion": "2025-10-01",
+      "name": "[concat(parameters('namespaceName'), '/', 'spaceship-factory-cnc-machines-03')]",
+      "location": "[parameters('location')]",
+      "extendedLocation": {
+        "type": "CustomLocation",
+        "name": "[parameters('customLocationId')]"
+      },
+      "properties": {
+        "deviceRef": {
+          "deviceName": "[parameters('deviceName')]",
+          "endpointName": "[parameters('endpointName')]"
+        },
+        "enabled": true,
+        "externalAssetId": "spaceship-factory-cnc-machines-03",
+        "displayName": "spaceship-factory-cnc-machines-03",
+        "description": "CNC Machine for precision part manufacturing",
+        "attributes": {
+          "assetType": "cnc-machine",
+          "dataPointCount": "7",
+          "generatedOn": "2025-12-02 01:24:16.823489+00:00"
+        },
+        "datasets": [
+          {
+            "name": "cnc_telemetry",
+            "datasetConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}",
+            "dataPoints": [
+              {
+                "name": "machine_identifier",
+                "dataSource": "machine_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "machine_status",
+                "dataSource": "status",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "operation_cycle_time",
+                "dataSource": "cycle_time",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_quality",
+                "dataSource": "quality",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "manufactured_part_type",
+                "dataSource": "part_type",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_identifier",
+                "dataSource": "part_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "station_location",
+                "dataSource": "station_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              }
+            ],
+            "destinations": [
+              {
+                "target": "Mqtt",
+                "configuration": {
+                  "qos": "Qos1",
+                  "retain": "Never",
+                  "topic": "azure-iot-operations/data/cnc-machines",
+                  "ttl": 3600
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.DeviceRegistry/namespaces/assets",
+      "apiVersion": "2025-10-01",
+      "name": "[concat(parameters('namespaceName'), '/', 'spaceship-factory-cnc-machines-04')]",
+      "location": "[parameters('location')]",
+      "extendedLocation": {
+        "type": "CustomLocation",
+        "name": "[parameters('customLocationId')]"
+      },
+      "properties": {
+        "deviceRef": {
+          "deviceName": "[parameters('deviceName')]",
+          "endpointName": "[parameters('endpointName')]"
+        },
+        "enabled": true,
+        "externalAssetId": "spaceship-factory-cnc-machines-04",
+        "displayName": "spaceship-factory-cnc-machines-04",
+        "description": "CNC Machine for precision part manufacturing",
+        "attributes": {
+          "assetType": "cnc-machine",
+          "dataPointCount": "7",
+          "generatedOn": "2025-12-02 01:24:16.823489+00:00"
+        },
+        "datasets": [
+          {
+            "name": "cnc_telemetry",
+            "datasetConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}",
+            "dataPoints": [
+              {
+                "name": "machine_identifier",
+                "dataSource": "machine_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "machine_status",
+                "dataSource": "status",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "operation_cycle_time",
+                "dataSource": "cycle_time",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_quality",
+                "dataSource": "quality",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "manufactured_part_type",
+                "dataSource": "part_type",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_identifier",
+                "dataSource": "part_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "station_location",
+                "dataSource": "station_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              }
+            ],
+            "destinations": [
+              {
+                "target": "Mqtt",
+                "configuration": {
+                  "qos": "Qos1",
+                  "retain": "Never",
+                  "topic": "azure-iot-operations/data/cnc-machines",
+                  "ttl": 3600
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.DeviceRegistry/namespaces/assets",
+      "apiVersion": "2025-10-01",
+      "name": "[concat(parameters('namespaceName'), '/', 'spaceship-factory-cnc-machines-05')]",
+      "location": "[parameters('location')]",
+      "extendedLocation": {
+        "type": "CustomLocation",
+        "name": "[parameters('customLocationId')]"
+      },
+      "properties": {
+        "deviceRef": {
+          "deviceName": "[parameters('deviceName')]",
+          "endpointName": "[parameters('endpointName')]"
+        },
+        "enabled": true,
+        "externalAssetId": "spaceship-factory-cnc-machines-05",
+        "displayName": "spaceship-factory-cnc-machines-05",
+        "description": "CNC Machine for precision part manufacturing",
+        "attributes": {
+          "assetType": "cnc-machine",
+          "dataPointCount": "7",
+          "generatedOn": "2025-12-02 01:24:16.823489+00:00"
+        },
+        "datasets": [
+          {
+            "name": "cnc_telemetry",
+            "datasetConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}",
+            "dataPoints": [
+              {
+                "name": "machine_identifier",
+                "dataSource": "machine_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "machine_status",
+                "dataSource": "status",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "operation_cycle_time",
+                "dataSource": "cycle_time",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_quality",
+                "dataSource": "quality",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "manufactured_part_type",
+                "dataSource": "part_type",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_identifier",
+                "dataSource": "part_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "station_location",
+                "dataSource": "station_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              }
+            ],
+            "destinations": [
+              {
+                "target": "Mqtt",
+                "configuration": {
+                  "qos": "Qos1",
+                  "retain": "Never",
+                  "topic": "azure-iot-operations/data/cnc-machines",
+                  "ttl": 3600
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.DeviceRegistry/namespaces/assets",
+      "apiVersion": "2025-10-01",
+      "name": "[concat(parameters('namespaceName'), '/', 'spaceship-factory-3d-printers-01')]",
+      "location": "[parameters('location')]",
+      "extendedLocation": {
+        "type": "CustomLocation",
+        "name": "[parameters('customLocationId')]"
+      },
+      "properties": {
+        "deviceRef": {
+          "deviceName": "[parameters('deviceName')]",
+          "endpointName": "[parameters('endpointName')]"
+        },
+        "enabled": true,
+        "externalAssetId": "spaceship-factory-3d-printers-01",
+        "displayName": "spaceship-factory-3d-printers-01",
+        "description": "3D Printer for additive manufacturing",
+        "attributes": {
+          "assetType": "printer-3d",
+          "dataPointCount": "7",
+          "generatedOn": "2025-12-02 01:24:16.823489+00:00"
+        },
+        "datasets": [
+          {
+            "name": "3dprinter_telemetry",
+            "datasetConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}",
+            "dataPoints": [
+              {
+                "name": "machine_identifier",
+                "dataSource": "machine_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "machine_status",
+                "dataSource": "status",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "print_progress",
+                "dataSource": "progress",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_quality",
+                "dataSource": "quality",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "printed_part_type",
+                "dataSource": "part_type",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_identifier",
+                "dataSource": "part_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "station_location",
+                "dataSource": "station_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              }
+            ],
+            "destinations": [
+              {
+                "target": "Mqtt",
+                "configuration": {
+                  "qos": "Qos1",
+                  "retain": "Never",
+                  "topic": "azure-iot-operations/data/3d-printers",
+                  "ttl": 3600
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.DeviceRegistry/namespaces/assets",
+      "apiVersion": "2025-10-01",
+      "name": "[concat(parameters('namespaceName'), '/', 'spaceship-factory-3d-printers-02')]",
+      "location": "[parameters('location')]",
+      "extendedLocation": {
+        "type": "CustomLocation",
+        "name": "[parameters('customLocationId')]"
+      },
+      "properties": {
+        "deviceRef": {
+          "deviceName": "[parameters('deviceName')]",
+          "endpointName": "[parameters('endpointName')]"
+        },
+        "enabled": true,
+        "externalAssetId": "spaceship-factory-3d-printers-02",
+        "displayName": "spaceship-factory-3d-printers-02",
+        "description": "3D Printer for additive manufacturing",
+        "attributes": {
+          "assetType": "printer-3d",
+          "dataPointCount": "7",
+          "generatedOn": "2025-12-02 01:24:16.823489+00:00"
+        },
+        "datasets": [
+          {
+            "name": "3dprinter_telemetry",
+            "datasetConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}",
+            "dataPoints": [
+              {
+                "name": "machine_identifier",
+                "dataSource": "machine_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "machine_status",
+                "dataSource": "status",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "print_progress",
+                "dataSource": "progress",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_quality",
+                "dataSource": "quality",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "printed_part_type",
+                "dataSource": "part_type",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_identifier",
+                "dataSource": "part_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "station_location",
+                "dataSource": "station_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              }
+            ],
+            "destinations": [
+              {
+                "target": "Mqtt",
+                "configuration": {
+                  "qos": "Qos1",
+                  "retain": "Never",
+                  "topic": "azure-iot-operations/data/3d-printers",
+                  "ttl": 3600
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.DeviceRegistry/namespaces/assets",
+      "apiVersion": "2025-10-01",
+      "name": "[concat(parameters('namespaceName'), '/', 'spaceship-factory-3d-printers-03')]",
+      "location": "[parameters('location')]",
+      "extendedLocation": {
+        "type": "CustomLocation",
+        "name": "[parameters('customLocationId')]"
+      },
+      "properties": {
+        "deviceRef": {
+          "deviceName": "[parameters('deviceName')]",
+          "endpointName": "[parameters('endpointName')]"
+        },
+        "enabled": true,
+        "externalAssetId": "spaceship-factory-3d-printers-03",
+        "displayName": "spaceship-factory-3d-printers-03",
+        "description": "3D Printer for additive manufacturing",
+        "attributes": {
+          "assetType": "printer-3d",
+          "dataPointCount": "7",
+          "generatedOn": "2025-12-02 01:24:16.823489+00:00"
+        },
+        "datasets": [
+          {
+            "name": "3dprinter_telemetry",
+            "datasetConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}",
+            "dataPoints": [
+              {
+                "name": "machine_identifier",
+                "dataSource": "machine_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "machine_status",
+                "dataSource": "status",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "print_progress",
+                "dataSource": "progress",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_quality",
+                "dataSource": "quality",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "printed_part_type",
+                "dataSource": "part_type",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_identifier",
+                "dataSource": "part_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "station_location",
+                "dataSource": "station_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              }
+            ],
+            "destinations": [
+              {
+                "target": "Mqtt",
+                "configuration": {
+                  "qos": "Qos1",
+                  "retain": "Never",
+                  "topic": "azure-iot-operations/data/3d-printers",
+                  "ttl": 3600
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.DeviceRegistry/namespaces/assets",
+      "apiVersion": "2025-10-01",
+      "name": "[concat(parameters('namespaceName'), '/', 'spaceship-factory-3d-printers-04')]",
+      "location": "[parameters('location')]",
+      "extendedLocation": {
+        "type": "CustomLocation",
+        "name": "[parameters('customLocationId')]"
+      },
+      "properties": {
+        "deviceRef": {
+          "deviceName": "[parameters('deviceName')]",
+          "endpointName": "[parameters('endpointName')]"
+        },
+        "enabled": true,
+        "externalAssetId": "spaceship-factory-3d-printers-04",
+        "displayName": "spaceship-factory-3d-printers-04",
+        "description": "3D Printer for additive manufacturing",
+        "attributes": {
+          "assetType": "printer-3d",
+          "dataPointCount": "7",
+          "generatedOn": "2025-12-02 01:24:16.823489+00:00"
+        },
+        "datasets": [
+          {
+            "name": "3dprinter_telemetry",
+            "datasetConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}",
+            "dataPoints": [
+              {
+                "name": "machine_identifier",
+                "dataSource": "machine_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "machine_status",
+                "dataSource": "status",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "print_progress",
+                "dataSource": "progress",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_quality",
+                "dataSource": "quality",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "printed_part_type",
+                "dataSource": "part_type",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_identifier",
+                "dataSource": "part_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "station_location",
+                "dataSource": "station_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              }
+            ],
+            "destinations": [
+              {
+                "target": "Mqtt",
+                "configuration": {
+                  "qos": "Qos1",
+                  "retain": "Never",
+                  "topic": "azure-iot-operations/data/3d-printers",
+                  "ttl": 3600
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.DeviceRegistry/namespaces/assets",
+      "apiVersion": "2025-10-01",
+      "name": "[concat(parameters('namespaceName'), '/', 'spaceship-factory-3d-printers-05')]",
+      "location": "[parameters('location')]",
+      "extendedLocation": {
+        "type": "CustomLocation",
+        "name": "[parameters('customLocationId')]"
+      },
+      "properties": {
+        "deviceRef": {
+          "deviceName": "[parameters('deviceName')]",
+          "endpointName": "[parameters('endpointName')]"
+        },
+        "enabled": true,
+        "externalAssetId": "spaceship-factory-3d-printers-05",
+        "displayName": "spaceship-factory-3d-printers-05",
+        "description": "3D Printer for additive manufacturing",
+        "attributes": {
+          "assetType": "printer-3d",
+          "dataPointCount": "7",
+          "generatedOn": "2025-12-02 01:24:16.824504+00:00"
+        },
+        "datasets": [
+          {
+            "name": "3dprinter_telemetry",
+            "datasetConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}",
+            "dataPoints": [
+              {
+                "name": "machine_identifier",
+                "dataSource": "machine_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "machine_status",
+                "dataSource": "status",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "print_progress",
+                "dataSource": "progress",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_quality",
+                "dataSource": "quality",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "printed_part_type",
+                "dataSource": "part_type",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_identifier",
+                "dataSource": "part_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "station_location",
+                "dataSource": "station_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              }
+            ],
+            "destinations": [
+              {
+                "target": "Mqtt",
+                "configuration": {
+                  "qos": "Qos1",
+                  "retain": "Never",
+                  "topic": "azure-iot-operations/data/3d-printers",
+                  "ttl": 3600
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.DeviceRegistry/namespaces/assets",
+      "apiVersion": "2025-10-01",
+      "name": "[concat(parameters('namespaceName'), '/', 'spaceship-factory-3d-printers-06')]",
+      "location": "[parameters('location')]",
+      "extendedLocation": {
+        "type": "CustomLocation",
+        "name": "[parameters('customLocationId')]"
+      },
+      "properties": {
+        "deviceRef": {
+          "deviceName": "[parameters('deviceName')]",
+          "endpointName": "[parameters('endpointName')]"
+        },
+        "enabled": true,
+        "externalAssetId": "spaceship-factory-3d-printers-06",
+        "displayName": "spaceship-factory-3d-printers-06",
+        "description": "3D Printer for additive manufacturing",
+        "attributes": {
+          "assetType": "printer-3d",
+          "dataPointCount": "7",
+          "generatedOn": "2025-12-02 01:24:16.824504+00:00"
+        },
+        "datasets": [
+          {
+            "name": "3dprinter_telemetry",
+            "datasetConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}",
+            "dataPoints": [
+              {
+                "name": "machine_identifier",
+                "dataSource": "machine_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "machine_status",
+                "dataSource": "status",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "print_progress",
+                "dataSource": "progress",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_quality",
+                "dataSource": "quality",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "printed_part_type",
+                "dataSource": "part_type",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_identifier",
+                "dataSource": "part_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "station_location",
+                "dataSource": "station_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              }
+            ],
+            "destinations": [
+              {
+                "target": "Mqtt",
+                "configuration": {
+                  "qos": "Qos1",
+                  "retain": "Never",
+                  "topic": "azure-iot-operations/data/3d-printers",
+                  "ttl": 3600
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.DeviceRegistry/namespaces/assets",
+      "apiVersion": "2025-10-01",
+      "name": "[concat(parameters('namespaceName'), '/', 'spaceship-factory-3d-printers-07')]",
+      "location": "[parameters('location')]",
+      "extendedLocation": {
+        "type": "CustomLocation",
+        "name": "[parameters('customLocationId')]"
+      },
+      "properties": {
+        "deviceRef": {
+          "deviceName": "[parameters('deviceName')]",
+          "endpointName": "[parameters('endpointName')]"
+        },
+        "enabled": true,
+        "externalAssetId": "spaceship-factory-3d-printers-07",
+        "displayName": "spaceship-factory-3d-printers-07",
+        "description": "3D Printer for additive manufacturing",
+        "attributes": {
+          "assetType": "printer-3d",
+          "dataPointCount": "7",
+          "generatedOn": "2025-12-02 01:24:16.824504+00:00"
+        },
+        "datasets": [
+          {
+            "name": "3dprinter_telemetry",
+            "datasetConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}",
+            "dataPoints": [
+              {
+                "name": "machine_identifier",
+                "dataSource": "machine_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "machine_status",
+                "dataSource": "status",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "print_progress",
+                "dataSource": "progress",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_quality",
+                "dataSource": "quality",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "printed_part_type",
+                "dataSource": "part_type",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_identifier",
+                "dataSource": "part_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "station_location",
+                "dataSource": "station_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              }
+            ],
+            "destinations": [
+              {
+                "target": "Mqtt",
+                "configuration": {
+                  "qos": "Qos1",
+                  "retain": "Never",
+                  "topic": "azure-iot-operations/data/3d-printers",
+                  "ttl": 3600
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.DeviceRegistry/namespaces/assets",
+      "apiVersion": "2025-10-01",
+      "name": "[concat(parameters('namespaceName'), '/', 'spaceship-factory-3d-printers-08')]",
+      "location": "[parameters('location')]",
+      "extendedLocation": {
+        "type": "CustomLocation",
+        "name": "[parameters('customLocationId')]"
+      },
+      "properties": {
+        "deviceRef": {
+          "deviceName": "[parameters('deviceName')]",
+          "endpointName": "[parameters('endpointName')]"
+        },
+        "enabled": true,
+        "externalAssetId": "spaceship-factory-3d-printers-08",
+        "displayName": "spaceship-factory-3d-printers-08",
+        "description": "3D Printer for additive manufacturing",
+        "attributes": {
+          "assetType": "printer-3d",
+          "dataPointCount": "7",
+          "generatedOn": "2025-12-02 01:24:16.824504+00:00"
+        },
+        "datasets": [
+          {
+            "name": "3dprinter_telemetry",
+            "datasetConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}",
+            "dataPoints": [
+              {
+                "name": "machine_identifier",
+                "dataSource": "machine_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "machine_status",
+                "dataSource": "status",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "print_progress",
+                "dataSource": "progress",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_quality",
+                "dataSource": "quality",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "printed_part_type",
+                "dataSource": "part_type",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_identifier",
+                "dataSource": "part_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "station_location",
+                "dataSource": "station_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              }
+            ],
+            "destinations": [
+              {
+                "target": "Mqtt",
+                "configuration": {
+                  "qos": "Qos1",
+                  "retain": "Never",
+                  "topic": "azure-iot-operations/data/3d-printers",
+                  "ttl": 3600
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.DeviceRegistry/namespaces/assets",
+      "apiVersion": "2025-10-01",
+      "name": "[concat(parameters('namespaceName'), '/', 'spaceship-factory-welding-stations-01')]",
+      "location": "[parameters('location')]",
+      "extendedLocation": {
+        "type": "CustomLocation",
+        "name": "[parameters('customLocationId')]"
+      },
+      "properties": {
+        "deviceRef": {
+          "deviceName": "[parameters('deviceName')]",
+          "endpointName": "[parameters('endpointName')]"
+        },
+        "enabled": true,
+        "externalAssetId": "spaceship-factory-welding-stations-01",
+        "displayName": "spaceship-factory-welding-stations-01",
+        "description": "Welding Station for assembly operations",
+        "attributes": {
+          "assetType": "welding",
+          "dataPointCount": "7",
+          "generatedOn": "2025-12-02 01:24:16.824504+00:00"
+        },
+        "datasets": [
+          {
+            "name": "welding_telemetry",
+            "datasetConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}",
+            "dataPoints": [
+              {
+                "name": "machine_identifier",
+                "dataSource": "machine_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "machine_status",
+                "dataSource": "status",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "weld_cycle_time",
+                "dataSource": "last_cycle_time",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "weld_quality",
+                "dataSource": "quality",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "assembly_type",
+                "dataSource": "assembly_type",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "assembly_identifier",
+                "dataSource": "assembly_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "station_location",
+                "dataSource": "station_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              }
+            ],
+            "destinations": [
+              {
+                "target": "Mqtt",
+                "configuration": {
+                  "qos": "Qos1",
+                  "retain": "Never",
+                  "topic": "azure-iot-operations/data/welding-stations",
+                  "ttl": 3600
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.DeviceRegistry/namespaces/assets",
+      "apiVersion": "2025-10-01",
+      "name": "[concat(parameters('namespaceName'), '/', 'spaceship-factory-welding-stations-02')]",
+      "location": "[parameters('location')]",
+      "extendedLocation": {
+        "type": "CustomLocation",
+        "name": "[parameters('customLocationId')]"
+      },
+      "properties": {
+        "deviceRef": {
+          "deviceName": "[parameters('deviceName')]",
+          "endpointName": "[parameters('endpointName')]"
+        },
+        "enabled": true,
+        "externalAssetId": "spaceship-factory-welding-stations-02",
+        "displayName": "spaceship-factory-welding-stations-02",
+        "description": "Welding Station for assembly operations",
+        "attributes": {
+          "assetType": "welding",
+          "dataPointCount": "7",
+          "generatedOn": "2025-12-02 01:24:16.824504+00:00"
+        },
+        "datasets": [
+          {
+            "name": "welding_telemetry",
+            "datasetConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}",
+            "dataPoints": [
+              {
+                "name": "machine_identifier",
+                "dataSource": "machine_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "machine_status",
+                "dataSource": "status",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "weld_cycle_time",
+                "dataSource": "last_cycle_time",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "weld_quality",
+                "dataSource": "quality",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "assembly_type",
+                "dataSource": "assembly_type",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "assembly_identifier",
+                "dataSource": "assembly_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "station_location",
+                "dataSource": "station_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              }
+            ],
+            "destinations": [
+              {
+                "target": "Mqtt",
+                "configuration": {
+                  "qos": "Qos1",
+                  "retain": "Never",
+                  "topic": "azure-iot-operations/data/welding-stations",
+                  "ttl": 3600
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.DeviceRegistry/namespaces/assets",
+      "apiVersion": "2025-10-01",
+      "name": "[concat(parameters('namespaceName'), '/', 'spaceship-factory-welding-stations-03')]",
+      "location": "[parameters('location')]",
+      "extendedLocation": {
+        "type": "CustomLocation",
+        "name": "[parameters('customLocationId')]"
+      },
+      "properties": {
+        "deviceRef": {
+          "deviceName": "[parameters('deviceName')]",
+          "endpointName": "[parameters('endpointName')]"
+        },
+        "enabled": true,
+        "externalAssetId": "spaceship-factory-welding-stations-03",
+        "displayName": "spaceship-factory-welding-stations-03",
+        "description": "Welding Station for assembly operations",
+        "attributes": {
+          "assetType": "welding",
+          "dataPointCount": "7",
+          "generatedOn": "2025-12-02 01:24:16.824504+00:00"
+        },
+        "datasets": [
+          {
+            "name": "welding_telemetry",
+            "datasetConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}",
+            "dataPoints": [
+              {
+                "name": "machine_identifier",
+                "dataSource": "machine_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "machine_status",
+                "dataSource": "status",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "weld_cycle_time",
+                "dataSource": "last_cycle_time",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "weld_quality",
+                "dataSource": "quality",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "assembly_type",
+                "dataSource": "assembly_type",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "assembly_identifier",
+                "dataSource": "assembly_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "station_location",
+                "dataSource": "station_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              }
+            ],
+            "destinations": [
+              {
+                "target": "Mqtt",
+                "configuration": {
+                  "qos": "Qos1",
+                  "retain": "Never",
+                  "topic": "azure-iot-operations/data/welding-stations",
+                  "ttl": 3600
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.DeviceRegistry/namespaces/assets",
+      "apiVersion": "2025-10-01",
+      "name": "[concat(parameters('namespaceName'), '/', 'spaceship-factory-welding-stations-04')]",
+      "location": "[parameters('location')]",
+      "extendedLocation": {
+        "type": "CustomLocation",
+        "name": "[parameters('customLocationId')]"
+      },
+      "properties": {
+        "deviceRef": {
+          "deviceName": "[parameters('deviceName')]",
+          "endpointName": "[parameters('endpointName')]"
+        },
+        "enabled": true,
+        "externalAssetId": "spaceship-factory-welding-stations-04",
+        "displayName": "spaceship-factory-welding-stations-04",
+        "description": "Welding Station for assembly operations",
+        "attributes": {
+          "assetType": "welding",
+          "dataPointCount": "7",
+          "generatedOn": "2025-12-02 01:24:16.824504+00:00"
+        },
+        "datasets": [
+          {
+            "name": "welding_telemetry",
+            "datasetConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}",
+            "dataPoints": [
+              {
+                "name": "machine_identifier",
+                "dataSource": "machine_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "machine_status",
+                "dataSource": "status",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "weld_cycle_time",
+                "dataSource": "last_cycle_time",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "weld_quality",
+                "dataSource": "quality",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "assembly_type",
+                "dataSource": "assembly_type",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "assembly_identifier",
+                "dataSource": "assembly_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "station_location",
+                "dataSource": "station_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              }
+            ],
+            "destinations": [
+              {
+                "target": "Mqtt",
+                "configuration": {
+                  "qos": "Qos1",
+                  "retain": "Never",
+                  "topic": "azure-iot-operations/data/welding-stations",
+                  "ttl": 3600
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.DeviceRegistry/namespaces/assets",
+      "apiVersion": "2025-10-01",
+      "name": "[concat(parameters('namespaceName'), '/', 'spaceship-factory-painting-booths-01')]",
+      "location": "[parameters('location')]",
+      "extendedLocation": {
+        "type": "CustomLocation",
+        "name": "[parameters('customLocationId')]"
+      },
+      "properties": {
+        "deviceRef": {
+          "deviceName": "[parameters('deviceName')]",
+          "endpointName": "[parameters('endpointName')]"
+        },
+        "enabled": true,
+        "externalAssetId": "spaceship-factory-painting-booths-01",
+        "displayName": "spaceship-factory-painting-booths-01",
+        "description": "Painting Booth for surface finishing",
+        "attributes": {
+          "assetType": "painting",
+          "dataPointCount": "7",
+          "generatedOn": "2025-12-02 01:24:16.824504+00:00"
+        },
+        "datasets": [
+          {
+            "name": "painting_telemetry",
+            "datasetConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}",
+            "dataPoints": [
+              {
+                "name": "machine_identifier",
+                "dataSource": "machine_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "machine_status",
+                "dataSource": "status",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "paint_cycle_time",
+                "dataSource": "cycle_time",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "paint_quality",
+                "dataSource": "quality",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "paint_color",
+                "dataSource": "color",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_identifier",
+                "dataSource": "part_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "station_location",
+                "dataSource": "station_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              }
+            ],
+            "destinations": [
+              {
+                "target": "Mqtt",
+                "configuration": {
+                  "qos": "Qos1",
+                  "retain": "Never",
+                  "topic": "azure-iot-operations/data/painting-booths",
+                  "ttl": 3600
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.DeviceRegistry/namespaces/assets",
+      "apiVersion": "2025-10-01",
+      "name": "[concat(parameters('namespaceName'), '/', 'spaceship-factory-painting-booths-02')]",
+      "location": "[parameters('location')]",
+      "extendedLocation": {
+        "type": "CustomLocation",
+        "name": "[parameters('customLocationId')]"
+      },
+      "properties": {
+        "deviceRef": {
+          "deviceName": "[parameters('deviceName')]",
+          "endpointName": "[parameters('endpointName')]"
+        },
+        "enabled": true,
+        "externalAssetId": "spaceship-factory-painting-booths-02",
+        "displayName": "spaceship-factory-painting-booths-02",
+        "description": "Painting Booth for surface finishing",
+        "attributes": {
+          "assetType": "painting",
+          "dataPointCount": "7",
+          "generatedOn": "2025-12-02 01:24:16.824504+00:00"
+        },
+        "datasets": [
+          {
+            "name": "painting_telemetry",
+            "datasetConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}",
+            "dataPoints": [
+              {
+                "name": "machine_identifier",
+                "dataSource": "machine_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "machine_status",
+                "dataSource": "status",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "paint_cycle_time",
+                "dataSource": "cycle_time",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "paint_quality",
+                "dataSource": "quality",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "paint_color",
+                "dataSource": "color",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_identifier",
+                "dataSource": "part_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "station_location",
+                "dataSource": "station_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              }
+            ],
+            "destinations": [
+              {
+                "target": "Mqtt",
+                "configuration": {
+                  "qos": "Qos1",
+                  "retain": "Never",
+                  "topic": "azure-iot-operations/data/painting-booths",
+                  "ttl": 3600
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.DeviceRegistry/namespaces/assets",
+      "apiVersion": "2025-10-01",
+      "name": "[concat(parameters('namespaceName'), '/', 'spaceship-factory-painting-booths-03')]",
+      "location": "[parameters('location')]",
+      "extendedLocation": {
+        "type": "CustomLocation",
+        "name": "[parameters('customLocationId')]"
+      },
+      "properties": {
+        "deviceRef": {
+          "deviceName": "[parameters('deviceName')]",
+          "endpointName": "[parameters('endpointName')]"
+        },
+        "enabled": true,
+        "externalAssetId": "spaceship-factory-painting-booths-03",
+        "displayName": "spaceship-factory-painting-booths-03",
+        "description": "Painting Booth for surface finishing",
+        "attributes": {
+          "assetType": "painting",
+          "dataPointCount": "7",
+          "generatedOn": "2025-12-02 01:24:16.824504+00:00"
+        },
+        "datasets": [
+          {
+            "name": "painting_telemetry",
+            "datasetConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}",
+            "dataPoints": [
+              {
+                "name": "machine_identifier",
+                "dataSource": "machine_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "machine_status",
+                "dataSource": "status",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "paint_cycle_time",
+                "dataSource": "cycle_time",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "paint_quality",
+                "dataSource": "quality",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "paint_color",
+                "dataSource": "color",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "part_identifier",
+                "dataSource": "part_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "station_location",
+                "dataSource": "station_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              }
+            ],
+            "destinations": [
+              {
+                "target": "Mqtt",
+                "configuration": {
+                  "qos": "Qos1",
+                  "retain": "Never",
+                  "topic": "azure-iot-operations/data/painting-booths",
+                  "ttl": 3600
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.DeviceRegistry/namespaces/assets",
+      "apiVersion": "2025-10-01",
+      "name": "[concat(parameters('namespaceName'), '/', 'spaceship-factory-testing-rigs-01')]",
+      "location": "[parameters('location')]",
+      "extendedLocation": {
+        "type": "CustomLocation",
+        "name": "[parameters('customLocationId')]"
+      },
+      "properties": {
+        "deviceRef": {
+          "deviceName": "[parameters('deviceName')]",
+          "endpointName": "[parameters('endpointName')]"
+        },
+        "enabled": true,
+        "externalAssetId": "spaceship-factory-testing-rigs-01",
+        "displayName": "spaceship-factory-testing-rigs-01",
+        "description": "Testing Rig for quality assurance",
+        "attributes": {
+          "assetType": "testing",
+          "dataPointCount": "7",
+          "generatedOn": "2025-12-02 01:24:16.824504+00:00"
+        },
+        "datasets": [
+          {
+            "name": "testing_telemetry",
+            "datasetConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}",
+            "dataPoints": [
+              {
+                "name": "machine_identifier",
+                "dataSource": "machine_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "machine_status",
+                "dataSource": "status",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "test_result",
+                "dataSource": "test_result",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "defect_count",
+                "dataSource": "issues_found",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "test_target_type",
+                "dataSource": "target_type",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "target_identifier",
+                "dataSource": "target_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "station_location",
+                "dataSource": "station_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              }
+            ],
+            "destinations": [
+              {
+                "target": "Mqtt",
+                "configuration": {
+                  "qos": "Qos1",
+                  "retain": "Never",
+                  "topic": "azure-iot-operations/data/testing-rigs",
+                  "ttl": 3600
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.DeviceRegistry/namespaces/assets",
+      "apiVersion": "2025-10-01",
+      "name": "[concat(parameters('namespaceName'), '/', 'spaceship-factory-testing-rigs-02')]",
+      "location": "[parameters('location')]",
+      "extendedLocation": {
+        "type": "CustomLocation",
+        "name": "[parameters('customLocationId')]"
+      },
+      "properties": {
+        "deviceRef": {
+          "deviceName": "[parameters('deviceName')]",
+          "endpointName": "[parameters('endpointName')]"
+        },
+        "enabled": true,
+        "externalAssetId": "spaceship-factory-testing-rigs-02",
+        "displayName": "spaceship-factory-testing-rigs-02",
+        "description": "Testing Rig for quality assurance",
+        "attributes": {
+          "assetType": "testing",
+          "dataPointCount": "7",
+          "generatedOn": "2025-12-02 01:24:16.824504+00:00"
+        },
+        "datasets": [
+          {
+            "name": "testing_telemetry",
+            "datasetConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}",
+            "dataPoints": [
+              {
+                "name": "machine_identifier",
+                "dataSource": "machine_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "machine_status",
+                "dataSource": "status",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "test_result",
+                "dataSource": "test_result",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "defect_count",
+                "dataSource": "issues_found",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "test_target_type",
+                "dataSource": "target_type",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "target_identifier",
+                "dataSource": "target_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              },
+              {
+                "name": "station_location",
+                "dataSource": "station_id",
+                "dataPointConfiguration": "{\"publishingInterval\":1000,\"queueSize\":1}"
+              }
+            ],
+            "destinations": [
+              {
+                "target": "Mqtt",
+                "configuration": {
+                  "qos": "Qos1",
+                  "retain": "Never",
+                  "topic": "azure-iot-operations/data/testing-rigs",
+                  "ttl": 3600
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
