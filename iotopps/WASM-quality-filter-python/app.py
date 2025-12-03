@@ -59,7 +59,7 @@ class Config:
     """Application configuration"""
     mqtt_broker: str = os.getenv("MQTT_BROKER", "aio-broker.azure-iot-operations.svc.cluster.local")
     mqtt_port: int = int(os.getenv("MQTT_PORT", "18883"))  # MQTTS port
-    mqtt_client_id: str = os.getenv("MQTT_CLIENT_ID", "python-quality-filter")
+    mqtt_client_id: str = os.getenv("MQTT_CLIENT_ID", "wasm-quality-filter-python")
     input_topic: str = os.getenv("INPUT_TOPIC", "azure-iot-operations/data/welding-stations")
     output_topic: str = os.getenv("OUTPUT_TOPIC", "azure-iot-operations/alerts/quality-control")
     health_port: int = int(os.getenv("HEALTH_PORT", "8080"))
@@ -530,8 +530,8 @@ def create_app(mqtt_handler: MQTTHandler, metrics: MetricsCollector, config: Con
     """Create FastAPI application for health and metrics endpoints"""
     
     app = FastAPI(
-        title="Python Quality Filter",
-        description="IoT quality control filtering service",
+        title="WASM Quality Filter (Python)",
+        description="IoT quality control filtering service - Python replacement for WASM module",
         version="1.0.0"
     )
     
@@ -643,7 +643,7 @@ class QualityFilterApp:
     async def start(self):
         """Start the application with better error handling"""
         self.logger.info("=" * 70)
-        self.logger.info("🚀 Python Quality Filter - Azure IoT Operations")
+        self.logger.info("🚀 WASM Quality Filter (Python) - Azure IoT Operations")
         self.logger.info(f"   Authentication Method: {self.config.auth_method}")
         self.logger.info(f"   MQTT Broker: {self.config.mqtt_broker}:{self.config.mqtt_port}")
         self.logger.info(f"   TLS Encryption: {'Enabled' if self.config.mqtt_port == 18883 else 'Disabled'}")
@@ -693,7 +693,7 @@ class QualityFilterApp:
     
     async def stop(self):
         """Stop the application"""
-        self.logger.info("Stopping Python Quality Filter")
+        self.logger.info("Stopping WASM Quality Filter (Python)")
         await self.mqtt_handler.stop()
 
 # Signal handling for graceful shutdown

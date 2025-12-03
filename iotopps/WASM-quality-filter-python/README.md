@@ -1,4 +1,4 @@
-# Python Quality Filter
+# WASM Quality Filter (Python)
 
 A Python-based replacement for the WASM quality control filtering module. This service provides the same functionality with easier debugging and maintenance, including **Azure IoT Operations security protocols**.
 
@@ -68,13 +68,13 @@ python app.py
 ### Container Build
 ```bash
 # Build container
-docker build -t python-quality-filter:latest .
+docker build -t wasm-quality-filter-python:latest .
 
 # Run container
 docker run -p 8080:8080 \
   -e MQTT_BROKER="your-mqtt-broker" \
   -e LOG_LEVEL="INFO" \
-  python-quality-filter:latest
+  wasm-quality-filter-python:latest
 ```
 
 ## 🔧 Configuration
@@ -172,8 +172,8 @@ Welding Station → MQTT Broker → Python Filter → Quality Control Topic
 ### GitHub Actions
 The service will automatically deploy via the existing GitHub Actions pipeline:
 
-- **Manual**: Actions → "Deploy IoT Edge Application" → Select `python-quality-filter`
-- **Automatic**: Push changes to `dev` branch under `iotopps/python-quality-filter/`
+- **Manual**: Actions → "Deploy IoT Edge Application" → Select `WASM-quality-filter-python`
+- **Automatic**: Push changes to `dev` branch under `iotopps/WASM-quality-filter-python/`
 
 ### Manual Deployment
 ```bash
@@ -181,8 +181,8 @@ The service will automatically deploy via the existing GitHub Actions pipeline:
 kubectl apply -f deployment.yaml
 
 # Check deployment
-kubectl get pods -l app=python-quality-filter
-kubectl logs -l app=python-quality-filter -f
+kubectl get pods -l app=wasm-quality-filter-python
+kubectl logs -l app=wasm-quality-filter-python -f
 ```
 
 ## 📈 Monitoring
@@ -193,7 +193,7 @@ kubectl logs -l app=python-quality-filter -f
 curl http://localhost:8080/health
 
 # Kubernetes health check
-kubectl exec -it deployment/python-quality-filter -- curl http://localhost:8080/health
+kubectl exec -it deployment/wasm-quality-filter-python -- curl http://localhost:8080/health
 ```
 
 ### Metrics
@@ -214,7 +214,7 @@ curl http://localhost:8080/metrics
 ### Logs
 ```bash
 # View logs
-kubectl logs -l app=python-quality-filter -f
+kubectl logs -l app=wasm-quality-filter-python -f
 
 # Example structured log output
 {"level": "info", "logger": "mqtt_handler", "timestamp": "2024-12-03T10:30:45.123Z", "event": "Quality alert published", "alert_id": "qa_LINE-1-STATION-C-01_1701598245123"}

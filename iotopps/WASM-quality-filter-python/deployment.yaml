@@ -1,28 +1,28 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: python-quality-filter
+  name: wasm-quality-filter-python
   namespace: default
   labels:
-    app: python-quality-filter
+    app: wasm-quality-filter-python
     component: quality-control
     version: v1
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: python-quality-filter
+      app: wasm-quality-filter-python
   template:
     metadata:
       labels:
-        app: python-quality-filter
+        app: wasm-quality-filter-python
         component: quality-control
         version: v1
     spec:
       serviceAccountName: mqtt-client  # Use existing service account for MQTT access
       containers:
-      - name: python-quality-filter
-        image: <YOUR_REGISTRY>/python-quality-filter:latest
+      - name: wasm-quality-filter-python
+        image: <YOUR_REGISTRY>/wasm-quality-filter-python:latest
         imagePullPolicy: Always
         
         # Environment variables
@@ -38,7 +38,7 @@ spec:
         - name: OUTPUT_TOPIC
           value: "azure-iot-operations/alerts/quality-control"
         - name: MQTT_CLIENT_ID
-          value: "python-quality-filter-$(POD_NAME)"
+          value: "wasm-quality-filter-python-$(POD_NAME)"
         # ServiceAccountToken authentication settings
         - name: MQTT_AUTH_METHOD
           value: "K8S-SAT"  # Use Kubernetes ServiceAccountToken
@@ -141,14 +141,14 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: python-quality-filter-service
+  name: wasm-quality-filter-python-service
   namespace: default
   labels:
-    app: python-quality-filter
+    app: wasm-quality-filter-python
     component: quality-control
 spec:
   selector:
-    app: python-quality-filter
+    app: wasm-quality-filter-python
   ports:
   - name: http
     port: 8080

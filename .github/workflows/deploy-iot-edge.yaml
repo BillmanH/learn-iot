@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       app_folder:
-        description: 'Application folder name (e.g., hello-flask, sputnik, python-quality-filter)'
+        description: 'Application folder name (e.g., hello-flask, sputnik, WASM-quality-filter-python)'
         required: true
         type: choice
         options:
           - hello-flask
           - sputnik
-          - python-quality-filter
+          - WASM-quality-filter-python
       image_tag:
         description: 'Image tag (default: github.sha)'
         required: false
