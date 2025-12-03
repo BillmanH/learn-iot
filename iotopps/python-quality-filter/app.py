@@ -25,27 +25,16 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 import paho.mqtt.client as mqtt
 from pydantic import BaseModel, Field
-import structlog
 
-# Configure structured logging
-structlog.configure(
-    processors=[
-        structlog.stdlib.filter_by_level,
-        structlog.stdlib.add_logger_name,
-        structlog.stdlib.add_log_level,
-        structlog.stdlib.PositionalArgumentsFormatter(),
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.StackInfoRenderer(),
-        structlog.processors.format_exc_info,
-        structlog.processors.UnicodeDecoder(),
-        structlog.processors.JSONRenderer()
-    ],
-    wrapper_class=structlog.stdlib.LoggerFactory(),
-    logger_factory=structlog.stdlib.LoggerFactory(),
-    cache_logger_on_first_use=True,
+# Configure standard logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-logger = structlog.get_logger()
+def get_logger(name: str):
+    """Get a simple logger"""
+    return logging.getLogger(name)
 
 # Configuration
 @dataclass
@@ -115,7 +104,7 @@ class QualityFilter:
     
     def __init__(self, config: Config):
         self.config = config
-        self.logger = structlog.get_logger("quality_filter")
+        self.logger = get_logger("quality_filter")
     
     def should_trigger_alert(self, message: WeldingMessage) -> bool:
         """
@@ -131,13 +120,9 @@ class QualityFilter:
         should_alert = quality_match and cycle_time_issue
         
         self.logger.debug(
-            "Quality filter evaluation",
-            machine_id=message.machine_id,
-            quality=message.quality,
-            cycle_time=message.last_cycle_time,
-            quality_match=quality_match,
-            cycle_time_issue=cycle_time_issue,
-            should_alert=should_alert
+            f"Quality filter evaluation - machine_id={message.machine_id}, "
+            f"quality={message.quality}, cycle_time={message.last_cycle_time}, "
+            f"should_alert={should_alert}"
         )
         
         return should_alert
@@ -180,11 +165,9 @@ class QualityFilter:
         )
         
         self.logger.info(
-            "Quality alert created",
-            alert_id=alert.alert_id,
-            machine_id=alert.machine_id,
-            severity=alert.severity,
-            cycle_time=message.last_cycle_time
+            f"Quality alert created - alert_id={alert.alert_id}, "
+            f"machine_id={alert.machine_id}, severity={alert.severity}, "
+            f"cycle_time={message.last_cycle_time}"
         )
         
         return alert
@@ -235,7 +218,7 @@ class MQTTHandler:
         self.config = config
         self.quality_filter = quality_filter
         self.metrics = metrics
-        self.logger = structlog.get_logger("mqtt_handler")
+        self.logger = get_logger("mqtt_handler")
         
         # MQTT client setup
         self.client = mqtt.Client(client_id=config.mqtt_client_id)
@@ -251,25 +234,25 @@ class MQTTHandler:
         """MQTT connection callback"""
         if rc == 0:
             self.connected = True
-            self.logger.info("Connected to MQTT broker", broker=self.config.mqtt_broker)
+            self.logger.info(f"Connected to MQTT broker: {self.config.mqtt_broker}")
             
             # Subscribe to input topic
             result = client.subscribe(self.config.input_topic)
             if result[0] == 0:
-                self.logger.info("Subscribed to topic", topic=self.config.input_topic)
+                self.logger.info(f"Subscribed to topic: {self.config.input_topic}")
             else:
-                self.logger.error("Failed to subscribe to topic", topic=self.config.input_topic)
+                self.logger.error(f"Failed to subscribe to topic: {self.config.input_topic}")
         else:
-            self.logger.error("Failed to connect to MQTT broker", return_code=rc)
+            self.logger.error(f"Failed to connect to MQTT broker, return code: {rc}")
     
     def _on_disconnect(self, client, userdata, rc):
         """MQTT disconnection callback"""
         self.connected = False
-        self.logger.warning("Disconnected from MQTT broker", return_code=rc)
+        self.logger.warning(f"Disconnected from MQTT broker, return code: {rc}")
     
     def _on_log(self, client, userdata, level, buf):
         """MQTT logging callback"""
-        self.logger.debug("MQTT log", level=level, message=buf)
+        self.logger.debug(f"MQTT log - level: {level}, message: {buf}")
     
     def _on_message(self, client, userdata, msg):
         """MQTT message callback"""
@@ -279,9 +262,8 @@ class MQTTHandler:
             message_data = json.loads(message_str)
             
             self.logger.debug(
-                "Received MQTT message",
-                topic=msg.topic,
-                payload_size=len(message_str)
+                f"Received MQTT message - topic: {msg.topic}, "
+                f"payload_size: {len(message_str)}"
             )
             
             # Validate and create welding message object
@@ -295,10 +277,10 @@ class MQTTHandler:
                 self.metrics.record_alert_generated()
             
         except json.JSONDecodeError as e:
-            self.logger.error("Failed to decode JSON message", error=str(e))
+            self.logger.error(f"Failed to decode JSON message: {str(e)}")
             self.metrics.record_error()
         except Exception as e:
-            self.logger.error("Error processing message", error=str(e))
+            self.logger.error(f"Error processing message: {str(e)}")
             self.metrics.record_error()
     
     def _publish_alert(self, alert: QualityAlert):
@@ -309,21 +291,20 @@ class MQTTHandler:
             
             if result.rc == 0:
                 self.logger.info(
-                    "Quality alert published",
-                    alert_id=alert.alert_id,
-                    topic=self.config.output_topic
+                    f"Quality alert published - alert_id: {alert.alert_id}, "
+                    f"topic: {self.config.output_topic}"
                 )
             else:
-                self.logger.error("Failed to publish alert", return_code=result.rc)
+                self.logger.error(f"Failed to publish alert, return code: {result.rc}")
                 self.metrics.record_error()
                 
         except Exception as e:
-            self.logger.error("Error publishing alert", error=str(e))
+            self.logger.error(f"Error publishing alert: {str(e)}")
             self.metrics.record_error()
     
     async def start(self):
         """Start MQTT connection"""
-        self.logger.info("Starting MQTT handler", broker=self.config.mqtt_broker)
+        self.logger.info(f"Starting MQTT handler, broker: {self.config.mqtt_broker}")
         self.running = True
         
         try:
@@ -340,7 +321,7 @@ class MQTTHandler:
                 raise Exception("Failed to connect to MQTT broker within timeout")
                 
         except Exception as e:
-            self.logger.error("Failed to start MQTT handler", error=str(e))
+            self.logger.error(f"Failed to start MQTT handler: {str(e)}")
             raise
     
     async def stop(self):
@@ -415,14 +396,14 @@ class QualityFilterApp:
         self.quality_filter = QualityFilter(self.config)
         self.mqtt_handler = MQTTHandler(self.config, self.quality_filter, self.metrics)
         self.app = create_app(self.mqtt_handler, self.metrics, self.config)
-        self.logger = structlog.get_logger("app")
+        self.logger = get_logger("app")
         
         # Setup logging level
         logging.getLogger().setLevel(getattr(logging, self.config.log_level.upper()))
     
     async def start(self):
         """Start the application"""
-        self.logger.info("Starting Python Quality Filter", config=asdict(self.config))
+        self.logger.info(f"Starting Python Quality Filter with config: {asdict(self.config)}")
         
         # Start MQTT handler
         await self.mqtt_handler.start()
@@ -437,7 +418,7 @@ class QualityFilterApp:
         )
         server = uvicorn.Server(server_config)
         
-        self.logger.info("Quality filter started successfully", health_port=self.config.health_port)
+        self.logger.info(f"Quality filter started successfully on health port: {self.config.health_port}")
         
         # Run server
         await server.serve()
@@ -450,9 +431,10 @@ class QualityFilterApp:
 # Signal handling for graceful shutdown
 def setup_signal_handlers(app: QualityFilterApp):
     """Setup signal handlers for graceful shutdown"""
+    logger = get_logger("signal_handler")
     
     def signal_handler(signum, frame):
-        logger.info("Received signal, shutting down gracefully", signal=signum)
+        logger.info(f"Received signal {signum}, shutting down gracefully")
         asyncio.create_task(app.stop())
         sys.exit(0)
     
@@ -463,11 +445,12 @@ if __name__ == "__main__":
     # Create and run application
     app = QualityFilterApp()
     setup_signal_handlers(app)
+    logger = get_logger("main")
     
     try:
         asyncio.run(app.start())
     except KeyboardInterrupt:
         logger.info("Application interrupted by user")
     except Exception as e:
-        logger.error("Application error", error=str(e))
+        logger.error(f"Application error: {str(e)}")
         sys.exit(1)
