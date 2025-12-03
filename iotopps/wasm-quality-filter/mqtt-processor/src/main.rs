@@ -3,7 +3,7 @@ use rumqttc::{AsyncClient, MqttOptions, QoS};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use warp::Filter;
 
 mod config;

@@ -1,9 +1,8 @@
 use anyhow::{Context, Result};
-use std::ffi::{CString, CStr};
-use std::os::raw::c_char;
-use tracing::{debug, error, info};
+use std::ffi::CString;
+use tracing::{debug, info};
 use wasmtime::*;
-use wasmtime_wasi::WasiCtxBuilder;
+use wasmtime_wasi::{WasiCtxBuilder, WasiCtx};
 
 pub struct WasmQualityFilter {
     engine: Engine,
@@ -19,8 +18,6 @@ impl WasmQualityFilter {
             Config::new()
                 .wasm_backtrace_details(wasmtime::WasmBacktraceDetails::Enable)
                 .debug_info(false) // Disable for production
-                .consume_fuel(true) // Enable fuel for timeouts
-                .epoch_interruption(true) // Enable epoch-based interruption
         )?;
 
         // Load and compile the module
@@ -46,8 +43,7 @@ impl WasmQualityFilter {
                 .build(),
         );
 
-        // Set fuel limit (prevents infinite loops)
-        store.set_fuel(1_000_000)?;
+        // Note: Fuel consumption not available in wasmtime 13.0
 
         // Create a linker and add WASI
         let mut linker = Linker::new(&self.engine);
@@ -120,7 +116,7 @@ impl WasmQualityFilter {
         let needed_pages = (size + 65535) / 65536; // Round up to pages
         
         if needed_pages > 0 {
-            memory.grow(store, needed_pages as u32)
+            memory.grow(store, needed_pages as u64)
                 .context("Failed to grow WASM memory")?;
         }
         

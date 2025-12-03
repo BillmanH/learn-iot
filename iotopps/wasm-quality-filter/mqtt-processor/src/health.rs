@@ -1,8 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::time;
-use tracing::{debug, info};
+use std::time::Instant;
+use tracing::debug;
 
 use crate::metrics::MetricsCollector;
 
@@ -30,6 +29,7 @@ pub struct CheckResult {
     pub last_checked: String,
 }
 
+#[derive(Clone)]
 pub struct HealthService {
     start_time: Instant,
     metrics: Arc<MetricsCollector>,
