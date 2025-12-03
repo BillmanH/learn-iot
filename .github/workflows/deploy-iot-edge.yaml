@@ -149,6 +149,7 @@ jobs:
         if: ${{ !inputs.skip_build && matrix.app == 'wasm-quality-filter' }}
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: "1.76"
           targets: wasm32-wasi
 
       - name: Cache Rust dependencies
