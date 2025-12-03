@@ -241,12 +241,24 @@ class MQTTHandler:
         self.metrics = metrics
         self.logger = get_logger("mqtt_handler")
         
-        # MQTT client setup with MQTT v5 for K8S-SAT authentication support
-        self.client = mqtt.Client(
-            client_id=config.mqtt_client_id,
-            protocol=mqtt.MQTTv5,
-            transport="tcp"
-        )
+        # MQTT client setup - try MQTT v5 first, fallback to v3.1.1
+        try:
+            self.client = mqtt.Client(
+                client_id=config.mqtt_client_id,
+                protocol=mqtt.MQTTv5,
+                transport="tcp"
+            )
+            self.mqtt_version = "5"
+            self.logger.info("Using MQTT v5 protocol")
+        except (AttributeError, TypeError):
+            # Fallback for older paho-mqtt versions
+            self.client = mqtt.Client(
+                client_id=config.mqtt_client_id,
+                protocol=mqtt.MQTTv311,
+                transport="tcp"
+            )
+            self.mqtt_version = "3.1.1"
+            self.logger.warning("MQTT v5 not available, using MQTT v3.1.1")
         
         # Configure TLS for encrypted connection
         self.logger.info("Setting up TLS connection...")
@@ -268,17 +280,17 @@ class MQTTHandler:
         self.running = False
     
     def _on_connect(self, client, userdata, flags, reason_code, properties=None):
-        """MQTT connection callback for MQTT v5 with K8S-SAT support"""
-        # For MQTT v5, reason_code is a ReasonCodes object
+        """MQTT connection callback - compatible with both MQTT v3 and v5"""
+        # Handle both MQTT v3 (reason_code is int) and v5 (reason_code is ReasonCodes object)
         if hasattr(reason_code, 'value'):
-            rc = reason_code.value  # Extract the numeric value from ReasonCodes
+            rc = reason_code.value  # Extract the numeric value from ReasonCodes (MQTT v5)
         else:
-            rc = reason_code  # Fall back to numeric value for MQTT v3
+            rc = reason_code  # Numeric value for MQTT v3
             
         if rc == 0:
             self.connected = True
             self.logger.info(f"Connected to MQTT broker: {self.config.mqtt_broker}:{self.config.mqtt_port}")
-            if properties:
+            if properties and self.mqtt_version == "5":
                 self.logger.info(f"Connection properties: {properties}")
             
             # Subscribe to input topic
@@ -288,57 +300,72 @@ class MQTTHandler:
             else:
                 self.logger.error(f"Failed to subscribe to topic: {self.config.input_topic}")
         else:
-            # MQTT v5 CONNACK Reason Codes
-            connack_codes = {
-                0: "Success",
-                1: "Connection refused - unacceptable protocol version",
-                2: "Connection refused - identifier rejected", 
-                3: "Connection refused - server unavailable",
-                4: "Connection refused - bad username or password",
-                5: "Connection refused - not authorized",
-                128: "Unspecified error",
-                129: "Malformed packet",
-                130: "Protocol error",
-                131: "Implementation specific error",
-                132: "Unsupported protocol version",
-                133: "Client identifier not valid",
-                134: "Bad username or password",
-                135: "Not authorized",
-                136: "Server unavailable",
-                137: "Server busy",
-                138: "Banned",
-                140: "Bad authentication method",
-                144: "Topic name invalid",
-                149: "Packet too large",
-                151: "Quota exceeded",
-                153: "Payload format invalid",
-                155: "Retain not supported",
-                156: "QoS not supported",
-                157: "Use another server",
-                158: "Server moved",
-                159: "Connection rate exceeded"
-            }
-            error_message = connack_codes.get(rc, f"Unknown CONNACK error (code: {rc})")
-            self.logger.error(f"Failed to connect: {error_message}")
-            self.logger.error(f"CONNACK reason code: {rc}")
-            if properties:
-                self.logger.error(f"Error properties: {properties}")
+            # Enhanced error reporting for MQTT v5, basic for v3
+            if self.mqtt_version == "5":
+                # MQTT v5 CONNACK Reason Codes
+                connack_codes = {
+                    0: "Success",
+                    1: "Connection refused - unacceptable protocol version",
+                    2: "Connection refused - identifier rejected", 
+                    3: "Connection refused - server unavailable",
+                    4: "Connection refused - bad username or password",
+                    5: "Connection refused - not authorized",
+                    128: "Unspecified error",
+                    129: "Malformed packet",
+                    130: "Protocol error",
+                    131: "Implementation specific error",
+                    132: "Unsupported protocol version",
+                    133: "Client identifier not valid",
+                    134: "Bad username or password",
+                    135: "Not authorized",
+                    136: "Server unavailable",
+                    137: "Server busy",
+                    138: "Banned",
+                    140: "Bad authentication method",
+                    144: "Topic name invalid",
+                    149: "Packet too large",
+                    151: "Quota exceeded",
+                    153: "Payload format invalid",
+                    155: "Retain not supported",
+                    156: "QoS not supported",
+                    157: "Use another server",
+                    158: "Server moved",
+                    159: "Connection rate exceeded"
+                }
+                error_message = connack_codes.get(rc, f"Unknown CONNACK error (code: {rc})")
+                self.logger.error(f"Failed to connect: {error_message}")
+                self.logger.error(f"CONNACK reason code: {rc}")
+                if properties:
+                    self.logger.error(f"Error properties: {properties}")
+            else:
+                # MQTT v3 error codes
+                connack_codes = {
+                    1: "Connection refused - incorrect protocol version",
+                    2: "Connection refused - invalid client identifier",
+                    3: "Connection refused - server unavailable",
+                    4: "Connection refused - bad username or password",
+                    5: "Connection refused - not authorized"
+                }
+                error_message = connack_codes.get(rc, f"Unknown error (code: {rc})")
+                self.logger.error(f"Failed to connect: {error_message}")
             self.connected = False
     
     def _on_disconnect(self, client, userdata, reason_code, properties=None):
-        """MQTT disconnection callback for MQTT v5"""
+        """MQTT disconnection callback - compatible with both MQTT v3 and v5"""
         self.connected = False
         
-        # Handle MQTT v5 ReasonCodes object
+        # Handle MQTT v5 ReasonCodes object vs MQTT v3 integer
         if hasattr(reason_code, 'value'):
             rc = reason_code.value
         else:
             rc = reason_code
         
         if rc != 0:
-            self.logger.warning(f"Unexpected disconnection, return code: {rc}")
-            if properties:
+            if self.mqtt_version == "5" and properties:
+                self.logger.warning(f"Unexpected disconnection, return code: {rc}")
                 self.logger.warning(f"Disconnect properties: {properties}")
+            else:
+                self.logger.warning(f"Unexpected disconnection, return code: {rc}")
         else:
             self.logger.info("Disconnected successfully")
     
@@ -426,9 +453,18 @@ class MQTTHandler:
                     if not token:
                         raise ConnectionError("Cannot connect without SAT token")
                     
-                    connect_properties = mqtt.Properties(mqtt.PacketTypes.CONNECT)
-                    connect_properties.AuthenticationMethod = 'K8S-SAT'
-                    connect_properties.AuthenticationData = token.encode('utf-8')
+                    # Handle different paho-mqtt versions
+                    try:
+                        # For paho-mqtt 2.0+
+                        connect_properties = mqtt.Properties(mqtt.PacketTypes.CONNECT)
+                        connect_properties.AuthenticationMethod = 'K8S-SAT'
+                        connect_properties.AuthenticationData = token.encode('utf-8')
+                        self.logger.info("Using MQTT v5 with paho-mqtt 2.0+")
+                    except AttributeError:
+                        # For paho-mqtt 1.x - fallback to username/password
+                        self.logger.warning("paho-mqtt 1.x detected, using username/password auth instead of MQTT v5")
+                        self.client.username_pw_set("", token)
+                        connect_properties = None
                     
                     self.logger.info("K8S-SAT authentication configured")
                     self.logger.info(f"Token length: {len(token)} characters")
