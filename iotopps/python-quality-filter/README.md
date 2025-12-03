@@ -1,6 +1,6 @@
 # Python Quality Filter
 
-A Python-based replacement for the WASM quality control filtering module. This service provides the same functionality with easier debugging and maintenance.
+A Python-based replacement for the WASM quality control filtering module. This service provides the same functionality with easier debugging and maintenance, including **Azure IoT Operations security protocols**.
 
 ## 📂 Files Overview
 
@@ -9,9 +9,29 @@ A Python-based replacement for the WASM quality control filtering module. This s
 | `app.py` | Main Application | Complete Python service with MQTT handling, quality filtering, and health endpoints |
 | `requirements.txt` | Dependencies | Python package requirements |
 | `Dockerfile` | Container Build | Multi-stage build for Python service |
-| `deployment.yaml` | Kubernetes Deploy | Production deployment manifest with health checks |
+| `deployment.yaml` | Kubernetes Deploy | Production deployment manifest with security and health checks |
 | `config.yaml` | Configuration | YAML configuration file (optional, uses env vars by default) |
 | `README.md` | Documentation | This file |
+
+## 🔐 Security Features
+
+This implementation follows **Azure IoT Operations security best practices**:
+
+### Authentication
+- **🔑 K8S-SAT Authentication**: Uses Kubernetes ServiceAccountToken for secure MQTT access
+- **🏷️ Service Account**: Dedicated `mqtt-client` service account with appropriate permissions
+- **🎫 Token Management**: Automatic token rotation with 24-hour expiration
+
+### Encryption
+- **🔒 TLS/SSL**: Encrypted MQTTS connection on port 18883
+- **🛡️ Certificate Handling**: Configured for Azure IoT Operations self-signed certificates
+- **🚫 Insecure Connections**: No plain-text MQTT communication
+
+### Container Security
+- **👤 Non-Root User**: Runs as non-privileged user (UID/GID 1000)
+- **📁 Read-Only Filesystem**: Immutable container filesystem
+- **⛔ Capability Dropping**: Removes all unnecessary Linux capabilities
+- **🔒 Security Context**: Comprehensive pod and container security restrictions
 
 ## 🎯 Functionality
 
@@ -64,8 +84,10 @@ All configuration is done via environment variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MQTT_BROKER` | `aio-broker.azure-iot-operations.svc.cluster.local` | MQTT broker hostname |
-| `MQTT_PORT` | `1883` | MQTT broker port |
+| `MQTT_PORT` | `18883` | MQTTS broker port (encrypted) |
 | `MQTT_CLIENT_ID` | `python-quality-filter` | MQTT client identifier |
+| `MQTT_AUTH_METHOD` | `K8S-SAT` | Authentication method (K8S-SAT) |
+| `SAT_TOKEN_PATH` | `/var/run/secrets/tokens/broker-sat` | ServiceAccountToken file path |
 | `INPUT_TOPIC` | `azure-iot-operations/data/welding-stations` | Input topic to subscribe to |
 | `OUTPUT_TOPIC` | `azure-iot-operations/alerts/quality-control` | Output topic for alerts |
 | `HEALTH_PORT` | `8080` | Port for health and metrics endpoints |
@@ -204,8 +226,16 @@ kubectl logs -l app=python-quality-filter -f
 
 **MQTT Connection Failed**
 - Check `MQTT_BROKER` environment variable
-- Verify network connectivity to broker
-- Check service account permissions
+- Verify network connectivity to broker on port 18883 (MQTTS)
+- Check service account permissions for MQTT access
+- Verify ServiceAccountToken is mounted at `/var/run/secrets/tokens/broker-sat`
+- Check K8S-SAT authentication configuration
+
+**Authentication Issues**
+- Verify `mqtt-client` service account exists and is configured
+- Check ServiceAccountToken audience matches broker configuration (`aio-internal`)
+- Ensure token file is readable and not expired (24-hour rotation)
+- Review MQTT v5 CONNACK error codes in logs
 
 **No Messages Processing**
 - Verify `INPUT_TOPIC` subscription

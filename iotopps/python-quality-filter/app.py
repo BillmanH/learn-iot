@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import signal
+import ssl
 import sys
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
@@ -36,17 +37,37 @@ def get_logger(name: str):
     """Get a simple logger"""
     return logging.getLogger(name)
 
+def get_sat_token(token_path: str) -> Optional[str]:
+    """Read the ServiceAccountToken from the mounted volume."""
+    logger = get_logger("auth")
+    try:
+        token_file = Path(token_path)
+        if token_file.exists():
+            token = token_file.read_text().strip()
+            logger.info(f"Read SAT token from {token_path} ({len(token)} chars)")
+            return token
+        else:
+            logger.error(f"SAT token file not found at {token_path}")
+            return None
+    except Exception as e:
+        logger.error(f"Error reading SAT token: {e}")
+        return None
+
 # Configuration
 @dataclass
 class Config:
     """Application configuration"""
     mqtt_broker: str = os.getenv("MQTT_BROKER", "aio-broker.azure-iot-operations.svc.cluster.local")
-    mqtt_port: int = int(os.getenv("MQTT_PORT", "1883"))
+    mqtt_port: int = int(os.getenv("MQTT_PORT", "18883"))  # MQTTS port
     mqtt_client_id: str = os.getenv("MQTT_CLIENT_ID", "python-quality-filter")
     input_topic: str = os.getenv("INPUT_TOPIC", "azure-iot-operations/data/welding-stations")
     output_topic: str = os.getenv("OUTPUT_TOPIC", "azure-iot-operations/alerts/quality-control")
     health_port: int = int(os.getenv("HEALTH_PORT", "8080"))
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
+    
+    # Authentication configuration
+    auth_method: str = os.getenv("MQTT_AUTH_METHOD", "K8S-SAT")  # Default to SAT
+    sat_token_path: str = os.getenv("SAT_TOKEN_PATH", "/var/run/secrets/tokens/broker-sat")
     
     # Quality filter parameters
     quality_threshold: str = os.getenv("QUALITY_THRESHOLD", "scrap")
@@ -220,8 +241,24 @@ class MQTTHandler:
         self.metrics = metrics
         self.logger = get_logger("mqtt_handler")
         
-        # MQTT client setup
-        self.client = mqtt.Client(client_id=config.mqtt_client_id)
+        # MQTT client setup with MQTT v5 for K8S-SAT authentication support
+        self.client = mqtt.Client(
+            client_id=config.mqtt_client_id,
+            protocol=mqtt.MQTTv5,
+            transport="tcp"
+        )
+        
+        # Configure TLS for encrypted connection
+        self.logger.info("Setting up TLS connection...")
+        self.client.tls_set(
+            ca_certs=None,  # Don't verify server cert (self-signed in cluster)
+            cert_reqs=ssl.CERT_NONE,
+            tls_version=ssl.PROTOCOL_TLS_CLIENT,
+            ciphers=None
+        )
+        self.client.tls_insecure_set(True)
+        self.logger.info("TLS configured (encrypted connection, no server verification)")
+        
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
         self.client.on_disconnect = self._on_disconnect
@@ -230,11 +267,19 @@ class MQTTHandler:
         self.connected = False
         self.running = False
     
-    def _on_connect(self, client, userdata, flags, rc):
-        """MQTT connection callback"""
+    def _on_connect(self, client, userdata, flags, reason_code, properties=None):
+        """MQTT connection callback for MQTT v5 with K8S-SAT support"""
+        # For MQTT v5, reason_code is a ReasonCodes object
+        if hasattr(reason_code, 'value'):
+            rc = reason_code.value  # Extract the numeric value from ReasonCodes
+        else:
+            rc = reason_code  # Fall back to numeric value for MQTT v3
+            
         if rc == 0:
             self.connected = True
-            self.logger.info(f"Connected to MQTT broker: {self.config.mqtt_broker}")
+            self.logger.info(f"Connected to MQTT broker: {self.config.mqtt_broker}:{self.config.mqtt_port}")
+            if properties:
+                self.logger.info(f"Connection properties: {properties}")
             
             # Subscribe to input topic
             result = client.subscribe(self.config.input_topic)
@@ -243,12 +288,59 @@ class MQTTHandler:
             else:
                 self.logger.error(f"Failed to subscribe to topic: {self.config.input_topic}")
         else:
-            self.logger.error(f"Failed to connect to MQTT broker, return code: {rc}")
+            # MQTT v5 CONNACK Reason Codes
+            connack_codes = {
+                0: "Success",
+                1: "Connection refused - unacceptable protocol version",
+                2: "Connection refused - identifier rejected", 
+                3: "Connection refused - server unavailable",
+                4: "Connection refused - bad username or password",
+                5: "Connection refused - not authorized",
+                128: "Unspecified error",
+                129: "Malformed packet",
+                130: "Protocol error",
+                131: "Implementation specific error",
+                132: "Unsupported protocol version",
+                133: "Client identifier not valid",
+                134: "Bad username or password",
+                135: "Not authorized",
+                136: "Server unavailable",
+                137: "Server busy",
+                138: "Banned",
+                140: "Bad authentication method",
+                144: "Topic name invalid",
+                149: "Packet too large",
+                151: "Quota exceeded",
+                153: "Payload format invalid",
+                155: "Retain not supported",
+                156: "QoS not supported",
+                157: "Use another server",
+                158: "Server moved",
+                159: "Connection rate exceeded"
+            }
+            error_message = connack_codes.get(rc, f"Unknown CONNACK error (code: {rc})")
+            self.logger.error(f"Failed to connect: {error_message}")
+            self.logger.error(f"CONNACK reason code: {rc}")
+            if properties:
+                self.logger.error(f"Error properties: {properties}")
+            self.connected = False
     
-    def _on_disconnect(self, client, userdata, rc):
-        """MQTT disconnection callback"""
+    def _on_disconnect(self, client, userdata, reason_code, properties=None):
+        """MQTT disconnection callback for MQTT v5"""
         self.connected = False
-        self.logger.warning(f"Disconnected from MQTT broker, return code: {rc}")
+        
+        # Handle MQTT v5 ReasonCodes object
+        if hasattr(reason_code, 'value'):
+            rc = reason_code.value
+        else:
+            rc = reason_code
+        
+        if rc != 0:
+            self.logger.warning(f"Unexpected disconnection, return code: {rc}")
+            if properties:
+                self.logger.warning(f"Disconnect properties: {properties}")
+        else:
+            self.logger.info("Disconnected successfully")
     
     def _on_log(self, client, userdata, level, buf):
         """MQTT logging callback"""
@@ -303,26 +395,73 @@ class MQTTHandler:
             self.metrics.record_error()
     
     async def start(self):
-        """Start MQTT connection"""
+        """Start MQTT connection with retry logic"""
         self.logger.info(f"Starting MQTT handler, broker: {self.config.mqtt_broker}")
         self.running = True
         
-        try:
-            self.client.connect(self.config.mqtt_broker, self.config.mqtt_port, 60)
-            self.client.loop_start()
-            
-            # Wait for connection
-            for _ in range(30):  # 30 second timeout
-                if self.connected:
-                    break
-                await asyncio.sleep(1)
-            
-            if not self.connected:
-                raise Exception("Failed to connect to MQTT broker within timeout")
+        max_retries = 3
+        retry_delay = 5  # seconds
+        
+        for attempt in range(max_retries):
+            try:
+                self.logger.info(f"MQTT connection attempt {attempt + 1}/{max_retries}")
                 
-        except Exception as e:
-            self.logger.error(f"Failed to start MQTT handler: {str(e)}")
-            raise
+                # Test network connectivity first
+                import socket
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(10)
+                result = sock.connect_ex((self.config.mqtt_broker, self.config.mqtt_port))
+                sock.close()
+                
+                if result != 0:
+                    raise ConnectionError(f"Cannot reach MQTT broker at {self.config.mqtt_broker}:{self.config.mqtt_port}")
+                
+                self.logger.info("Network connectivity to MQTT broker confirmed")
+                
+                # Configure K8S-SAT authentication if enabled
+                connect_properties = None
+                if self.config.auth_method == 'K8S-SAT':
+                    self.logger.info("Configuring ServiceAccountToken (K8S-SAT) authentication...")
+                    token = get_sat_token(self.config.sat_token_path)
+                    if not token:
+                        raise ConnectionError("Cannot connect without SAT token")
+                    
+                    connect_properties = mqtt.Properties(mqtt.PacketTypes.CONNECT)
+                    connect_properties.AuthenticationMethod = 'K8S-SAT'
+                    connect_properties.AuthenticationData = token.encode('utf-8')
+                    
+                    self.logger.info("K8S-SAT authentication configured")
+                    self.logger.info(f"Token length: {len(token)} characters")
+                else:
+                    self.logger.warning(f"Unknown authentication method '{self.config.auth_method}'")
+                
+                # Connect to MQTT
+                self.client.connect(self.config.mqtt_broker, self.config.mqtt_port, 60, properties=connect_properties)
+                self.client.loop_start()
+                
+                # Wait for connection with shorter timeout per attempt
+                connection_timeout = 10  # seconds per attempt
+                for i in range(connection_timeout):
+                    if self.connected:
+                        self.logger.info("MQTT connection established successfully")
+                        return  # Success!
+                    await asyncio.sleep(1)
+                
+                # If we get here, connection timed out
+                self.client.loop_stop()
+                self.client.disconnect()
+                raise TimeoutError(f"MQTT connection timeout after {connection_timeout} seconds")
+                
+            except Exception as e:
+                self.logger.warning(f"MQTT connection attempt {attempt + 1} failed: {str(e)}")
+                
+                if attempt < max_retries - 1:
+                    self.logger.info(f"Retrying in {retry_delay} seconds...")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    self.logger.error(f"All MQTT connection attempts failed. Last error: {str(e)}")
+                    raise
     
     async def stop(self):
         """Stop MQTT connection"""
@@ -349,17 +488,37 @@ def create_app(mqtt_handler: MQTTHandler, metrics: MetricsCollector, config: Con
         checks = {
             "mqtt_connection": {
                 "status": "healthy" if mqtt_handler.connected else "unhealthy",
-                "message": "Connected to MQTT broker" if mqtt_handler.connected else "Not connected to MQTT broker",
-                "last_checked": datetime.now(timezone.utc).isoformat()
+                "message": f"Connected to {config.mqtt_broker}" if mqtt_handler.connected else f"Not connected to {config.mqtt_broker}",
+                "last_checked": datetime.now(timezone.utc).isoformat(),
+                "broker": config.mqtt_broker,
+                "port": config.mqtt_port,
+                "auth_method": config.auth_method,
+                "tls_enabled": True if config.mqtt_port == 18883 else False
             },
             "message_processing": {
                 "status": "healthy" if metrics.messages_processed > 0 else "warning",
-                "message": f"Processed {metrics.messages_processed} messages",
-                "last_checked": datetime.now(timezone.utc).isoformat()
+                "message": f"Processed {metrics.messages_processed} messages, generated {metrics.alerts_generated} alerts",
+                "last_checked": datetime.now(timezone.utc).isoformat(),
+                "last_message": metrics.last_message_timestamp or "None"
+            },
+            "application": {
+                "status": "healthy",
+                "message": f"Running for {metrics.get_uptime_seconds():.1f} seconds",
+                "last_checked": datetime.now(timezone.utc).isoformat(),
+                "version": "1.0.0"
             }
         }
         
-        overall_status = "healthy" if all(check["status"] == "healthy" for check in checks.values()) else "unhealthy"
+        # Determine overall status
+        mqtt_ok = checks["mqtt_connection"]["status"] == "healthy"
+        processing_ok = checks["message_processing"]["status"] in ["healthy", "warning"]
+        
+        if mqtt_ok and processing_ok:
+            overall_status = "healthy"
+        elif mqtt_ok:
+            overall_status = "warning"  # MQTT works but no messages yet
+        else:
+            overall_status = "unhealthy"  # MQTT connection failed
         
         return HealthStatus(
             status=overall_status,
@@ -402,26 +561,49 @@ class QualityFilterApp:
         logging.getLogger().setLevel(getattr(logging, self.config.log_level.upper()))
     
     async def start(self):
-        """Start the application"""
-        self.logger.info(f"Starting Python Quality Filter with config: {asdict(self.config)}")
+        """Start the application with better error handling"""
+        self.logger.info("=" * 70)
+        self.logger.info("🚀 Python Quality Filter - Azure IoT Operations")
+        self.logger.info(f"   Authentication Method: {self.config.auth_method}")
+        self.logger.info(f"   MQTT Broker: {self.config.mqtt_broker}:{self.config.mqtt_port}")
+        self.logger.info(f"   TLS Encryption: {'Enabled' if self.config.mqtt_port == 18883 else 'Disabled'}")
+        self.logger.info(f"   Input Topic: {self.config.input_topic}")
+        self.logger.info(f"   Output Topic: {self.config.output_topic}")
+        self.logger.info("=" * 70)
         
-        # Start MQTT handler
-        await self.mqtt_handler.start()
-        
-        # Start health/metrics server
-        server_config = uvicorn.Config(
-            self.app,
-            host="0.0.0.0",
-            port=self.config.health_port,
-            log_level=self.config.log_level.lower(),
-            access_log=False
-        )
-        server = uvicorn.Server(server_config)
-        
-        self.logger.info(f"Quality filter started successfully on health port: {self.config.health_port}")
-        
-        # Run server
-        await server.serve()
+        try:
+            # Start MQTT handler with retries
+            await self.mqtt_handler.start()
+            
+            # Start health/metrics server
+            server_config = uvicorn.Config(
+                self.app,
+                host="0.0.0.0",
+                port=self.config.health_port,
+                log_level=self.config.log_level.lower(),
+                access_log=False
+            )
+            server = uvicorn.Server(server_config)
+            
+            self.logger.info(f"Quality filter started successfully on health port: {self.config.health_port}")
+            
+            # Run server
+            await server.serve()
+            
+        except Exception as e:
+            self.logger.error(f"Failed to start application: {str(e)}")
+            # Try to continue with limited functionality (health endpoint only)
+            self.logger.warning("Starting in degraded mode - health endpoint only")
+            
+            server_config = uvicorn.Config(
+                self.app,
+                host="0.0.0.0", 
+                port=self.config.health_port,
+                log_level=self.config.log_level.lower(),
+                access_log=False
+            )
+            server = uvicorn.Server(server_config)
+            await server.serve()
     
     async def stop(self):
         """Stop the application"""

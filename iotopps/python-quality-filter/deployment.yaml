@@ -32,13 +32,18 @@ spec:
         - name: MQTT_BROKER
           value: "aio-broker.azure-iot-operations.svc.cluster.local"
         - name: MQTT_PORT
-          value: "1883"
+          value: "18883"  # MQTTS port for encrypted connection
         - name: INPUT_TOPIC
           value: "azure-iot-operations/data/welding-stations"
         - name: OUTPUT_TOPIC
           value: "azure-iot-operations/alerts/quality-control"
         - name: MQTT_CLIENT_ID
           value: "python-quality-filter-$(POD_NAME)"
+        # ServiceAccountToken authentication settings
+        - name: MQTT_AUTH_METHOD
+          value: "K8S-SAT"  # Use Kubernetes ServiceAccountToken
+        - name: SAT_TOKEN_PATH
+          value: "/var/run/secrets/tokens/broker-sat"  # Token will be mounted here
         - name: POD_NAME
           valueFrom:
             fieldRef:
@@ -99,16 +104,26 @@ spec:
             - ALL
           readOnlyRootFilesystem: true
 
-        # Volume mounts for temporary files
+        # Volume mounts for temporary files and authentication
         volumeMounts:
         - name: tmp
           mountPath: /tmp
+        - name: broker-sat
+          mountPath: /var/run/secrets/tokens
+          readOnly: true
 
       # Volumes
       volumes:
       - name: tmp
         emptyDir:
           sizeLimit: 50Mi
+      - name: broker-sat
+        projected:
+          sources:
+          - serviceAccountToken:
+              path: broker-sat
+              expirationSeconds: 86400  # 24 hours
+              audience: aio-internal  # Must match broker's audience configuration
 
       # Pod security
       securityContext:
