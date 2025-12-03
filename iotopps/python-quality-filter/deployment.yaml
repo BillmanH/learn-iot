@@ -140,22 +140,3 @@ spec:
     targetPort: 8080
     protocol: TCP
   type: ClusterIP
-
----
-# ServiceMonitor for Prometheus monitoring (optional)
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: python-quality-filter-metrics
-  namespace: default
-  labels:
-    app: python-quality-filter
-spec:
-  selector:
-    matchLabels:
-      app: python-quality-filter
-  endpoints:
-  - port: http
-    path: /metrics
-    interval: 30s
-    scrapeTimeout: 10s
