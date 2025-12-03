@@ -203,6 +203,7 @@ class MetricsCollector:
         self.alerts_generated = 0
         self.errors_count = 0
         self.last_message_timestamp: Optional[str] = None
+        self.last_heartbeat = datetime.now()
     
     def record_message_processed(self):
         """Record a processed message"""
@@ -217,9 +218,20 @@ class MetricsCollector:
         """Record an error"""
         self.errors_count += 1
     
+    def record_heartbeat(self):
+        """Record heartbeat timestamp"""
+        self.last_heartbeat = datetime.now()
+    
     def get_uptime_seconds(self) -> float:
         """Get uptime in seconds"""
         return (datetime.now() - self.start_time).total_seconds()
+    
+    def get_time_since_last_message(self) -> Optional[float]:
+        """Get seconds since last message"""
+        if self.last_message_timestamp:
+            last_msg = datetime.fromisoformat(self.last_message_timestamp.replace('Z', '+00:00'))
+            return (datetime.now(timezone.utc) - last_msg).total_seconds()
+        return None
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert metrics to dictionary"""
@@ -228,7 +240,9 @@ class MetricsCollector:
             "alerts_generated": self.alerts_generated,
             "errors_count": self.errors_count,
             "uptime_seconds": self.get_uptime_seconds(),
-            "last_message_timestamp": self.last_message_timestamp
+            "last_message_timestamp": self.last_message_timestamp,
+            "time_since_last_message_seconds": self.get_time_since_last_message(),
+            "last_heartbeat": self.last_heartbeat.isoformat()
         }
 
 # MQTT Handler
@@ -479,7 +493,10 @@ class MQTTHandler:
                 connection_timeout = 10  # seconds per attempt
                 for i in range(connection_timeout):
                     if self.connected:
-                        self.logger.info("MQTT connection established successfully")
+                        self.logger.info("✅ MQTT connection established successfully")
+                        self.logger.info(f"🎯 Monitoring topic: {self.config.input_topic}")
+                        self.logger.info(f"📢 Publishing alerts to: {self.config.output_topic}")
+                        self.logger.info("🔍 Quality Filter Active - Looking for scrap parts with cycle_time < 7s")
                         return  # Success!
                     await asyncio.sleep(1)
                 
@@ -596,6 +613,33 @@ class QualityFilterApp:
         # Setup logging level
         logging.getLogger().setLevel(getattr(logging, self.config.log_level.upper()))
     
+    async def _heartbeat_loop(self):
+        """Background task that logs periodic status updates"""
+        await asyncio.sleep(30)  # Wait 30 seconds before first heartbeat
+        
+        while True:
+            try:
+                self.metrics.record_heartbeat()
+                uptime = self.metrics.get_uptime_seconds()
+                
+                # Log status every 2 minutes
+                if self.mqtt_handler.connected:
+                    time_since_msg = self.metrics.get_time_since_last_message()
+                    if time_since_msg is None:
+                        self.logger.info(f"💓 Heartbeat: Connected, waiting for messages (uptime: {uptime:.0f}s)")
+                    elif time_since_msg > 300:  # 5 minutes
+                        self.logger.info(f"💓 Heartbeat: Connected, no messages for {time_since_msg:.0f}s (uptime: {uptime:.0f}s)")
+                    else:
+                        self.logger.info(f"💓 Heartbeat: Active - {self.metrics.messages_processed} messages, {self.metrics.alerts_generated} alerts (uptime: {uptime:.0f}s)")
+                else:
+                    self.logger.warning(f"💓 Heartbeat: MQTT disconnected (uptime: {uptime:.0f}s)")
+                
+                await asyncio.sleep(120)  # Log every 2 minutes
+                
+            except Exception as e:
+                self.logger.error(f"Heartbeat error: {e}")
+                await asyncio.sleep(60)  # Retry in 1 minute on error
+    
     async def start(self):
         """Start the application with better error handling"""
         self.logger.info("=" * 70)
@@ -611,6 +655,9 @@ class QualityFilterApp:
             # Start MQTT handler with retries
             await self.mqtt_handler.start()
             
+            # Start heartbeat task
+            heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+            
             # Start health/metrics server
             server_config = uvicorn.Config(
                 self.app,
@@ -621,7 +668,10 @@ class QualityFilterApp:
             )
             server = uvicorn.Server(server_config)
             
-            self.logger.info(f"Quality filter started successfully on health port: {self.config.health_port}")
+            self.logger.info("🚀 Quality filter started successfully!")
+            self.logger.info(f"🏥 Health endpoint available at: http://0.0.0.0:{self.config.health_port}/health")
+            self.logger.info(f"📊 Metrics endpoint available at: http://0.0.0.0:{self.config.health_port}/metrics")
+            self.logger.info("=" * 70)
             
             # Run server
             await server.serve()
