@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       app_folder:
-        description: 'Application folder name (e.g., hello-flask, sputnik, wasm-quality-filter)'
+        description: 'Application folder name (e.g., hello-flask, sputnik, python-quality-filter)'
         required: true
         type: choice
         options:
           - hello-flask
           - sputnik
-          - wasm-quality-filter
+          - python-quality-filter
       image_tag:
         description: 'Image tag (default: github.sha)'
         required: false
@@ -146,14 +146,14 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Install Rust for WASM builds
-        if: ${{ !inputs.skip_build && matrix.app == 'wasm-quality-filter' }}
+        if: ${{ !inputs.skip_build && matrix.app == 'legacy-wasm-removed' }}
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.83"
           targets: wasm32-wasip1
 
       - name: Cache Rust dependencies
-        if: ${{ !inputs.skip_build && matrix.app == 'wasm-quality-filter' }}
+        if: ${{ !inputs.skip_build && matrix.app == 'legacy-wasm-removed' }}
         uses: actions/cache@v3
         with:
           path: |

@@ -1,0 +1,17 @@
+# Configuration for Python Quality Filter
+mqtt:
+  broker: "aio-broker.azure-iot-operations.svc.cluster.local"
+  port: 1883
+  client_id: "python-quality-filter"
+  input_topic: "azure-iot-operations/data/welding-stations"
+  output_topic: "azure-iot-operations/alerts/quality-control"
+
+quality_filter:
+  quality_threshold: "scrap"
+  cycle_time_threshold: 7.0
+
+health:
+  port: 8080
+
+logging:
+  level: "INFO"
