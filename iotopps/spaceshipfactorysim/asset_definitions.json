@@ -1,0 +1,78 @@
+{
+  "assets": [
+    {
+      "name": "spaceship-factory-cnc-01",
+      "description": "CNC Machine #1 for precision part manufacturing",
+      "assetType": "cnc_machine",
+      "enabled": true,
+      "dataPoints": [
+        {
+          "name": "machine_identifier",
+          "dataSource": "machine_id",
+          "observabilityMode": "none"
+        },
+        {
+          "name": "machine_status", 
+          "dataSource": "status",
+          "observabilityMode": "none"
+        },
+        {
+          "name": "operation_cycle_time",
+          "dataSource": "cycle_time", 
+          "observabilityMode": "none"
+        },
+        {
+          "name": "part_quality",
+          "dataSource": "quality",
+          "observabilityMode": "none"
+        },
+        {
+          "name": "manufactured_part_type",
+          "dataSource": "part_type",
+          "observabilityMode": "none"
+        }
+      ],
+      "defaultTopic": {
+        "path": "azure-iot-operations/data/cnc-machines",
+        "retain": "Never"
+      }
+    },
+    {
+      "name": "spaceship-factory-3dprinter-01",
+      "description": "3D Printer #1 for additive manufacturing",
+      "assetType": "printer_3d", 
+      "enabled": true,
+      "dataPoints": [
+        {
+          "name": "machine_identifier",
+          "dataSource": "machine_id",
+          "observabilityMode": "none"
+        },
+        {
+          "name": "machine_status",
+          "dataSource": "status", 
+          "observabilityMode": "none"
+        },
+        {
+          "name": "print_progress",
+          "dataSource": "progress",
+          "observabilityMode": "none"
+        },
+        {
+          "name": "part_quality",
+          "dataSource": "quality",
+          "observabilityMode": "none"
+        },
+        {
+          "name": "printed_part_type",
+          "dataSource": "part_type",
+          "observabilityMode": "none"
+        }
+      ],
+      "defaultTopic": {
+        "path": "azure-iot-operations/data/3d-printers",
+        "retain": "Never"
+      }
+    }
+  ]
+}

@@ -27,16 +27,6 @@ spec:
     consumerGroupId: iot-operations-consumer
     compression: None
     
-    # Batching settings for performance
-    batching:
-      enabled: true
-      maxMessages: 100
-      maxBytes: 1048576  # 1MB
-      
-    # Partition strategy
-    partitionStrategy:
-      type: Default
-    
     # Copy MQTT properties to Kafka headers
     copyMqttProperties: Enabled
     

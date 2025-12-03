@@ -40,38 +40,80 @@ Azure IoT Operations MQTT Broker
 
 1. In the Event Stream editor, click **Add source** > **Custom endpoint**
 2. Configure the custom endpoint:
-   - **Source name**: `iot-operations-data`
-   - **Protocol**: Select **Kafka**
-   - **Authentication**: Select **SASL** (recommended for production)
-3. Click **Add**
+   - **Source name**: `iot-operations-data` (or any name you prefer)
+   - Click **Add** (this creates the endpoint with just the name)
+3. After the endpoint is created, click **Publish** in the Event Stream editor
+4. Once published, click on the custom endpoint to configure protocol and authentication
 
-### 1.4 Retrieve Connection Details
+### 1.4 Configure Protocol and Authentication
 
-After creating the custom endpoint, you'll see the connection details:
+After publishing the endpoint, configure the connection protocol:
 
-**For SASL Authentication:**
-- **Bootstrap server**: `<your-eventhub>.servicebus.windows.net:9093`
-- **Topic name**: `es_<guid>` (format: `es_aaaaaaaa-0000-1111-2222-bbbbbbbbbbbb`)
-- **Connection string**: Copy the full connection string with primary key
+1. Click on the custom endpoint you just created
+2. Select **Protocol**: **Kafka**
+3. Select **Authentication** 
+   - **SAS Key**: Shared Access Signature key authentication (recommended for Azure IoT Operations)
+4. Copy the connection details that appear:
+   - **Bootstrap server**: (e.g., `pkc-<id>.<region>.azure.confluent.cloud:9092` or similar Kafka endpoint)
+   - **Topic name**: `es_<guid>` (format: `es_aaaaaaaa-0000-1111-2222-bbbbbbbbbbbb`)
+   - **Shared access key name**: (e.g., `RootManageSharedAccessKey` or custom key name)
+   - **Primary key**: (the actual key value)
+   - **Connection string-primary key**: (formatted as connection string)
 
 **Save these values** - you'll need them in Step 2.
 
+> **Note**: For Kafka protocol, you'll use the **Connection string-primary key** (not an Event Hub connection string). This is specific to Fabric's Kafka implementation.
+
 ## Step 2: Create Azure IoT Operations Data Flow Endpoint
 
-### 2.1 Create Kubernetes Secret for SASL Authentication
+### 2.1 Create Kubernetes Secret for Authentication
 
-On your cluster, create a secret with the connection string:
+On your cluster, create a secret with the connection string from Fabric.
+
+**Option A: Using the setup script (Recommended)**
+
+Run the automated setup script:
+
+```bash
+# Make the script executable
+chmod +x iotopps/setup-SAS-for-RTI.sh
+
+# Run the script
+./iotopps/setup-SAS-for-RTI.sh
+```
+
+The script will:
+- Prompt you for your Fabric Event Stream connection string
+- Validate the connection string format
+- Check for existing secrets and offer to replace them
+- Create the Kubernetes secret in the correct namespace
+- Provide next steps for completing the setup
+
+**Option B: Manual secret creation**
+
+For SAS Key Authentication (Kafka protocol):
 
 ```bash
 kubectl create secret generic fabric-realtime-secret \
   -n azure-iot-operations \
   --from-literal=username='$ConnectionString' \
-  --from-literal=password='<YOUR_CONNECTION_STRING_FROM_FABRIC>'
+  --from-literal=password='<YOUR_CONNECTION_STRING_PRIMARY_KEY_FROM_FABRIC>'
+```
+
+For Entra ID Authentication:
+
+```bash
+kubectl create secret generic fabric-realtime-secret \
+  -n azure-iot-operations \
+  --from-literal=clientId='<YOUR_CLIENT_ID>' \
+  --from-literal=clientSecret='<YOUR_CLIENT_SECRET>' \
+  --from-literal=tenantId='<YOUR_TENANT_ID>'
 ```
 
 **Important**: 
-- The username must be exactly `$ConnectionString` (literal string, not a variable)
-- The password is the full connection string from Fabric
+- For SAS Key auth (Kafka): The username must be exactly `$ConnectionString` (literal string, not a variable)
+- The password is the **Connection string-primary key** value from Fabric (found under the Kafka protocol details)
+- For Entra ID: You'll need to register an app in Azure AD and use its credentials
 
 ### 2.2 Apply the Fabric Endpoint Configuration
 
@@ -189,14 +231,14 @@ MqttMessages
 
 ### Authentication errors
 
-- Verify the secret contains the correct connection string
+- Verify the secret contains the correct connection string-primary key from Fabric
 - Ensure username is exactly `$ConnectionString`
-- Check that the connection string includes the primary key
+- Check that you copied the **Connection string-primary key** value (not the Primary key alone)
 
 ### Connection errors
 
-- Verify the bootstrap server hostname is correct
-- Ensure port 9093 is accessible (check firewall rules)
+- Verify the bootstrap server hostname is correct (from Fabric Kafka protocol details)
+- Ensure the port in the bootstrap server is accessible (check firewall rules)
 - Verify TLS is enabled in the endpoint configuration
 
 ## Configuration Details

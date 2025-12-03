@@ -1,0 +1,183 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opc-plc-simulator
+  namespace: azure-iot-operations
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opc-plc-simulator
+  template:
+    metadata:
+      labels:
+        app: opc-plc-simulator
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      initContainers:
+      - name: pki-permissions
+        image: busybox:latest
+        command: ['sh', '-c']
+        args:
+        - |
+          mkdir -p /app/pki/own /app/pki/trusted /app/pki/rejected /app/pki/issuer /app/pki/trusted-user /app/pki/issuer-user
+          chmod -R 755 /app/pki
+          chown -R 1000:1000 /app/pki
+        securityContext:
+          runAsUser: 0
+        volumeMounts:
+        - name: pki-storage
+          mountPath: /app/pki
+      containers:
+      - name: opc-plc
+        image: mcr.microsoft.com/iotedge/opc-plc:latest
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          allowPrivilegeEscalation: false
+        ports:
+        - containerPort: 50000
+          name: opc-ua
+        env:
+        - name: OPC_PLC_PORT
+          value: "50000"
+        - name: OPC_PLC_ENDPOINT_URL
+          value: "opc.tcp://0.0.0.0:50000"
+        - name: OPC_PLC_AUTOACCEPT
+          value: "true"
+        command:
+        - "/app/opcplc"
+        args:
+        - "--port=50000"
+        - "--autoaccept"
+        - "--unsecuretransport"
+        - "--addnodesfile=/app/factory-nodes.json"
+        volumeMounts:
+        - name: factory-nodes
+          mountPath: /app/factory-nodes.json
+          subPath: factory-nodes.json
+        - name: pki-storage
+          mountPath: /app/pki
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: factory-nodes
+        configMap:
+          name: factory-opc-nodes
+      - name: pki-storage
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opc-plc-service
+  namespace: azure-iot-operations
+spec:
+  selector:
+    app: opc-plc-simulator
+  ports:
+  - port: 50000
+    targetPort: 50000
+    name: opc-ua
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: factory-opc-nodes
+  namespace: azure-iot-operations
+data:
+  factory-nodes.json: |
+    {
+      "NodeList": [
+        {
+          "NodeId": "ns=2;s=CNC01.MachineId",
+          "Name": "CNC01_MachineId",
+          "DataType": "String",
+          "ValueRank": -1,
+          "AccessLevel": "CurrentRead",
+          "Description": "CNC Machine Identifier"
+        },
+        {
+          "NodeId": "ns=2;s=CNC01.Status",
+          "Name": "CNC01_Status", 
+          "DataType": "String",
+          "ValueRank": -1,
+          "AccessLevel": "CurrentRead",
+          "Description": "CNC Machine Status"
+        },
+        {
+          "NodeId": "ns=2;s=CNC01.PartType",
+          "Name": "CNC01_PartType",
+          "DataType": "String", 
+          "ValueRank": -1,
+          "AccessLevel": "CurrentRead",
+          "Description": "Current Part Type"
+        },
+        {
+          "NodeId": "ns=2;s=CNC01.Quality",
+          "Name": "CNC01_Quality",
+          "DataType": "String",
+          "ValueRank": -1,
+          "AccessLevel": "CurrentRead",
+          "Description": "Part Quality Status"
+        },
+        {
+          "NodeId": "ns=2;s=CNC01.CycleTime",
+          "Name": "CNC01_CycleTime",
+          "DataType": "Double",
+          "ValueRank": -1,
+          "AccessLevel": "CurrentRead",
+          "Description": "Machine Cycle Time"
+        },
+        {
+          "NodeId": "ns=2;s=3DP05.MachineId",
+          "Name": "3DP05_MachineId",
+          "DataType": "String",
+          "ValueRank": -1,
+          "AccessLevel": "CurrentRead",
+          "Description": "3D Printer Identifier"
+        },
+        {
+          "NodeId": "ns=2;s=3DP05.Progress",
+          "Name": "3DP05_Progress",
+          "DataType": "Double",
+          "ValueRank": -1,
+          "AccessLevel": "CurrentRead",
+          "Description": "Print Progress Percentage"
+        },
+        {
+          "NodeId": "ns=2;s=WELD02.MachineId",
+          "Name": "WELD02_MachineId",
+          "DataType": "String",
+          "ValueRank": -1,
+          "AccessLevel": "CurrentRead",
+          "Description": "Welding Station Identifier"
+        },
+        {
+          "NodeId": "ns=2;s=PAINT01.MachineId",
+          "Name": "PAINT01_MachineId",
+          "DataType": "String",
+          "ValueRank": -1,
+          "AccessLevel": "CurrentRead",
+          "Description": "Painting Booth Identifier"
+        },
+        {
+          "NodeId": "ns=2;s=TEST01.MachineId",
+          "Name": "TEST01_MachineId",
+          "DataType": "String",
+          "ValueRank": -1,
+          "AccessLevel": "CurrentRead",
+          "Description": "Testing Station Identifier"
+        }
+      ]
+    }

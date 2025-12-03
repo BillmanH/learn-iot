@@ -5,6 +5,24 @@
 # Requirements: Ubuntu 24.04+, 16GB RAM (32GB recommended), 4+ CPUs
 # Author: Azure IoT Operations Installation Script
 # Date: October 2025
+#
+# CUSTOM ASSET ENDPOINT SUPPORT:
+# If you have an existing asset endpoint that you want to use as the namespace resource,
+# you can specify it in one of these ways:
+# 
+# 1. Environment variable:
+#    export CUSTOM_ASSET_ENDPOINT="your-asset-endpoint-name"
+#    sudo -E ./linuxAIO.sh
+#
+# 2. Configuration file (linux_aio_config.json):
+#    {
+#      "azure": {
+#        "custom_asset_endpoint": "your-asset-endpoint-name"
+#      }
+#    }
+#
+# The script will look up the resource ID of the specified asset endpoint and use it
+# for the --ns-resource-id parameter in Azure IoT Operations deployment.
 
 set -e  # Exit on any error
 
@@ -251,19 +269,24 @@ load_config() {
         LOCATION=$(jq -r '.azure.location // empty' "$config_file")
         CLUSTER_NAME=$(jq -r '.azure.cluster_name // empty' "$config_file")
         NAMESPACE_NAME=$(jq -r '.azure.namespace_name // empty' "$config_file")
+        CUSTOM_ASSET_ENDPOINT=$(jq -r '.azure.custom_asset_endpoint // empty' "$config_file")
         SKIP_SYSTEM_UPDATE=$(jq -r '.deployment.skip_system_update // false' "$config_file")
         FORCE_REINSTALL=$(jq -r '.deployment.force_reinstall // false' "$config_file")
         DEPLOYMENT_MODE=$(jq -r '.deployment.deployment_mode // "test"' "$config_file")
+        DEPLOY_OPC_UA_BRIDGE=$(jq -r '.deployment.deploy_opc_ua_bridge // true' "$config_file")
         
         # Export variables
-        export SUBSCRIPTION_ID SUBSCRIPTION_NAME RESOURCE_GROUP LOCATION CLUSTER_NAME NAMESPACE_NAME
-        export SKIP_SYSTEM_UPDATE FORCE_REINSTALL DEPLOYMENT_MODE
+        export SUBSCRIPTION_ID SUBSCRIPTION_NAME RESOURCE_GROUP LOCATION CLUSTER_NAME NAMESPACE_NAME CUSTOM_ASSET_ENDPOINT
+        export SKIP_SYSTEM_UPDATE FORCE_REINSTALL DEPLOYMENT_MODE DEPLOY_OPC_UA_BRIDGE
         
         log "Configuration loaded from $config_file"
         log "Resource Group: $RESOURCE_GROUP, Location: $LOCATION, Cluster: $CLUSTER_NAME"
         return 0
     else
         log "Configuration file $config_file not found. Will prompt for values interactively."
+        # Set default values
+        DEPLOY_OPC_UA_BRIDGE="true"
+        export DEPLOY_OPC_UA_BRIDGE
         return 1
     fi
 }
@@ -307,8 +330,29 @@ install_azure_cli() {
     
     # Install required Azure CLI extensions
     log "Installing Azure CLI extensions..."
-    az extension add --upgrade --name azure-iot-ops
-    az extension add --upgrade --name connectedk8s
+    
+    log "Installing azure-iot-ops extension..."
+    if az extension add --upgrade --name azure-iot-ops 2>/dev/null; then
+        log "SUCCESS: azure-iot-ops extension installed"
+    else
+        log "WARNING: Failed to install azure-iot-ops extension, will attempt to continue"
+    fi
+    
+    log "Installing connectedk8s extension..."
+    if az extension add --upgrade --name connectedk8s 2>/dev/null; then
+        log "SUCCESS: connectedk8s extension installed"
+    else
+        log "WARNING: Failed to install connectedk8s extension, will attempt to continue"
+    fi
+    
+    # Verify that the azure-iot-ops extension works
+    log "Verifying azure-iot-ops extension functionality..."
+    if az iot ops --help >/dev/null 2>&1; then
+        log "SUCCESS: azure-iot-ops extension is working"
+    else
+        log "WARNING: azure-iot-ops extension may not be fully functional"
+        log "Some asset endpoint features may not work"
+    fi
 }
 
 # Install kubectl
@@ -939,17 +983,291 @@ deploy_iot_operations() {
     # Get schema registry resource ID
     SCHEMA_REGISTRY_RESOURCE_ID=$(az iot ops schema registry show --name "$SCHEMA_REGISTRY_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv)
     
-    # Deploy Azure IoT Operations with schema registry
+    # Create namespace resource (required for newer AIO versions)
+    log "Creating namespace resource for Azure IoT Operations..."
+    NAMESPACE_RESOURCE_NAME="${NAMESPACE_NAME}-namespace"
+    
+    log "DEBUG: Namespace name: $NAMESPACE_NAME"
+    log "DEBUG: Namespace resource name: $NAMESPACE_RESOURCE_NAME"
+    log "DEBUG: Resource group: $RESOURCE_GROUP"
+    log "DEBUG: Cluster name: $CLUSTER_NAME"
+    
+    # Since the direct namespace commands don't exist, let's try a different approach
+    # The namespace resource might need to be created differently or might already exist
+    
+    log "WARNING: Based on Azure CLI errors, the namespace subcommands don't exist in the current CLI version"
+    log "Attempting alternative approach to find or create namespace resource..."
+    
+    # First, let's check if the asset endpoint commands work at all
+    log "Testing if azure-iot-ops extension commands are available..."
+    TEST_OUTPUT=$(timeout 10 az iot ops --help 2>&1 || echo "Extension test failed")
+    
+    if [[ "$TEST_OUTPUT" == *"Extension test failed"* ]] || [[ "$TEST_OUTPUT" == *"ERROR"* ]] || [[ "$TEST_OUTPUT" == *"not recognized"* ]]; then
+        log "WARNING: azure-iot-ops extension commands are not available or not working"
+        log "Will attempt deployment without namespace resource ID (may work with newer Azure IoT Operations)"
+        NAMESPACE_RESOURCE_ID="skip"
+        return 0
+    fi
+    
+    # Check if asset endpoint commands specifically work
+    log "Testing asset endpoint commands..."
+    ASSET_TEST=$(timeout 10 az iot ops asset endpoint --help 2>&1 || echo "Asset endpoint test failed")
+    
+    if [[ "$ASSET_TEST" == *"test failed"* ]] || [[ "$ASSET_TEST" == *"ERROR"* ]] || [[ "$ASSET_TEST" == *"not recognized"* ]]; then
+        log "WARNING: Asset endpoint commands are not available"
+        log "Will attempt deployment without namespace resource ID"
+        NAMESPACE_RESOURCE_ID="skip"
+        return 0
+    fi
+    
+    # Check if user provided a custom asset endpoint name
+    if [ -n "$CUSTOM_ASSET_ENDPOINT" ]; then
+        log "Using custom asset endpoint specified: $CUSTOM_ASSET_ENDPOINT"
+        log "Note: Please ensure this asset endpoint exists in your resource group before deployment"
+        
+        # Try to get the resource ID of the specified endpoint
+        log "Looking up resource ID for custom asset endpoint: $CUSTOM_ASSET_ENDPOINT"
+        CUSTOM_ENDPOINT_ID=$(timeout 30 az iot ops asset endpoint show --name "$CUSTOM_ASSET_ENDPOINT" --resource-group "$RESOURCE_GROUP" --query id -o tsv 2>&1 || echo "Custom endpoint lookup failed")
+        
+        if [[ "$CUSTOM_ENDPOINT_ID" != *"ERROR:"* ]] && [[ "$CUSTOM_ENDPOINT_ID" != *"failed"* ]] && [ -n "$CUSTOM_ENDPOINT_ID" ]; then
+            NAMESPACE_RESOURCE_ID="$CUSTOM_ENDPOINT_ID"
+            log "SUCCESS: Found custom asset endpoint resource ID: $NAMESPACE_RESOURCE_ID"
+        else
+            log "WARNING: Could not find custom asset endpoint '$CUSTOM_ASSET_ENDPOINT'"
+            log "ERROR: $CUSTOM_ENDPOINT_ID"
+            log "Attempting to create custom asset endpoint '$CUSTOM_ASSET_ENDPOINT'..."
+            
+            # Try to create the custom asset endpoint
+            CREATE_CUSTOM_OUTPUT=$(timeout 60 az iot ops asset endpoint create \
+                --name "$CUSTOM_ASSET_ENDPOINT" \
+                --resource-group "$RESOURCE_GROUP" \
+                --target-address "opc.tcp://localhost:50000" \
+                --additional-configuration '{}' 2>&1 || echo "Create custom endpoint failed")
+            
+            log "DEBUG: Create custom endpoint output: $CREATE_CUSTOM_OUTPUT"
+            
+            # Check if creation succeeded
+            if [[ "$CREATE_CUSTOM_OUTPUT" != *"ERROR:"* ]] && [[ "$CREATE_CUSTOM_OUTPUT" != *"failed"* ]]; then
+                # Try to get the resource ID of the newly created endpoint
+                CUSTOM_ENDPOINT_ID=$(timeout 30 az iot ops asset endpoint show --name "$CUSTOM_ASSET_ENDPOINT" --resource-group "$RESOURCE_GROUP" --query id -o tsv 2>&1 || echo "Show new endpoint failed")
+                
+                if [[ "$CUSTOM_ENDPOINT_ID" != *"ERROR:"* ]] && [[ "$CUSTOM_ENDPOINT_ID" != *"failed"* ]] && [ -n "$CUSTOM_ENDPOINT_ID" ]; then
+                    NAMESPACE_RESOURCE_ID="$CUSTOM_ENDPOINT_ID"
+                    log "SUCCESS: Created custom asset endpoint '$CUSTOM_ASSET_ENDPOINT' with resource ID: $NAMESPACE_RESOURCE_ID"
+                else
+                    log "WARNING: Created endpoint but could not retrieve its resource ID"
+                    log "ERROR: $CUSTOM_ENDPOINT_ID"
+                    log "Will proceed with automatic endpoint discovery/creation..."
+                fi
+            else
+                log "WARNING: Failed to create custom asset endpoint '$CUSTOM_ASSET_ENDPOINT'"
+                log "ERROR: $CREATE_CUSTOM_OUTPUT"
+                log "Will proceed with automatic endpoint discovery/creation..."
+            fi
+        fi
+    fi
+    
+    # If no custom endpoint was specified or found, try automatic discovery
+    if [ -z "$NAMESPACE_RESOURCE_ID" ]; then
+        log "No custom asset endpoint specified or found. Attempting automatic discovery..."
+        
+        # Try to find existing asset endpoint profiles that could serve as namespace
+        log "Looking for existing asset endpoint profiles that could serve as namespace..."
+        
+        # Method 1: List all asset endpoint profiles and see if any exist
+        log "METHOD 1: Checking for existing asset endpoint profiles..."
+        EXISTING_ENDPOINTS=$(timeout 30 az iot ops asset endpoint list --resource-group "$RESOURCE_GROUP" --query "[].id" -o tsv 2>&1 || echo "Command failed or timed out")
+        
+        log "DEBUG: Existing endpoints query result: $EXISTING_ENDPOINTS"
+        
+        if [[ "$EXISTING_ENDPOINTS" != *"ERROR:"* ]] && [[ "$EXISTING_ENDPOINTS" != *"Command failed"* ]] && [ -n "$EXISTING_ENDPOINTS" ]; then
+            # Use the first available endpoint as namespace resource ID
+            NAMESPACE_RESOURCE_ID=$(echo "$EXISTING_ENDPOINTS" | head -1 | tr -d '\r\n')
+            log "SUCCESS: Found existing asset endpoint profile to use as namespace: $NAMESPACE_RESOURCE_ID"
+        else
+            log "WARNING: No existing asset endpoint profiles found or command failed"
+            log "OUTPUT: $EXISTING_ENDPOINTS"
+            
+            # Method 2: Try creating a basic asset endpoint profile to use as namespace
+            log "METHOD 2: Attempting to create a basic asset endpoint profile..."
+            
+            # Create a temporary asset endpoint profile that can serve as namespace
+            TEMP_ENDPOINT_NAME="temp-namespace-${NAMESPACE_NAME}"
+            CREATE_EP_OUTPUT=$(timeout 60 az iot ops asset endpoint create \
+            --name "$TEMP_ENDPOINT_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --cluster "$CLUSTER_NAME" \
+            --target-address "opc.tcp://temp:50000" 2>&1 || echo "Create endpoint command failed or timed out")
+        
+        log "DEBUG: Create endpoint output: $CREATE_EP_OUTPUT"
+        
+        if [[ "$CREATE_EP_OUTPUT" != *"ERROR:"* ]] && [[ "$CREATE_EP_OUTPUT" != *"failed"* ]] && [[ "$CREATE_EP_OUTPUT" != *"timed out"* ]]; then
+            # Get the resource ID  of the created endpoint
+            NAMESPACE_RESOURCE_ID=$(timeout 30 az iot ops asset endpoint show --name "$TEMP_ENDPOINT_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv 2>&1 || echo "Show endpoint failed")
+            
+            if [[ "$NAMESPACE_RESOURCE_ID" != *"ERROR:"* ]] && [[ "$NAMESPACE_RESOURCE_ID" != *"failed"* ]] && [ -n "$NAMESPACE_RESOURCE_ID" ]; then
+                log "SUCCESS: Created temporary asset endpoint profile as namespace: $NAMESPACE_RESOURCE_ID"
+            else
+                log "FAILED: Could not get resource ID of created endpoint"
+                log "ERROR: $NAMESPACE_RESOURCE_ID"
+                NAMESPACE_RESOURCE_ID=""
+            fi
+        else
+            log "FAILED: Could not create asset endpoint profile"
+            log "ERROR: $CREATE_EP_OUTPUT"
+        fi
+        fi
+    fi
+    
+    # If we still don't have a namespace resource ID, try simple listing approaches
+    if [ -z "$NAMESPACE_RESOURCE_ID" ]; then
+        log "No namespace resource found yet. Trying simple listing methods..."
+        
+        # Method: Simple asset endpoint listing (most likely to work)
+        log "SIMPLE METHOD: Listing all asset endpoints and using the first available one"
+        LIST_OUTPUT=$(timeout 30 az iot ops asset endpoint list --resource-group "$RESOURCE_GROUP" --query "[].id" -o tsv 2>&1 || echo "List command failed")
+        
+        if [[ "$LIST_OUTPUT" != *"ERROR:"* ]] && [[ "$LIST_OUTPUT" != *"failed"* ]] && [ -n "$LIST_OUTPUT" ] && [[ "$LIST_OUTPUT" != "[]" ]]; then
+            # Use the first available endpoint resource ID
+            NAMESPACE_RESOURCE_ID=$(echo "$LIST_OUTPUT" | head -1 | tr -d '\r\n')
+            log "SUCCESS: Found asset endpoint resource ID to use as namespace: $NAMESPACE_RESOURCE_ID"
+        else
+            log "WARNING: Could not list asset endpoints or no endpoints found"
+            log "OUTPUT: $LIST_OUTPUT"
+        fi
+    fi
+    
+    # Final validation and error handling
+    if [ -z "$NAMESPACE_RESOURCE_ID" ]; then
+        log "WARNING: Could not create or find a suitable namespace resource"
+        log "Will attempt deployment without namespace resource ID (this may work with current Azure IoT Operations versions)"
+        NAMESPACE_RESOURCE_ID="skip"
+    fi
+    
+    # Validate that we have a proper Azure resource ID format (unless we're skipping)
+    if [ "$NAMESPACE_RESOURCE_ID" != "skip" ] && [[ ! "$NAMESPACE_RESOURCE_ID" =~ ^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/[^/]+/.+ ]]; then
+        log "WARNING: The namespace resource ID is not in the correct Azure resource ID format. Got: $NAMESPACE_RESOURCE_ID"
+        log "Will attempt deployment without namespace resource ID instead"
+        NAMESPACE_RESOURCE_ID="skip"
+    fi
+    
+    if [ "$NAMESPACE_RESOURCE_ID" = "skip" ]; then
+        log "DEPLOYMENT APPROACH: Will deploy Azure IoT Operations WITHOUT --ns-resource-id parameter"
+    else
+        log "FINAL RESULT: Using namespace resource ID: $NAMESPACE_RESOURCE_ID"
+    fi
+    
+    # Deploy Azure IoT Operations with schema registry and optional namespace
     log "Deploying Azure IoT Operations (this may take several minutes)..."
     log "Note: Using schema registry '$SCHEMA_REGISTRY_NAME'"
+    log "Note: Schema Registry ID: $SCHEMA_REGISTRY_RESOURCE_ID"
     
-    az iot ops create \
-        --cluster "$CLUSTER_NAME" \
-        --resource-group "$RESOURCE_GROUP" \
-        --name "${CLUSTER_NAME}-aio" \
-        --sr-resource-id "$SCHEMA_REGISTRY_RESOURCE_ID"
+    if [ "$NAMESPACE_RESOURCE_ID" = "skip" ]; then
+        log "Note: Deploying WITHOUT namespace resource ID (newer Azure IoT Operations approach)"
+        log "EXECUTING: az iot ops create --cluster $CLUSTER_NAME --resource-group $RESOURCE_GROUP --name ${CLUSTER_NAME}-aio --sr-resource-id $SCHEMA_REGISTRY_RESOURCE_ID"
+        
+        if az iot ops create \
+            --cluster "$CLUSTER_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "${CLUSTER_NAME}-aio" \
+            --sr-resource-id "$SCHEMA_REGISTRY_RESOURCE_ID"; then
+            log "Azure IoT Operations deployed successfully!"
+        else
+            warn "Azure IoT Operations deployment failed without --ns-resource-id parameter"
+            warn "This may be due to version compatibility. Consider:"
+            warn "1. Updating Azure CLI: az upgrade"
+            warn "2. Updating azure-iot-ops extension: az extension update --name azure-iot-ops"
+            warn "3. Creating a custom asset endpoint manually and specifying it in CUSTOM_ASSET_ENDPOINT"
+            error "Azure IoT Operations deployment failed"
+        fi
+    else
+        log "Note: Namespace Resource ID: $NAMESPACE_RESOURCE_ID"
+        log "EXECUTING: az iot ops create --cluster $CLUSTER_NAME --resource-group $RESOURCE_GROUP --name ${CLUSTER_NAME}-aio --sr-resource-id $SCHEMA_REGISTRY_RESOURCE_ID --ns-resource-id $NAMESPACE_RESOURCE_ID"
+        
+        if az iot ops create \
+            --cluster "$CLUSTER_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "${CLUSTER_NAME}-aio" \
+            --sr-resource-id "$SCHEMA_REGISTRY_RESOURCE_ID" \
+            --ns-resource-id "$NAMESPACE_RESOURCE_ID"; then
+            log "Azure IoT Operations deployed successfully!"
+        else
+            error "Azure IoT Operations deployment failed with namespace resource ID"
+        fi
+    fi
+}
+
+# Deploy OPC UA Bridge components
+deploy_opc_ua_bridge() {
+    # Check if OPC UA bridge deployment is enabled
+    if [ "$DEPLOY_OPC_UA_BRIDGE" = "false" ]; then
+        log "OPC UA Bridge deployment disabled in configuration"
+        log "To enable: set 'deploy_opc_ua_bridge: true' in linux_aio_config.json"
+        return 0
+    fi
     
-    log "Azure IoT Operations deployed successfully!"
+    log "Deploying OPC UA Bridge components for factory integration..."
+    
+    # Check if OPC UA config directory exists
+    local opcua_config_dir="./opcua/assets"
+    if [ ! -d "$opcua_config_dir" ]; then
+        opcua_config_dir="../opcua/assets"
+        if [ ! -d "$opcua_config_dir" ]; then
+            warn "OPC UA configuration directory not found. Skipping OPC UA bridge deployment."
+            warn "To manually deploy later, run: kubectl apply -f opcua/assets/opc-plc-simulator.yaml"
+            return 0
+        fi
+    fi
+    
+    local opc_simulator_file="$opcua_config_dir/opc-plc-simulator.yaml"
+    local asset_endpoint_file="$opcua_config_dir/asset-endpoint-profile.yaml"
+    
+    # Check if OPC UA simulator YAML exists
+    if [ ! -f "$opc_simulator_file" ]; then
+        warn "OPC PLC Simulator configuration file not found at: $opc_simulator_file"
+        warn "Skipping OPC UA bridge deployment."
+        return 0
+    fi
+    
+    # Deploy OPC PLC Simulator
+    log "Deploying OPC PLC Simulator..."
+    kubectl apply -f "$opc_simulator_file"
+    
+    # Wait for OPC PLC Simulator to be ready
+    log "Waiting for OPC PLC Simulator to be ready..."
+    kubectl wait --for=condition=available --timeout=300s deployment/opc-plc-simulator -n azure-iot-operations
+    
+    if [ $? -eq 0 ]; then
+        log "OPC PLC Simulator deployed successfully"
+    else
+        warn "OPC PLC Simulator deployment may have timed out. Checking status..."
+        kubectl get pods -n azure-iot-operations -l app=opc-plc-simulator
+    fi
+    
+    # Deploy Asset Endpoint Profile if it exists
+    if [ -f "$asset_endpoint_file" ]; then
+        log "Deploying Asset Endpoint Profile..."
+        kubectl apply -f "$asset_endpoint_file"
+        log "Asset Endpoint Profile deployed"
+    else
+        log "Asset Endpoint Profile file not found. You can deploy it later with:"
+        log "kubectl apply -f opcua/assets/asset-endpoint-profile.yaml"
+    fi
+    
+    # Display OPC UA endpoint information
+    log "OPC UA Bridge deployment completed!"
+    echo
+    log "OPC UA Endpoint Details:"
+    log "- Internal URL: opc.tcp://opc-plc-service.azure-iot-operations.svc.cluster.local:50000"
+    log "- Namespace: azure-iot-operations"
+    log "- Authentication: Anonymous (development setup)"
+    echo
+    log "Next Steps for OPC UA Bridge:"
+    log "1. Access Azure IoT Operations Portal"
+    log "2. Navigate to 'Asset endpoints' and verify 'spaceship-factory-opcua' appears"
+    log "3. Create assets using the portal with the OPC UA endpoint"
+    log "4. Configure data flows and dashboards"
+    echo
 }
 
 # Verify deployment
@@ -981,11 +1299,17 @@ show_next_steps() {
     echo "1. View your Azure IoT Operations instance in the Azure Portal:"
     echo "   https://portal.azure.com/#blade/HubsExtension/BrowseResource/resourceType/Microsoft.IoTOperations%2Finstances"
     echo
-    echo "2. Configure assets and data flows:"
+    echo "2. Access OPC UA Bridge for factory integration:"
+    echo "   - Navigate to 'Asset endpoints' in the portal"
+    echo "   - Verify 'spaceship-factory-opcua' endpoint is available"
+    echo "   - Create assets using the OPC UA endpoint"
+    echo "   - Configure data flows for factory data processing"
+    echo
+    echo "3. Configure assets and data flows:"
     echo "   - Create assets to represent your industrial equipment"
     echo "   - Set up data flows to process and route data"
     echo
-    echo "3. Monitor your deployment:"
+    echo "4. Monitor your deployment:"
     echo "   kubectl get pods -n azure-iot-operations"
     echo "   az iot ops check"
     echo
@@ -995,6 +1319,11 @@ show_next_steps() {
     echo "   Namespace: $NAMESPACE_NAME"
     echo "   Location: $LOCATION"
     echo
+    echo -e "${BLUE}OPC UA Bridge Details:${NC}"
+    echo "   Endpoint URL: opc.tcp://opc-plc-service.azure-iot-operations.svc.cluster.local:50000"
+    echo "   Authentication: Anonymous (development setup)"
+    echo "   Factory Nodes: CNC, 3D Printer, Welding, Painting, Testing stations"
+    echo
     echo -e "${BLUE}Useful Commands:${NC}"
     echo "   # Check cluster status"
     echo "   kubectl get nodes"
@@ -1002,11 +1331,22 @@ show_next_steps() {
     echo "   # View Azure IoT Operations pods"
     echo "   kubectl get pods -n azure-iot-operations"
     echo
+    echo "   # Check OPC UA Bridge status"
+    echo "   kubectl get pods -n azure-iot-operations -l app=opc-plc-simulator"
+    echo "   kubectl get svc -n azure-iot-operations opc-plc-service"
+    echo
     echo "   # Check Azure IoT Operations health"
     echo "   az iot ops check"
     echo
+    echo "   # View logs for OPC UA simulator"
+    echo "   kubectl logs deployment/opc-plc-simulator -n azure-iot-operations"
+    echo
     echo "   # View logs for a specific pod"
     echo "   kubectl logs <pod-name> -n azure-iot-operations"
+    echo
+    echo -e "${BLUE}Documentation:${NC}"
+    echo "   For complete OPC UA bridge setup and asset registration:"
+    echo "   See: opcua/assets/opc-ua-bridge.md"
     echo
 }
 
@@ -1037,6 +1377,7 @@ main() {
     arc_enable_cluster
     create_namespace
     deploy_iot_operations
+    deploy_opc_ua_bridge
     verify_deployment
     show_next_steps
     
