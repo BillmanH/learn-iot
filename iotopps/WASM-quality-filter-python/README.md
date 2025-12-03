@@ -172,8 +172,8 @@ Welding Station → MQTT Broker → Python Filter → Quality Control Topic
 ### GitHub Actions
 The service will automatically deploy via the existing GitHub Actions pipeline:
 
-- **Manual**: Actions → "Deploy IoT Edge Application" → Select `WASM-quality-filter-python`
-- **Automatic**: Push changes to `dev` branch under `iotopps/WASM-quality-filter-python/`
+- **Manual**: Actions → "Deploy IoT Edge Application" → Select `wasm-quality-filter-python`
+- **Automatic**: Push changes to `dev` branch under `iotopps/wasm-quality-filter-python/`
 
 ### Manual Deployment
 ```bash
