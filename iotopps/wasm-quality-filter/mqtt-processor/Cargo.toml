@@ -1,0 +1,29 @@
+[package]
+name = "mqtt-processor"
+version = "0.1.0"
+edition = "2021"
+description = "MQTT processor for WASM quality filter module"
+
+[[bin]]
+name = "mqtt-processor"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1.35", features = ["full"] }
+rumqttc = "0.24"
+wasmtime = "14.0"
+wasmtime-wasi = "14.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+config = "0.14"
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.6", features = ["v4"] }
+warp = "0.3"
+futures = "0.3"
+
+[dev-dependencies]
+tempfile = "3.8"

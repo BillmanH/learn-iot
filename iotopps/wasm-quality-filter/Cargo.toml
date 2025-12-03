@@ -1,0 +1,36 @@
+[package]
+name = "wasm-quality-filter"
+version = "0.1.0"
+edition = "2021"
+description = "WASM module for real-time quality control filtering in IoT welding operations"
+license = "MIT"
+
+[lib]
+name = "wasm_quality_filter"
+crate-type = ["cdylib"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+wasm-bindgen = "0.2"
+log = "0.4"
+
+[dependencies.web-sys]
+version = "0.3"
+features = [
+  "console",
+]
+
+[target.wasm32-wasi.dependencies]
+wasi = "0.11"
+
+[profile.release]
+# Optimize for size in release builds
+opt-level = "s"
+lto = true
+strip = true
+
+[package.metadata.wasm-pack.profile.release]
+# Additional WASM-specific optimizations
+wasm-opt = ["-Oz", "--enable-mutable-globals"]

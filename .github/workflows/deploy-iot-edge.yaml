@@ -4,12 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       app_folder:
-        description: 'Application folder name (e.g., hello-flask, sputnik)'
+        description: 'Application folder name (e.g., hello-flask, sputnik, wasm-quality-filter)'
         required: true
         type: choice
         options:
           - hello-flask
           - sputnik
+          - wasm-quality-filter
       image_tag:
         description: 'Image tag (default: github.sha)'
         required: false
@@ -143,6 +144,26 @@ jobs:
       - name: Set up Docker Buildx
         if: ${{ !inputs.skip_build }}
         uses: docker/setup-buildx-action@v3
+
+      - name: Install Rust for WASM builds
+        if: ${{ !inputs.skip_build && matrix.app == 'wasm-quality-filter' }}
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasi
+
+      - name: Cache Rust dependencies
+        if: ${{ !inputs.skip_build && matrix.app == 'wasm-quality-filter' }}
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-wasm-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-wasm-
 
       - name: Log in to Docker Hub
         if: ${{ !inputs.skip_build && env.REGISTRY_TYPE == 'dockerhub' }}
