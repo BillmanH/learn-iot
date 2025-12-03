@@ -19,7 +19,7 @@ An MQTT publisher that sends periodic "beep" messages to the Azure IoT Operation
 
 ### 👂 mosquitto-sub
 An MQTT subscriber that displays messages from the Azure IoT Operations MQTT broker in real-time.
-
+ 
 **Features:**
 - Subscribe to any MQTT topic (with wildcard support)
 - Uses official eclipse-mosquitto image (no build needed)
