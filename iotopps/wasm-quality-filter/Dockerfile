@@ -1,4 +1,4 @@
-FROM rust:1.76-slim-bullseye as wasm-builder
+FROM rust:1.82-slim-bullseye as wasm-builder
 
 # Install build dependencies for WASM
 RUN apt-get update && apt-get install -y \
@@ -16,7 +16,7 @@ RUN rustup target add wasm32-wasi && \
     cargo build --target wasm32-wasi --release
 
 # Build stage for MQTT processor
-FROM rust:1.76-slim-bullseye as processor-builder
+FROM rust:1.82-slim-bullseye as processor-builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
