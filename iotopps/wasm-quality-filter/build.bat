@@ -20,17 +20,17 @@ if %errorlevel% neq 0 (
 
 echo 📋 Checking prerequisites...
 
-REM Check if wasm32-wasi target is installed
-rustup target list --installed | findstr "wasm32-wasi" >nul
+REM Check if wasm32-wasip1 target is installed
+rustup target list --installed | findstr "wasm32-wasip1" >nul
 if %errorlevel% neq 0 (
-    echo 🎯 Installing wasm32-wasi target...
-    rustup target add wasm32-wasi
+    echo 🎯 Installing wasm32-wasip1 target...
+    rustup target add wasm32-wasip1
     if %errorlevel% neq 0 (
-        echo ❌ Failed to install wasm32-wasi target
+        echo ❌ Failed to install wasm32-wasip1 target
         exit /b 1
     )
 ) else (
-    echo ✅ wasm32-wasi target already installed
+    echo ✅ wasm32-wasip1 target already installed
 )
 
 REM Check for wasm-pack (optional)
@@ -58,11 +58,11 @@ echo ✅ All tests passed
 
 REM Build for WASI
 echo 🏗️  Building WASM module for WASI...
-cargo build --target wasm32-wasi --release
+cargo build --target wasm32-wasip1 --release
 
 if %errorlevel% equ 0 (
     echo ✅ WASI build successful
-    set WASM_FILE=target\wasm32-wasi\release\wasm_quality_filter.wasm
+    set WASM_FILE=target\wasm32-wasip1\release\wasm_quality_filter.wasm
     
     if exist "!WASM_FILE!" (
         REM Get file size

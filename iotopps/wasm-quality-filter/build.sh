@@ -23,12 +23,12 @@ echo -e "${BLUE}📋 Checking prerequisites...${NC}"
 check_tool "cargo"
 check_tool "rustc"
 
-# Check if wasm32-wasi target is installed
-if ! rustup target list --installed | grep -q "wasm32-wasi"; then
-    echo -e "${YELLOW}🎯 Installing wasm32-wasi target...${NC}"
-    rustup target add wasm32-wasi
+# Check if wasm32-wasip1 target is installed
+if ! rustup target list --installed | grep -q "wasm32-wasip1"; then
+    echo -e "${YELLOW}🎯 Installing wasm32-wasip1 target...${NC}"
+    rustup target add wasm32-wasip1
 else
-    echo -e "${GREEN}✅ wasm32-wasi target already installed${NC}"
+    echo -e "${GREEN}✅ wasm32-wasip1 target already installed${NC}"
 fi
 
 # Optional: Check for wasm-pack (for JavaScript integration)
@@ -55,11 +55,11 @@ echo -e "${GREEN}✅ All tests passed${NC}"
 
 # Build for WASI (for server-side WASM runtimes)
 echo -e "${BLUE}🏗️  Building WASM module for WASI...${NC}"
-cargo build --target wasm32-wasi --release
+cargo build --target wasm32-wasip1 --release
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✅ WASI build successful${NC}"
-    WASM_FILE="target/wasm32-wasi/release/wasm_quality_filter.wasm"
+    WASM_FILE="target/wasm32-wasip1/release/wasm_quality_filter.wasm"
     
     if [ -f "$WASM_FILE" ]; then
         # Get file size

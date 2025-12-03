@@ -37,7 +37,7 @@ echo 📋 Prerequisites check passed
 
 REM Step 1: Build WASM module for validation
 echo 🧠 Building WASM module for validation...
-cargo build --target wasm32-wasi --release
+cargo build --target wasm32-wasip1 --release
 if %errorlevel% neq 0 (
     echo ❌ WASM module build failed
     exit /b 1

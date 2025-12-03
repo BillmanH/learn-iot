@@ -149,8 +149,8 @@ jobs:
         if: ${{ !inputs.skip_build && matrix.app == 'wasm-quality-filter' }}
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.82"
-          targets: wasm32-wasi
+          toolchain: "1.83"
+          targets: wasm32-wasip1
 
       - name: Cache Rust dependencies
         if: ${{ !inputs.skip_build && matrix.app == 'wasm-quality-filter' }}

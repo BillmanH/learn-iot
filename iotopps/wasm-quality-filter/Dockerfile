@@ -1,4 +1,4 @@
-FROM rust:1.82-slim-bullseye as wasm-builder
+FROM rust:1.83-slim-bullseye as wasm-builder
 
 # Install build dependencies for WASM
 RUN apt-get update && apt-get install -y \
@@ -11,12 +11,12 @@ WORKDIR /build/wasm
 COPY Cargo.toml .
 COPY src/ src/
 
-# Build the WASM module
-RUN rustup target add wasm32-wasi && \
-    cargo build --target wasm32-wasi --release
+# Build the WASM module (using new target name)
+RUN rustup target add wasm32-wasip1 && \
+    cargo build --target wasm32-wasip1 --release
 
 # Build stage for MQTT processor
-FROM rust:1.82-slim-bullseye as processor-builder
+FROM rust:1.83-slim-bullseye as processor-builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
@@ -52,7 +52,7 @@ ENV PATH="/root/.wasmtime/bin:${PATH}"
 WORKDIR /app
 
 # Copy WASM module from wasm builder
-COPY --from=wasm-builder /build/wasm/target/wasm32-wasi/release/wasm_quality_filter.wasm ./
+COPY --from=wasm-builder /build/wasm/target/wasm32-wasip1/release/wasm_quality_filter.wasm ./
 
 # Copy MQTT processor from processor builder
 COPY --from=processor-builder /build/processor/target/release/mqtt-processor ./
