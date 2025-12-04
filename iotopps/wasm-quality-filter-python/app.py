@@ -258,6 +258,7 @@ class MQTTHandler:
         # MQTT client setup - try MQTT v5 first, fallback to v3.1.1
         try:
             self.client = mqtt.Client(
+                callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
                 client_id=config.mqtt_client_id,
                 protocol=mqtt.MQTTv5,
                 transport="tcp"
@@ -265,14 +266,24 @@ class MQTTHandler:
             self.mqtt_version = "5"
             self.logger.info("Using MQTT v5 protocol")
         except (AttributeError, TypeError):
-            # Fallback for older paho-mqtt versions
-            self.client = mqtt.Client(
-                client_id=config.mqtt_client_id,
-                protocol=mqtt.MQTTv311,
-                transport="tcp"
-            )
-            self.mqtt_version = "3.1.1"
-            self.logger.warning("MQTT v5 not available, using MQTT v3.1.1")
+            # Fallback for older paho-mqtt versions or if VERSION2 doesn't exist
+            try:
+                self.client = mqtt.Client(
+                    client_id=config.mqtt_client_id,
+                    protocol=mqtt.MQTTv5,
+                    transport="tcp"
+                )
+                self.mqtt_version = "5"
+                self.logger.info("Using MQTT v5 protocol (legacy API)")
+            except (AttributeError, TypeError):
+                # Final fallback to MQTT v3.1.1
+                self.client = mqtt.Client(
+                    client_id=config.mqtt_client_id,
+                    protocol=mqtt.MQTTv311,
+                    transport="tcp"
+                )
+                self.mqtt_version = "3.1.1"
+                self.logger.warning("MQTT v5 not available, using MQTT v3.1.1")
         
         # Configure TLS for encrypted connection
         self.logger.info("Setting up TLS connection...")
@@ -469,16 +480,25 @@ class MQTTHandler:
                     
                     # Handle different paho-mqtt versions
                     try:
-                        # For paho-mqtt 2.0+
+                        # For paho-mqtt 2.0+ with new callback API
                         connect_properties = mqtt.Properties(mqtt.PacketTypes.CONNECT)
                         connect_properties.AuthenticationMethod = 'K8S-SAT'
                         connect_properties.AuthenticationData = token.encode('utf-8')
                         self.logger.info("Using MQTT v5 with paho-mqtt 2.0+")
-                    except AttributeError:
-                        # For paho-mqtt 1.x - fallback to username/password
-                        self.logger.warning("paho-mqtt 1.x detected, using username/password auth instead of MQTT v5")
-                        self.client.username_pw_set("", token)
-                        connect_properties = None
+                    except (AttributeError, TypeError):
+                        try:
+                            # Try older MQTT v5 API
+                            from paho.mqtt.properties import Properties
+                            from paho.mqtt.packettypes import PacketTypes
+                            connect_properties = Properties(PacketTypes.CONNECT)
+                            connect_properties.AuthenticationMethod = 'K8S-SAT'
+                            connect_properties.AuthenticationData = token.encode('utf-8')
+                            self.logger.info("Using MQTT v5 with legacy API")
+                        except (AttributeError, ImportError):
+                            # For paho-mqtt 1.x - fallback to username/password
+                            self.logger.warning("paho-mqtt 1.x detected, using username/password auth instead of MQTT v5")
+                            self.client.username_pw_set("", token)
+                            connect_properties = None
                     
                     self.logger.info("K8S-SAT authentication configured")
                     self.logger.info(f"Token length: {len(token)} characters")
