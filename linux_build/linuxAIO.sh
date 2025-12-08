@@ -998,8 +998,8 @@ deploy_iot_operations() {
     # Get schema registry resource ID
     SCHEMA_REGISTRY_RESOURCE_ID=$(az iot ops schema registry show --name "$SCHEMA_REGISTRY_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv)
     
-    # Create namespace resource (required for newer AIO versions)
-    log "Creating namespace resource for Azure IoT Operations..."
+    # Create namespace resource using Device Registry (required for newer AIO versions)
+    log "Creating namespace resource for Azure IoT Operations using Device Registry..."
     NAMESPACE_RESOURCE_NAME="${NAMESPACE_NAME}-namespace"
     
     log "DEBUG: Namespace name: $NAMESPACE_NAME"
@@ -1007,163 +1007,65 @@ deploy_iot_operations() {
     log "DEBUG: Resource group: $RESOURCE_GROUP"
     log "DEBUG: Cluster name: $CLUSTER_NAME"
     
-    # Since the direct namespace commands don't exist, let's try a different approach
-    # The namespace resource might need to be created differently or might already exist
+    # Since asset endpoint commands don't exist in current CLI version, create a Device Registry namespace directly
+    log "Creating Device Registry namespace resource as workaround for missing asset endpoint commands..."
     
-    log "WARNING: Based on Azure CLI errors, the namespace subcommands don't exist in the current CLI version"
-    log "Attempting alternative approach to find or create namespace resource..."
+    # Try creating a Device Registry namespace directly
+    log "Attempting to create namespace using Device Registry API..."
     
-    # First, let's check if the asset endpoint commands work at all
-    log "Testing if azure-iot-ops extension commands are available..."
-    TEST_OUTPUT=$(timeout 10 az iot ops --help 2>&1 || echo "Extension test failed")
+    # Create a namespace resource for Azure IoT Operations using Azure REST API
+    NAMESPACE_RESOURCE_ID="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.DeviceRegistry/assetEndpointProfiles/$NAMESPACE_RESOURCE_NAME"
     
-    if [[ "$TEST_OUTPUT" == *"Extension test failed"* ]] || [[ "$TEST_OUTPUT" == *"ERROR"* ]] || [[ "$TEST_OUTPUT" == *"not recognized"* ]]; then
-        log "WARNING: azure-iot-ops extension commands are not available or not working"
-        log "Will attempt deployment without namespace resource ID (may work with newer Azure IoT Operations)"
-        NAMESPACE_RESOURCE_ID="skip"
-        return 0
-    fi
+    log "Using constructed namespace resource ID: $NAMESPACE_RESOURCE_ID"
     
-    # Check if asset endpoint commands specifically work
-    log "Testing asset endpoint commands..."
-    ASSET_TEST=$(timeout 10 az iot ops asset endpoint --help 2>&1 || echo "Asset endpoint test failed")
+    # Create a minimal asset endpoint profile using Azure CLI generic commands
+    log "Creating minimal asset endpoint profile for namespace..."
     
-    if [[ "$ASSET_TEST" == *"test failed"* ]] || [[ "$ASSET_TEST" == *"ERROR"* ]] || [[ "$ASSET_TEST" == *"not recognized"* ]]; then
-        log "WARNING: Asset endpoint commands are not available"
-        log "Will attempt deployment without namespace resource ID"
-        NAMESPACE_RESOURCE_ID="skip"
-        return 0
-    fi
+    # Create the namespace resource using az rest command (more reliable than extension commands)
+    NAMESPACE_JSON=$(cat << EOF
+{
+  "location": "$LOCATION",
+  "properties": {
+    "targetAddress": "opc.tcp://namespace-placeholder:50000",
+    "transportAuthentication": {
+      "ownCertificates": []
+    },
+    "additionalConfiguration": "{}"
+  }
+}
+EOF
+)
+
+    # Use az rest to create the asset endpoint profile
+    log "Creating namespace resource using REST API..."
+    CREATE_RESULT=$(az rest \
+        --method PUT \
+        --url "https://management.azure.com$NAMESPACE_RESOURCE_ID?api-version=2024-09-01-preview" \
+        --body "$NAMESPACE_JSON" \
+        --headers "Content-Type=application/json" 2>&1 || echo "REST API creation failed")
     
-    # Check if user provided a custom asset endpoint name
-    if [ -n "$CUSTOM_ASSET_ENDPOINT" ]; then
-        log "Using custom asset endpoint specified: $CUSTOM_ASSET_ENDPOINT"
-        log "Note: Please ensure this asset endpoint exists in your resource group before deployment"
+    if [[ "$CREATE_RESULT" != *"failed"* ]] && [[ "$CREATE_RESULT" != *"ERROR"* ]]; then
+        log "SUCCESS: Created namespace resource using REST API"
+        log "Namespace Resource ID: $NAMESPACE_RESOURCE_ID"
+    else
+        warn "Failed to create namespace using REST API. Output: $CREATE_RESULT"
         
-        # Try to get the resource ID of the specified endpoint
-        log "Looking up resource ID for custom asset endpoint: $CUSTOM_ASSET_ENDPOINT"
-        CUSTOM_ENDPOINT_ID=$(timeout 30 az iot ops asset endpoint show --name "$CUSTOM_ASSET_ENDPOINT" --resource-group "$RESOURCE_GROUP" --query id -o tsv 2>&1 || echo "Custom endpoint lookup failed")
+        # Fallback: Try to find any existing Device Registry resources that could work
+        log "Attempting fallback: looking for existing Device Registry resources..."
         
-        if [[ "$CUSTOM_ENDPOINT_ID" != *"ERROR:"* ]] && [[ "$CUSTOM_ENDPOINT_ID" != *"failed"* ]] && [ -n "$CUSTOM_ENDPOINT_ID" ]; then
-            NAMESPACE_RESOURCE_ID="$CUSTOM_ENDPOINT_ID"
-            log "SUCCESS: Found custom asset endpoint resource ID: $NAMESPACE_RESOURCE_ID"
-        else
-            log "WARNING: Could not find custom asset endpoint '$CUSTOM_ASSET_ENDPOINT'"
-            log "ERROR: $CUSTOM_ENDPOINT_ID"
-            log "Attempting to create custom asset endpoint '$CUSTOM_ASSET_ENDPOINT'..."
-            
-            # Try to create the custom asset endpoint
-            CREATE_CUSTOM_OUTPUT=$(timeout 60 az iot ops asset endpoint create \
-                --name "$CUSTOM_ASSET_ENDPOINT" \
-                --resource-group "$RESOURCE_GROUP" \
-                --target-address "opc.tcp://localhost:50000" \
-                --additional-configuration '{}' 2>&1 || echo "Create custom endpoint failed")
-            
-            log "DEBUG: Create custom endpoint output: $CREATE_CUSTOM_OUTPUT"
-            
-            # Check if creation succeeded
-            if [[ "$CREATE_CUSTOM_OUTPUT" != *"ERROR:"* ]] && [[ "$CREATE_CUSTOM_OUTPUT" != *"failed"* ]]; then
-                # Try to get the resource ID of the newly created endpoint
-                CUSTOM_ENDPOINT_ID=$(timeout 30 az iot ops asset endpoint show --name "$CUSTOM_ASSET_ENDPOINT" --resource-group "$RESOURCE_GROUP" --query id -o tsv 2>&1 || echo "Show new endpoint failed")
-                
-                if [[ "$CUSTOM_ENDPOINT_ID" != *"ERROR:"* ]] && [[ "$CUSTOM_ENDPOINT_ID" != *"failed"* ]] && [ -n "$CUSTOM_ENDPOINT_ID" ]; then
-                    NAMESPACE_RESOURCE_ID="$CUSTOM_ENDPOINT_ID"
-                    log "SUCCESS: Created custom asset endpoint '$CUSTOM_ASSET_ENDPOINT' with resource ID: $NAMESPACE_RESOURCE_ID"
-                else
-                    log "WARNING: Created endpoint but could not retrieve its resource ID"
-                    log "ERROR: $CUSTOM_ENDPOINT_ID"
-                    log "Will proceed with automatic endpoint discovery/creation..."
-                fi
-            else
-                log "WARNING: Failed to create custom asset endpoint '$CUSTOM_ASSET_ENDPOINT'"
-                log "ERROR: $CREATE_CUSTOM_OUTPUT"
-                log "Will proceed with automatic endpoint discovery/creation..."
-            fi
-        fi
-    fi
-    
-    # If no custom endpoint was specified or found, try automatic discovery
-    if [ -z "$NAMESPACE_RESOURCE_ID" ]; then
-        log "No custom asset endpoint specified or found. Attempting automatic discovery..."
-        
-        # Try to find existing asset endpoint profiles that could serve as namespace
-        log "Looking for existing asset endpoint profiles that could serve as namespace..."
-        
-        # Method 1: List all asset endpoint profiles and see if any exist
-        log "METHOD 1: Checking for existing asset endpoint profiles..."
-        EXISTING_ENDPOINTS=$(timeout 30 az iot ops asset endpoint list --resource-group "$RESOURCE_GROUP" --query "[].id" -o tsv 2>&1 || echo "Command failed or timed out")
-        
-        log "DEBUG: Existing endpoints query result: $EXISTING_ENDPOINTS"
-        
-        if [[ "$EXISTING_ENDPOINTS" != *"ERROR:"* ]] && [[ "$EXISTING_ENDPOINTS" != *"Command failed"* ]] && [ -n "$EXISTING_ENDPOINTS" ]; then
-            # Use the first available endpoint as namespace resource ID
-            NAMESPACE_RESOURCE_ID=$(echo "$EXISTING_ENDPOINTS" | head -1 | tr -d '\r\n')
-            log "SUCCESS: Found existing asset endpoint profile to use as namespace: $NAMESPACE_RESOURCE_ID"
-        else
-            log "WARNING: No existing asset endpoint profiles found or command failed"
-            log "OUTPUT: $EXISTING_ENDPOINTS"
-            
-            # Method 2: Try creating a basic asset endpoint profile to use as namespace
-            log "METHOD 2: Attempting to create a basic asset endpoint profile..."
-            
-            # Create a temporary asset endpoint profile that can serve as namespace
-            TEMP_ENDPOINT_NAME="temp-namespace-${NAMESPACE_NAME}"
-            CREATE_EP_OUTPUT=$(timeout 60 az iot ops asset endpoint create \
-            --name "$TEMP_ENDPOINT_NAME" \
+        EXISTING_REGISTRY_RESOURCES=$(az resource list \
             --resource-group "$RESOURCE_GROUP" \
-            --cluster "$CLUSTER_NAME" \
-            --target-address "opc.tcp://temp:50000" 2>&1 || echo "Create endpoint command failed or timed out")
+            --resource-type "Microsoft.DeviceRegistry/assetEndpointProfiles" \
+            --query "[0].id" -o tsv 2>/dev/null || echo "")
         
-        log "DEBUG: Create endpoint output: $CREATE_EP_OUTPUT"
-        
-        if [[ "$CREATE_EP_OUTPUT" != *"ERROR:"* ]] && [[ "$CREATE_EP_OUTPUT" != *"failed"* ]] && [[ "$CREATE_EP_OUTPUT" != *"timed out"* ]]; then
-            # Get the resource ID  of the created endpoint
-            NAMESPACE_RESOURCE_ID=$(timeout 30 az iot ops asset endpoint show --name "$TEMP_ENDPOINT_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv 2>&1 || echo "Show endpoint failed")
-            
-            if [[ "$NAMESPACE_RESOURCE_ID" != *"ERROR:"* ]] && [[ "$NAMESPACE_RESOURCE_ID" != *"failed"* ]] && [ -n "$NAMESPACE_RESOURCE_ID" ]; then
-                log "SUCCESS: Created temporary asset endpoint profile as namespace: $NAMESPACE_RESOURCE_ID"
-            else
-                log "FAILED: Could not get resource ID of created endpoint"
-                log "ERROR: $NAMESPACE_RESOURCE_ID"
-                NAMESPACE_RESOURCE_ID=""
-            fi
+        if [ -n "$EXISTING_REGISTRY_RESOURCES" ] && [[ "$EXISTING_REGISTRY_RESOURCES" != *"ERROR"* ]]; then
+            NAMESPACE_RESOURCE_ID="$EXISTING_REGISTRY_RESOURCES"
+            log "SUCCESS: Found existing Device Registry resource to use: $NAMESPACE_RESOURCE_ID"
         else
-            log "FAILED: Could not create asset endpoint profile"
-            log "ERROR: $CREATE_EP_OUTPUT"
+            warn "Could not create or find any suitable namespace resource"
+            log "Will attempt deployment without namespace resource ID"
+            NAMESPACE_RESOURCE_ID="skip"
         fi
-        fi
-    fi
-    
-    # If we still don't have a namespace resource ID, try simple listing approaches
-    if [ -z "$NAMESPACE_RESOURCE_ID" ]; then
-        log "No namespace resource found yet. Trying simple listing methods..."
-        
-        # Method: Simple asset endpoint listing (most likely to work)
-        log "SIMPLE METHOD: Listing all asset endpoints and using the first available one"
-        LIST_OUTPUT=$(timeout 30 az iot ops asset endpoint list --resource-group "$RESOURCE_GROUP" --query "[].id" -o tsv 2>&1 || echo "List command failed")
-        
-        if [[ "$LIST_OUTPUT" != *"ERROR:"* ]] && [[ "$LIST_OUTPUT" != *"failed"* ]] && [ -n "$LIST_OUTPUT" ] && [[ "$LIST_OUTPUT" != "[]" ]]; then
-            # Use the first available endpoint resource ID
-            NAMESPACE_RESOURCE_ID=$(echo "$LIST_OUTPUT" | head -1 | tr -d '\r\n')
-            log "SUCCESS: Found asset endpoint resource ID to use as namespace: $NAMESPACE_RESOURCE_ID"
-        else
-            log "WARNING: Could not list asset endpoints or no endpoints found"
-            log "OUTPUT: $LIST_OUTPUT"
-        fi
-    fi
-    
-    # Final validation and error handling
-    if [ -z "$NAMESPACE_RESOURCE_ID" ]; then
-        log "WARNING: Could not create or find a suitable namespace resource"
-        log "Will attempt deployment without namespace resource ID (this may work with current Azure IoT Operations versions)"
-        NAMESPACE_RESOURCE_ID="skip"
-    fi
-    
-    # Validate that we have a proper Azure resource ID format (unless we're skipping)
-    if [ "$NAMESPACE_RESOURCE_ID" != "skip" ] && [[ ! "$NAMESPACE_RESOURCE_ID" =~ ^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/[^/]+/.+ ]]; then
-        log "WARNING: The namespace resource ID is not in the correct Azure resource ID format. Got: $NAMESPACE_RESOURCE_ID"
-        log "Will attempt deployment without namespace resource ID instead"
-        NAMESPACE_RESOURCE_ID="skip"
     fi
     
     if [ "$NAMESPACE_RESOURCE_ID" = "skip" ]; then
@@ -1172,43 +1074,57 @@ deploy_iot_operations() {
         log "FINAL RESULT: Using namespace resource ID: $NAMESPACE_RESOURCE_ID"
     fi
     
-    # Deploy Azure IoT Operations with schema registry and optional namespace
+    # Deploy Azure IoT Operations with schema registry and namespace
     log "Deploying Azure IoT Operations (this may take several minutes)..."
     log "Note: Using schema registry '$SCHEMA_REGISTRY_NAME'"
     log "Note: Schema Registry ID: $SCHEMA_REGISTRY_RESOURCE_ID"
     
-    if [ "$NAMESPACE_RESOURCE_ID" = "skip" ]; then
-        log "Note: Deploying WITHOUT namespace resource ID (newer Azure IoT Operations approach)"
-        log "EXECUTING: az iot ops create --cluster $CLUSTER_NAME --resource-group $RESOURCE_GROUP --name ${CLUSTER_NAME}-aio --sr-resource-id $SCHEMA_REGISTRY_RESOURCE_ID"
+    # Since --ns-resource-id is REQUIRED, ensure we have a valid one
+    if [ "$NAMESPACE_RESOURCE_ID" = "skip" ] || [ -z "$NAMESPACE_RESOURCE_ID" ]; then
+        warn "--ns-resource-id is required but we don't have a valid namespace resource"
+        log "Creating a simple placeholder namespace resource as workaround..."
         
-        if az iot ops create \
-            --cluster "$CLUSTER_NAME" \
+        # Create a minimal asset endpoint profile using Azure CLI commands that work
+        FALLBACK_ENDPOINT_NAME="aio-namespace-${NAMESPACE_NAME}"
+        NAMESPACE_RESOURCE_ID="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.DeviceRegistry/assetEndpointProfiles/$FALLBACK_ENDPOINT_NAME"
+        
+        log "Attempting to create placeholder endpoint profile: $FALLBACK_ENDPOINT_NAME"
+        
+        # Use az resource create instead of the iot ops commands
+        CREATE_NAMESPACE_RESULT=$(az resource create \
             --resource-group "$RESOURCE_GROUP" \
-            --name "${CLUSTER_NAME}-aio" \
-            --sr-resource-id "$SCHEMA_REGISTRY_RESOURCE_ID"; then
-            log "Azure IoT Operations deployed successfully!"
+            --resource-type "Microsoft.DeviceRegistry/assetEndpointProfiles" \
+            --name "$FALLBACK_ENDPOINT_NAME" \
+            --properties '{
+                "targetAddress": "opc.tcp://placeholder:50000",
+                "transportAuthentication": {
+                    "ownCertificates": []
+                },
+                "additionalConfiguration": "{}"
+            }' \
+            --api-version "2024-09-01-preview" 2>&1 || echo "Create namespace resource failed")
+        
+        if [[ "$CREATE_NAMESPACE_RESULT" != *"failed"* ]] && [[ "$CREATE_NAMESPACE_RESULT" != *"ERROR"* ]]; then
+            log "SUCCESS: Created placeholder namespace resource"
+            log "Namespace Resource ID: $NAMESPACE_RESOURCE_ID"
         else
-            warn "Azure IoT Operations deployment failed without --ns-resource-id parameter"
-            warn "This may be due to version compatibility. Consider:"
-            warn "1. Updating Azure CLI: az upgrade"
-            warn "2. Updating azure-iot-ops extension: az extension update --name azure-iot-ops"
-            warn "3. Creating a custom asset endpoint manually and specifying it in CUSTOM_ASSET_ENDPOINT"
-            error "Azure IoT Operations deployment failed"
+            warn "Failed to create placeholder namespace resource: $CREATE_NAMESPACE_RESULT"
+            error "Cannot proceed without a valid --ns-resource-id. Azure IoT Operations requires this parameter."
         fi
+    fi
+    
+    log "FINAL Namespace Resource ID: $NAMESPACE_RESOURCE_ID"
+    log "EXECUTING: az iot ops create --cluster $CLUSTER_NAME --resource-group $RESOURCE_GROUP --name ${CLUSTER_NAME}-aio --sr-resource-id $SCHEMA_REGISTRY_RESOURCE_ID --ns-resource-id $NAMESPACE_RESOURCE_ID"
+    
+    if az iot ops create \
+        --cluster "$CLUSTER_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --name "${CLUSTER_NAME}-aio" \
+        --sr-resource-id "$SCHEMA_REGISTRY_RESOURCE_ID" \
+        --ns-resource-id "$NAMESPACE_RESOURCE_ID"; then
+        log "Azure IoT Operations deployed successfully!"
     else
-        log "Note: Namespace Resource ID: $NAMESPACE_RESOURCE_ID"
-        log "EXECUTING: az iot ops create --cluster $CLUSTER_NAME --resource-group $RESOURCE_GROUP --name ${CLUSTER_NAME}-aio --sr-resource-id $SCHEMA_REGISTRY_RESOURCE_ID --ns-resource-id $NAMESPACE_RESOURCE_ID"
-        
-        if az iot ops create \
-            --cluster "$CLUSTER_NAME" \
-            --resource-group "$RESOURCE_GROUP" \
-            --name "${CLUSTER_NAME}-aio" \
-            --sr-resource-id "$SCHEMA_REGISTRY_RESOURCE_ID" \
-            --ns-resource-id "$NAMESPACE_RESOURCE_ID"; then
-            log "Azure IoT Operations deployed successfully!"
-        else
-            error "Azure IoT Operations deployment failed with namespace resource ID"
-        fi
+        error "Azure IoT Operations deployment failed. Check the logs above for details."
     fi
 }
 

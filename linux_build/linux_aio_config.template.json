@@ -12,7 +12,7 @@
     "skip_system_update": false,
     "force_reinstall": false,
     "deployment_mode": "test",
-    "deploy_opc_ua_bridge": true
+    "deploy_opc_ua_bridge": false
   },
   "comments": {
     "subscription_id": "Leave empty to use current logged-in subscription, or provide your Azure subscription GUID",
@@ -23,7 +23,7 @@
     "namespace_name": "Name for Azure Device Registry namespace",
     "custom_asset_endpoint": "OPTIONAL: Name of existing asset endpoint to use as namespace resource (create this manually first)",
     "deployment_mode": "Options: 'test' for development, 'secure' for production (future)",
-    "deploy_opc_ua_bridge": "Set to true to automatically deploy OPC UA bridge for factory integration",
+    "deploy_opc_ua_bridge": "Set to true to automatically deploy OPC UA bridge for factory integration, set to false as I'm not using it",
     "skip_system_update": "Set to true to skip apt update/upgrade for faster runs",
     "force_reinstall": "Set to true to reinstall components even if they already exist"
   },
