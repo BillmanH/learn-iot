@@ -1197,6 +1197,43 @@ deploy_iot_operations() {
     fi
 }
 
+# Enable resource sync for asset discovery
+enable_asset_sync() {
+    log "Enabling edge→cloud asset sync (rsync) for discovered assets..."
+    
+    # Enable resource sync rules on Azure IoT Operations instance
+    log "Enabling rsync to surface discovered assets in cloud experience..."
+    
+    INSTANCE_NAME="${CLUSTER_NAME}-aio"
+    
+    if az iot ops enable-rsync --name "$INSTANCE_NAME" --resource-group "$RESOURCE_GROUP"; then
+        log "✅ Asset sync enabled successfully!"
+        log "Discovered assets on the edge will now be surfaced in the cloud experience"
+    else
+        warn "Failed to enable asset sync. You may need to run this manually:"
+        warn "az iot ops enable-rsync -n $INSTANCE_NAME -g $RESOURCE_GROUP"
+        
+        # Try with explicit K8 Bridge service principal OID if the first command failed
+        log "Attempting with explicit K8 Bridge service principal OID..."
+        K8_BRIDGE_SP_OID=$(az ad sp list --display-name "K8 Bridge" --query "[0].id" -o tsv 2>/dev/null || echo "")
+        
+        if [ -n "$K8_BRIDGE_SP_OID" ]; then
+            log "Found K8 Bridge service principal OID: $K8_BRIDGE_SP_OID"
+            if az iot ops enable-rsync --name "$INSTANCE_NAME" --resource-group "$RESOURCE_GROUP" --k8-bridge-sp-oid "$K8_BRIDGE_SP_OID"; then
+                log "✅ Asset sync enabled successfully with explicit OID!"
+            else
+                warn "❌ Failed to enable asset sync even with explicit OID"
+                warn "Manual intervention may be required"
+            fi
+        else
+            warn "Could not retrieve K8 Bridge service principal OID"
+            warn "You may need to run manually with appropriate permissions"
+        fi
+    fi
+    
+    log "Asset discovery and sync configuration completed"
+}
+
 # Deploy OPC UA Bridge components
 deploy_opc_ua_bridge() {
     # Check if OPC UA bridge deployment is enabled
@@ -1305,11 +1342,16 @@ show_next_steps() {
     echo "   - Create assets using the OPC UA endpoint"
     echo "   - Configure data flows for factory data processing"
     echo
-    echo "3. Configure assets and data flows:"
+    echo "3. Asset Discovery and Sync:"
+    echo "   - Edge→cloud asset sync is enabled for discovered assets"
+    echo "   - Discovered OPC UA assets will appear in the cloud experience"
+    echo "   - Assets will show 'Discovered' status in the Azure portal"
+    echo
+    echo "4. Configure assets and data flows:"
     echo "   - Create assets to represent your industrial equipment"
     echo "   - Set up data flows to process and route data"
     echo
-    echo "4. Monitor your deployment:"
+    echo "5. Monitor your deployment:"
     echo "   kubectl get pods -n azure-iot-operations"
     echo "   az iot ops check"
     echo
@@ -1377,6 +1419,7 @@ main() {
     arc_enable_cluster
     create_namespace
     deploy_iot_operations
+    enable_asset_sync
     deploy_opc_ua_bridge
     verify_deployment
     show_next_steps

@@ -44,7 +44,7 @@
       "namespace_name": "prod-namespace",
       "skip_system_update": false,
       "deployment_mode": "secure",
-      "deploy_opc_ua_bridge": true
+      "deploy_opc_ua_bridge": false
     }
   },
   "usage_instructions": {
