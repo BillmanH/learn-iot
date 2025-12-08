@@ -732,12 +732,27 @@ configure_kubectl() {
 configure_system_settings() {
     log "Configuring system settings for Azure IoT Operations..."
     
-    # Increase inotify limits (required for Azure IoT Operations)
-    echo 'fs.inotify.max_user_instances=8192' | sudo tee -a /etc/sysctl.conf
-    echo 'fs.inotify.max_user_watches=524288' | sudo tee -a /etc/sysctl.conf
+    # Check if settings are already configured to prevent duplicate entries
+    if ! grep -q "fs.inotify.max_user_instances=8192" /etc/sysctl.conf; then
+        log "Adding inotify max_user_instances setting..."
+        echo 'fs.inotify.max_user_instances=8192' | sudo tee -a /etc/sysctl.conf
+    else
+        log "inotify max_user_instances setting already configured"
+    fi
     
-    # Increase file descriptor limit for better performance
-    echo 'fs.file-max=100000' | sudo tee -a /etc/sysctl.conf
+    if ! grep -q "fs.inotify.max_user_watches=524288" /etc/sysctl.conf; then
+        log "Adding inotify max_user_watches setting..."
+        echo 'fs.inotify.max_user_watches=524288' | sudo tee -a /etc/sysctl.conf
+    else
+        log "inotify max_user_watches setting already configured"
+    fi
+    
+    if ! grep -q "fs.file-max=100000" /etc/sysctl.conf; then
+        log "Adding file-max setting..."
+        echo 'fs.file-max=100000' | sudo tee -a /etc/sysctl.conf
+    else
+        log "file-max setting already configured"
+    fi
     
     # Apply sysctl settings
     sudo sysctl -p
