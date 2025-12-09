@@ -1128,15 +1128,17 @@ EOF
     fi
     
     log "FINAL Namespace Resource ID: $NAMESPACE_RESOURCE_ID"
-    log "EXECUTING: az iot ops create --cluster $CLUSTER_NAME --resource-group $RESOURCE_GROUP --name ${CLUSTER_NAME}-aio --sr-resource-id $SCHEMA_REGISTRY_RESOURCE_ID --ns-resource-id $NAMESPACE_RESOURCE_ID"
+    log "EXECUTING: az iot ops create --cluster $CLUSTER_NAME --resource-group $RESOURCE_GROUP --name ${CLUSTER_NAME}-aio --sr-resource-id $SCHEMA_REGISTRY_RESOURCE_ID --ns-resource-id $NAMESPACE_RESOURCE_ID --enable-rsync"
     
     if az iot ops create \
         --cluster "$CLUSTER_NAME" \
         --resource-group "$RESOURCE_GROUP" \
         --name "${CLUSTER_NAME}-aio" \
         --sr-resource-id "$SCHEMA_REGISTRY_RESOURCE_ID" \
-        --ns-resource-id "$NAMESPACE_RESOURCE_ID"; then
+        --ns-resource-id "$NAMESPACE_RESOURCE_ID" \
+        --enable-rsync; then
         log "Azure IoT Operations deployed successfully!"
+        log "Resource sync enabled - assets will automatically sync to Azure"
     else
         error "Azure IoT Operations deployment failed. Check the logs above for details."
     fi
