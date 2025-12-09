@@ -1123,7 +1123,7 @@ EOF
   "transportAuthentication": {
     "ownCertificates": []
   },
-  "additionalConfiguration": "{}"
+  "additionalConfiguration": ""
 }
 JSONEOF
             
