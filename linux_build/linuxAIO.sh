@@ -1048,19 +1048,28 @@ deploy_iot_operations() {
     log "Note: Schema Registry ID: $SCHEMA_REGISTRY_RESOURCE_ID"
     
     log "FINAL Namespace Resource ID: $NAMESPACE_RESOURCE_ID"
-    log "EXECUTING: az iot ops create --cluster $CLUSTER_NAME --resource-group $RESOURCE_GROUP --name ${CLUSTER_NAME}-aio --sr-resource-id $SCHEMA_REGISTRY_RESOURCE_ID --ns-resource-id $NAMESPACE_RESOURCE_ID --enable-rsync"
+    log "EXECUTING: az iot ops create --cluster $CLUSTER_NAME --resource-group $RESOURCE_GROUP --name ${CLUSTER_NAME}-aio --sr-resource-id $SCHEMA_REGISTRY_RESOURCE_ID --ns-resource-id $NAMESPACE_RESOURCE_ID"
     
     if az iot ops create \
         --cluster "$CLUSTER_NAME" \
         --resource-group "$RESOURCE_GROUP" \
         --name "${CLUSTER_NAME}-aio" \
         --sr-resource-id "$SCHEMA_REGISTRY_RESOURCE_ID" \
-        --ns-resource-id "$NAMESPACE_RESOURCE_ID" \
-        --enable-rsync; then
+        --ns-resource-id "$NAMESPACE_RESOURCE_ID"; then
         log "Azure IoT Operations deployed successfully!"
-        log "Resource sync enabled - assets will automatically sync to Azure"
+        log "Enabling resource sync for asset discovery..."
     else
         error "Azure IoT Operations deployment failed. Check the logs above for details."
+    fi
+    
+    # Enable rsync after deployment
+    log "Enabling resource sync to surface discovered assets in cloud..."
+    if az iot ops enable-rsync --name "${CLUSTER_NAME}-aio" --resource-group "$RESOURCE_GROUP"; then
+        log "Resource sync enabled successfully!"
+    else
+        warn "Failed to enable resource sync automatically"
+        warn "You can enable it manually later with:"
+        warn "az iot ops enable-rsync --name ${CLUSTER_NAME}-aio --resource-group $RESOURCE_GROUP"
     fi
 }
 
