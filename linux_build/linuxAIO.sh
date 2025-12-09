@@ -26,6 +26,20 @@
 
 set -e  # Exit on any error
 
+# Setup logging to file and console
+LOG_FILE="linuxAIO_$(date +'%Y%m%d_%H%M%S').log"
+exec > >(tee -a "$LOG_FILE")
+exec 2>&1
+
+log() {
+    echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')] $1${NC}"
+}
+
+echo "=== Azure IoT Operations Installation Log ==="
+echo "Log file: $LOG_FILE"
+echo "Started: $(date)"
+echo ""
+
 # Color codes for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'

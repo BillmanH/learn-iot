@@ -9,9 +9,6 @@ spec:
   endpointProfileType: Microsoft.AssetEndpointProfile/opcua/1.0.0
   authentication:
     method: Anonymous
-  discoveryConfiguration:
-    enabled: true
-    discoveryInterval: 60
   additionalConfiguration: |
     {
       "applicationName": "SpaceShip Factory OPC UA Connector",
