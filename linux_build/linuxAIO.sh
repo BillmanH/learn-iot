@@ -310,7 +310,7 @@ install_azure_cli() {
     
     if command -v az &> /dev/null && [ "$FORCE_REINSTALL" != "true" ]; then
         log "Azure CLI already installed. Checking version..."
-        current_version=$(az version --query '"azure-cli"' -o tsv)
+        current_version=$(az version --query 'azure-cli' -o tsv)
         log "Current Azure CLI version: $current_version"
         
         # Update Azure CLI
@@ -325,7 +325,7 @@ install_azure_cli() {
     fi
     
     # Verify minimum version (2.62.0+)
-    az_version=$(az version --query '"azure-cli"' -o tsv)
+    az_version=$(az version --query 'azure-cli' -o tsv)
     log "Azure CLI version: $az_version"
     
     # Install required Azure CLI extensions
@@ -962,7 +962,7 @@ deploy_iot_operations() {
         
         # Wait for registration to complete
         log "Waiting for Microsoft.Storage provider registration to complete..."
-        while [ "$(az provider show --namespace Microsoft.Storage --query 'registrationState' -o tsv)" != "Registered" ]; do
+        while [ "$(az provider show --namespace Microsoft.Storage --query registrationState -o tsv)" != "Registered" ]; do
             sleep 10
             log "Still waiting for Microsoft.Storage registration..."
         done
@@ -1116,18 +1116,28 @@ EOF
             # Use az resource create instead of the iot ops commands
             log "Creating placeholder namespace resource..."
             
-            # Create JSON properties as a variable to avoid quote issues
-            PROPERTIES_JSON='{"targetAddress":"opc.tcp://placeholder:50000","transportAuthentication":{"ownCertificates":[]},"additionalConfiguration":"{}"}'
+            # Create a simple JSON file for the properties to avoid quote issues
+            cat > /tmp/endpoint_properties.json << 'JSONEOF'
+{
+  "targetAddress": "opc.tcp://placeholder:50000",
+  "transportAuthentication": {
+    "ownCertificates": []
+  },
+  "additionalConfiguration": "{}"
+}
+JSONEOF
             
             if az resource create \
                 --resource-group "$RESOURCE_GROUP" \
                 --resource-type "Microsoft.DeviceRegistry/assetEndpointProfiles" \
                 --name "$FALLBACK_ENDPOINT_NAME" \
-                --properties "$PROPERTIES_JSON" \
+                --properties "@/tmp/endpoint_properties.json" \
                 --api-version "2024-09-01-preview" 2>/dev/null; then
                 log "SUCCESS: Created placeholder namespace resource"
+                rm -f /tmp/endpoint_properties.json
             else
                 warn "Failed to create placeholder namespace resource"
+                rm -f /tmp/endpoint_properties.json
                 error "Cannot proceed without a valid --ns-resource-id. Azure IoT Operations requires this parameter."
             fi
         fi
@@ -1296,7 +1306,7 @@ show_next_steps() {
     echo "3. Asset Discovery and Sync:"
     echo "   - Edge-to-cloud asset sync is enabled for discovered assets"
     echo "   - Discovered OPC UA assets will appear in the cloud experience"
-    echo "   - Assets will show 'Discovered' status in the Azure portal"
+    echo "   - Assets will show Discovered status in the Azure portal"
     echo
     echo "4. Configure assets and data flows:"
     echo "   - Create assets to represent your industrial equipment"
