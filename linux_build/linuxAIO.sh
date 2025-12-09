@@ -939,6 +939,15 @@ create_namespace() {
 deploy_iot_operations() {
     log "Deploying Azure IoT Operations..."
     
+    # Check if Azure IoT Operations instance already exists
+    INSTANCE_NAME="${CLUSTER_NAME}-aio"
+    if az iot ops show --name "$INSTANCE_NAME" --resource-group "$RESOURCE_GROUP" &> /dev/null; then
+        log "Azure IoT Operations instance '$INSTANCE_NAME' already exists - skipping deployment"
+        log "To force reinstall, delete the existing instance first:"
+        log "az iot ops delete --name $INSTANCE_NAME --resource-group $RESOURCE_GROUP"
+        return 0
+    fi
+    
     # Initialize cluster for Azure IoT Operations
     log "Initializing cluster for Azure IoT Operations..."
     az iot ops init --cluster "$CLUSTER_NAME" --resource-group "$RESOURCE_GROUP"
@@ -965,40 +974,50 @@ deploy_iot_operations() {
     SCHEMA_REGISTRY_NAME="${CLUSTER_NAME}-schema-registry"
     STORAGE_ACCOUNT_NAME=$(echo "${CLUSTER_NAME}storage" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]//g' | cut -c1-24)
     
-    # Create storage account for schema registry
-    log "Creating storage account: $STORAGE_ACCOUNT_NAME"
-    az storage account create \
-        --name "$STORAGE_ACCOUNT_NAME" \
-        --resource-group "$RESOURCE_GROUP" \
-        --location "$LOCATION" \
-        --sku Standard_LRS \
-        --kind StorageV2 \
-        --enable-hierarchical-namespace true \
-        --allow-blob-public-access false
-    
-    # Create container in storage account
-    CONTAINER_NAME="schemas"
-    log "Creating storage container: $CONTAINER_NAME"
-    az storage container create \
-        --name "$CONTAINER_NAME" \
-        --account-name "$STORAGE_ACCOUNT_NAME" \
-        --auth-mode login
-    
-    # Get storage account resource ID
-    STORAGE_ACCOUNT_ID=$(az storage account show --name "$STORAGE_ACCOUNT_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv)
-    
-    # Create schema registry
-    log "Creating schema registry: $SCHEMA_REGISTRY_NAME"
-    az iot ops schema registry create \
-        --name "$SCHEMA_REGISTRY_NAME" \
-        --resource-group "$RESOURCE_GROUP" \
-        --registry-namespace "$NAMESPACE_NAME" \
-        --sa-resource-id "$STORAGE_ACCOUNT_ID"
-    
-    # Get schema registry resource ID
-    SCHEMA_REGISTRY_RESOURCE_ID=$(az iot ops schema registry show --name "$SCHEMA_REGISTRY_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv)
-    
-    # Create namespace resource using Device Registry (required for newer AIO versions)
+    # Check if schema registry already exists
+    if az iot ops schema registry show --name "$SCHEMA_REGISTRY_NAME" --resource-group "$RESOURCE_GROUP" &> /dev/null; then
+        log "Schema registry '$SCHEMA_REGISTRY_NAME' already exists - using existing one"
+        SCHEMA_REGISTRY_RESOURCE_ID=$(az iot ops schema registry show --name "$SCHEMA_REGISTRY_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv)
+    else
+        # Create storage account for schema registry
+        log "Creating storage account: $STORAGE_ACCOUNT_NAME"NT_NAME" --resource-group "$RESOURCE_GROUP" &> /dev/null; then
+            log "Storage account '$STORAGE_ACCOUNT_NAME' already exists - using existing one"
+        else
+            log "Creating storage account: $STORAGE_ACCOUNT_NAME"
+            az storage account create \
+                --name "$STORAGE_ACCOUNT_NAME" \
+                --resource-group "$RESOURCE_GROUP" \
+                --location "$LOCATION" \
+                --sku Standard_LRS \
+                --kind StorageV2 \
+                --enable-hierarchical-namespace true \
+                --allow-blob-public-access false
+        fi        # Create container in storage account
+        CONTAINER_NAME="schemas"
+        if az storage container exists --name "$CONTAINER_NAME" --account-name "$STORAGE_ACCOUNT_NAME" --auth-mode login --query exists -o tsv 2>/dev/null | grep -q true; then
+            log "Storage container '$CONTAINER_NAME' already exists - using existing one"
+        else
+            log "Creating storage container: $CONTAINER_NAME"
+            az storage container create \
+                --name "$CONTAINER_NAME" \
+                --account-name "$STORAGE_ACCOUNT_NAME" \
+                --auth-mode login
+        fi
+        
+        # Get storage account resource ID
+        STORAGE_ACCOUNT_ID=$(az storage account show --name "$STORAGE_ACCOUNT_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv)
+        
+        # Create schema registry
+        log "Creating schema registry: $SCHEMA_REGISTRY_NAME"
+        az iot ops schema registry create \
+            --name "$SCHEMA_REGISTRY_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --registry-namespace "$NAMESPACE_NAME" \
+            --sa-resource-id "$STORAGE_ACCOUNT_ID"
+        
+        # Get schema registry resource ID
+        SCHEMA_REGISTRY_RESOURCE_ID=$(az iot ops schema registry show --name "$SCHEMA_REGISTRY_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv)
+    fi    # Create namespace resource using Device Registry (required for newer AIO versions)
     log "Creating namespace resource for Azure IoT Operations using Device Registry..."
     NAMESPACE_RESOURCE_NAME="${NAMESPACE_NAME}-namespace"
     
@@ -1090,26 +1109,30 @@ EOF
         
         log "Attempting to create placeholder endpoint profile: $FALLBACK_ENDPOINT_NAME"
         
-        # Use az resource create instead of the iot ops commands
-        CREATE_NAMESPACE_RESULT=$(az resource create \
-            --resource-group "$RESOURCE_GROUP" \
-            --resource-type "Microsoft.DeviceRegistry/assetEndpointProfiles" \
-            --name "$FALLBACK_ENDPOINT_NAME" \
-            --properties '{
-                "targetAddress": "opc.tcp://placeholder:50000",
-                "transportAuthentication": {
-                    "ownCertificates": []
-                },
-                "additionalConfiguration": "{}"
-            }' \
-            --api-version "2024-09-01-preview" 2>&1 || echo "Create namespace resource failed")
-        
-        if [[ "$CREATE_NAMESPACE_RESULT" != *"failed"* ]] && [[ "$CREATE_NAMESPACE_RESULT" != *"ERROR"* ]]; then
-            log "SUCCESS: Created placeholder namespace resource"
-            log "Namespace Resource ID: $NAMESPACE_RESOURCE_ID"
+        # Check if the namespace resource already exists
+        if az resource show --resource-group "$RESOURCE_GROUP" --resource-type "Microsoft.DeviceRegistry/assetEndpointProfiles" --name "$FALLBACK_ENDPOINT_NAME" &> /dev/null; then
+            log "Placeholder namespace resource '$FALLBACK_ENDPOINT_NAME' already exists - using existing one"
         else
-            warn "Failed to create placeholder namespace resource: $CREATE_NAMESPACE_RESULT"
-            error "Cannot proceed without a valid --ns-resource-id. Azure IoT Operations requires this parameter."
+            # Use az resource create instead of the iot ops commands
+            CREATE_NAMESPACE_RESULT=$(az resource create \
+                --resource-group "$RESOURCE_GROUP" \
+                --resource-type "Microsoft.DeviceRegistry/assetEndpointProfiles" \
+                --name "$FALLBACK_ENDPOINT_NAME" \
+                --properties '{
+                    "targetAddress": "opc.tcp://placeholder:50000",
+                    "transportAuthentication": {
+                        "ownCertificates": []
+                    },
+                    "additionalConfiguration": "{}"
+                }' \
+                --api-version "2024-09-01-preview" 2>&1 || echo "Create namespace resource failed")
+            
+            if [[ "$CREATE_NAMESPACE_RESULT" != *"failed"* ]] && [[ "$CREATE_NAMESPACE_RESULT" != *"ERROR"* ]]; then
+                log "SUCCESS: Created placeholder namespace resource"
+            else
+                warn "Failed to create placeholder namespace resource: $CREATE_NAMESPACE_RESULT"
+                error "Cannot proceed without a valid --ns-resource-id. Azure IoT Operations requires this parameter."
+            fi
         fi
     fi
     
