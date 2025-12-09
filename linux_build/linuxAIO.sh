@@ -115,7 +115,7 @@ check_port_conflicts() {
         elif command -v lsof >/dev/null 2>&1; then
             lsof -i :6443 2>/dev/null
         else
-            echo "Port 6443 appears to be in use (using basic connectivity test)"
+            echo "Port 6443 appears to be in use - using basic connectivity test"
         fi
     }
     
@@ -667,7 +667,7 @@ install_k3s() {
         if [ $count -eq 0 ]; then
             log "K3s is starting up..."
         elif [ $((count % 30)) -eq 0 ]; then
-            log "Still waiting for K3s to be ready... ($count/$timeout seconds)"
+            log "Still waiting for K3s to be ready... $count/$timeout seconds"
         fi
         
         sleep 5
@@ -1324,7 +1324,7 @@ show_next_steps() {
     echo
     echo -e "${BLUE}OPC UA Bridge Details:${NC}"
     echo "   Endpoint URL: opc.tcp://opc-plc-service.azure-iot-operations.svc.cluster.local:50000"
-    echo "   Authentication: Anonymous (development setup)"
+    echo "   Authentication: Anonymous development setup"
     echo "   Factory Nodes: CNC, 3D Printer, Welding, Painting, Testing stations"
     echo
     echo -e "${BLUE}Useful Commands:${NC}"
