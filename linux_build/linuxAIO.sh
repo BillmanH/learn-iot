@@ -1114,7 +1114,7 @@ EOF
             log "Placeholder namespace resource $FALLBACK_ENDPOINT_NAME already exists - using existing one"
         else
             # Create a simple JSON properties string to avoid quote issues
-            ENDPOINT_PROPS='{"targetAddress":"opc.tcp://placeholder:50000","transportAuthentication":{"ownCertificates":[]},"additionalConfiguration":""}'
+            ENDPOINT_PROPS='{"targetAddress":"opc.tcp://placeholder:50000","transportAuthentication":{},"additionalConfiguration":""}'
             
             log "Creating placeholder namespace resource..."
             if az resource create --resource-group "$RESOURCE_GROUP" --resource-type "Microsoft.DeviceRegistry/assetEndpointProfiles" --name "$FALLBACK_ENDPOINT_NAME" --properties "$ENDPOINT_PROPS" --api-version "2024-09-01-preview" 2>/dev/null; then
