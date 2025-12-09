@@ -325,7 +325,7 @@ install_azure_cli() {
     fi
     
     # Verify minimum version (2.62.0+)
-    az_version=$(az version --query 'azure-cli' -o tsv)
+    az_version=$(az version -o json 2>/dev/null | jq -r '."azure-cli"' 2>/dev/null || echo "unknown")
     log "Azure CLI version: $az_version"
     
     # Install required Azure CLI extensions
