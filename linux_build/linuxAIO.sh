@@ -992,7 +992,9 @@ deploy_iot_operations() {
                 --kind StorageV2 \
                 --enable-hierarchical-namespace true \
                 --allow-blob-public-access false
-        fi        # Create container in storage account
+        fi
+        
+        # Create container in storage account
         CONTAINER_NAME="schemas"
         if az storage container exists --name "$CONTAINER_NAME" --account-name "$STORAGE_ACCOUNT_NAME" --auth-mode login --query exists -o tsv 2>/dev/null | grep -q true; then
             log "Storage container '$CONTAINER_NAME' already exists - using existing one"
