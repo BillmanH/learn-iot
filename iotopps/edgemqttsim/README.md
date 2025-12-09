@@ -1,6 +1,6 @@
-# 🚀 SpaceShip Factory Simulator
+# Edge MQTT Simulator
 
-A comprehensive IoT simulator for a spaceship manufacturing facility, designed to send realistic telemetry to Azure IoT Operations MQTT Broker.
+A comprehensive IoT simulator designed to send realistic telemetry to Azure IoT Operations MQTT Broker. Originally built for a spaceship manufacturing facility, but can be adapted for any industrial IoT scenario.
 
 ## Overview
 
@@ -89,10 +89,10 @@ The `message_structure.yaml` file controls all aspects of message generation:
 
 ```bash
 # Build the container
-docker build -t <YOUR_REGISTRY>/spaceshipfactorysim:latest .
+docker build -t <YOUR_REGISTRY>/edgemqttsim:latest .
 
 # Push to registry
-docker push <YOUR_REGISTRY>/spaceshipfactorysim:latest
+docker push <YOUR_REGISTRY>/edgemqttsim:latest
 ```
 
 ### Deploy to Kubernetes
@@ -190,13 +190,13 @@ This guide provides:
 
 ```bash
 # Check pod status
-kubectl get pods -l app=spaceshipfactorysim
+kubectl get pods -l app=edgemqttsim
 
 # View logs
-kubectl logs -l app=spaceshipfactorysim -f
+kubectl logs -l app=edgemqttsim -f
 
 # Check MQTT messages (if you have a subscriber)
-kubectl logs -l app=spaceshipfactorysim --tail=100
+kubectl logs -l app=edgemqttsim --tail=100
 ```
 
 ## OEE (Overall Equipment Effectiveness) Support

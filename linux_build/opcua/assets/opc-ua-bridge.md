@@ -233,7 +233,7 @@ The updated configuration includes:
 kubectl logs deployment/opc-plc-simulator -n azure-iot-operations
 
 # Test internal connectivity
-kubectl exec -it deployment/spaceshipfactorysim -n default -- nslookup opc-plc-service.azure-iot-operations.svc.cluster.local
+kubectl exec -it deployment/edgemqttsim -n default -- nslookup opc-plc-service.azure-iot-operations.svc.cluster.local
 
 # Verify asset endpoint profile status
 kubectl get assetendpointprofile spaceship-factory-opcua -n azure-iot-operations -o yaml | grep -A 10 status
