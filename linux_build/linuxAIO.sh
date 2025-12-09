@@ -1147,7 +1147,7 @@ EOF
 
 # Enable resource sync for asset discovery
 enable_asset_sync() {
-    log "Enabling edge→cloud asset sync (rsync) for discovered assets..."
+    log "Enabling edge-to-cloud asset sync (rsync) for discovered assets..."
     
     # Enable resource sync rules on Azure IoT Operations instance
     log "Enabling rsync to surface discovered assets in cloud experience..."
@@ -1155,7 +1155,7 @@ enable_asset_sync() {
     INSTANCE_NAME="${CLUSTER_NAME}-aio"
     
     if az iot ops enable-rsync --name "$INSTANCE_NAME" --resource-group "$RESOURCE_GROUP"; then
-        log "✅ Asset sync enabled successfully!"
+        log "[SUCCESS] Asset sync enabled successfully!"
         log "Discovered assets on the edge will now be surfaced in the cloud experience"
     else
         warn "Failed to enable asset sync. You may need to run this manually:"
@@ -1168,9 +1168,9 @@ enable_asset_sync() {
         if [ -n "$K8_BRIDGE_SP_OID" ]; then
             log "Found K8 Bridge service principal OID: $K8_BRIDGE_SP_OID"
             if az iot ops enable-rsync --name "$INSTANCE_NAME" --resource-group "$RESOURCE_GROUP" --k8-bridge-sp-oid "$K8_BRIDGE_SP_OID"; then
-                log "✅ Asset sync enabled successfully with explicit OID!"
+                log "[SUCCESS] Asset sync enabled successfully with explicit OID!"
             else
-                warn "❌ Failed to enable asset sync even with explicit OID"
+                warn "[FAILED] Failed to enable asset sync even with explicit OID"
                 warn "Manual intervention may be required"
             fi
         else
@@ -1291,7 +1291,7 @@ show_next_steps() {
     echo "   - Configure data flows for factory data processing"
     echo
     echo "3. Asset Discovery and Sync:"
-    echo "   - Edge→cloud asset sync is enabled for discovered assets"
+    echo "   - Edge-to-cloud asset sync is enabled for discovered assets"
     echo "   - Discovered OPC UA assets will appear in the cloud experience"
     echo "   - Assets will show 'Discovered' status in the Azure portal"
     echo
