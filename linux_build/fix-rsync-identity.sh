@@ -41,22 +41,43 @@ az iot ops show --name "$INSTANCE_NAME" --resource-group "$RESOURCE_GROUP" --que
 echo ""
 IDENTITY_TYPE=$(az iot ops show --name "$INSTANCE_NAME" --resource-group "$RESOURCE_GROUP" --query "identity.type" -o tsv)
 
-if [ "$IDENTITY_TYPE" = "None" ]; then
+if [ "$IDENTITY_TYPE" = "None" ] || [ -z "$IDENTITY_TYPE" ]; then
     echo "❌ Identity still not configured"
     echo ""
-    echo "The issue may be that your IoT Operations instance was created without --enable-rsync"
-    echo "You may need to recreate the instance with the flag enabled, or manually configure:"
+    echo "⚠️  CRITICAL: The instance needs to be deleted and recreated with --enable-rsync"
     echo ""
-    echo "Option 1: Update the instance (may not be supported)"
-    echo "  az resource update --ids <instance-resource-id> --set identity.type=SystemAssigned"
+    echo "Steps to fix:"
+    echo "1. Delete the current instance:"
+    echo "   az iot ops delete --name $INSTANCE_NAME --resource-group $RESOURCE_GROUP"
     echo ""
-    echo "Option 2: Redeploy with rsync enabled"
-    echo "  Add --enable-rsync to the 'az iot ops create' command in linuxAIO.sh"
-    echo "  Then re-run the deployment"
+    echo "2. Re-run the installation script:"
+    echo "   bash linuxAIO.sh"
+    echo ""
+    echo "The updated linuxAIO.sh now includes --enable-rsync and will:"
+    echo "  • Create a system-assigned managed identity"
+    echo "  • Deploy the orchestrator operator pods"
+    echo "  • Enable automatic asset syncing to Azure"
+    echo ""
+    echo "Note: Your existing K3s cluster and Azure resources will remain intact."
+    echo "Only the IoT Operations instance will be recreated."
 else
     echo "✅ Identity configured: $IDENTITY_TYPE"
     echo ""
-    echo "Wait 2-3 minutes for orchestrator to deploy, then check:"
-    echo "  kubectl get pods -n azure-iot-operations | grep orc"
+    echo "Checking if orchestrator pods are deploying..."
+    sleep 10
+    
+    ORCH_PODS=$(kubectl get pods -n azure-iot-operations 2>/dev/null | grep -c "orc\|deviceregistry" || echo "0")
+    
+    if [ "$ORCH_PODS" -gt "0" ]; then
+        echo "✅ Orchestrator pods found: $ORCH_PODS"
+        kubectl get pods -n azure-iot-operations | grep -E "orc|deviceregistry"
+    else
+        echo "⚠️  No orchestrator pods found yet"
+        echo "Wait a few minutes for pods to deploy, then check:"
+        echo "  kubectl get pods -n azure-iot-operations | grep orc"
+    fi
+    
+    echo ""
+    echo "After orchestrator pods are running, verify assets sync:"
     echo "  az iot ops asset query --instance $INSTANCE_NAME -g $RESOURCE_GROUP"
 fi

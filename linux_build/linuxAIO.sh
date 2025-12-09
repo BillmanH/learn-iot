@@ -1116,28 +1116,28 @@ EOF
     # Since --ns-resource-id is REQUIRED, ensure we have a valid one
     if [ "$NAMESPACE_RESOURCE_ID" = "skip" ] || [ -z "$NAMESPACE_RESOURCE_ID" ]; then
         warn "--ns-resource-id is required but we do not have a valid namespace resource"
-        log "Creating a simple placeholder namespace resource as workaround..."
+        log "Checking for existing asset endpoint profiles to use as namespace resource..."
         
-        # Create a minimal asset endpoint profile using Azure CLI commands that work
-        FALLBACK_ENDPOINT_NAME="aio-namespace-${NAMESPACE_NAME}"
-        NAMESPACE_RESOURCE_ID="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.DeviceRegistry/assetEndpointProfiles/$FALLBACK_ENDPOINT_NAME"
+        # Try to find any existing asset endpoint profile in the resource group
+        EXISTING_ENDPOINT=$(az resource list \
+            --resource-group "$RESOURCE_GROUP" \
+            --resource-type "Microsoft.DeviceRegistry/assetEndpointProfiles" \
+            --query "[0].id" -o tsv 2>/dev/null || echo "")
         
-        log "Attempting to create placeholder endpoint profile: $FALLBACK_ENDPOINT_NAME"
-        
-        # Check if the namespace resource already exists
-        if az resource show --resource-group "$RESOURCE_GROUP" --resource-type "Microsoft.DeviceRegistry/assetEndpointProfiles" --name "$FALLBACK_ENDPOINT_NAME" &> /dev/null; then
-            log "Placeholder namespace resource $FALLBACK_ENDPOINT_NAME already exists - using existing one"
+        if [ -n "$EXISTING_ENDPOINT" ] && [[ "$EXISTING_ENDPOINT" != *"ERROR"* ]]; then
+            NAMESPACE_RESOURCE_ID="$EXISTING_ENDPOINT"
+            log "SUCCESS: Found existing asset endpoint profile to use as namespace resource"
+            log "Namespace Resource ID: $NAMESPACE_RESOURCE_ID"
         else
-            # Create a simple JSON properties string to avoid quote issues
-            ENDPOINT_PROPS='{"targetAddress":"opc.tcp://placeholder:50000","transportAuthentication":{},"additionalConfiguration":""}'
-            
-            log "Creating placeholder namespace resource..."
-            if az resource create --resource-group "$RESOURCE_GROUP" --resource-type "Microsoft.DeviceRegistry/assetEndpointProfiles" --name "$FALLBACK_ENDPOINT_NAME" --properties "$ENDPOINT_PROPS" --api-version "2024-09-01-preview" 2>/dev/null; then
-                log "SUCCESS: Created placeholder namespace resource"
-            else
-                warn "Failed to create placeholder namespace resource"
-                error "Cannot proceed without a valid --ns-resource-id. Azure IoT Operations requires this parameter."
-            fi
+            error "Cannot proceed without a valid --ns-resource-id. No existing asset endpoint profiles found."
+            error "Please create an asset endpoint profile first or specify a namespace resource ID."
+            error ""
+            error "To create manually:"
+            error "1. Create an asset endpoint profile in Kubernetes:"
+            error "   kubectl apply -f opcua/assets/asset-endpoint-profile.yaml"
+            error "2. Wait for it to sync to Azure (requires rsync to be enabled)"
+            error "3. Re-run this script"
+            exit 1
         fi
     fi
     
