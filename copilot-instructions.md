@@ -7,13 +7,26 @@ This repository is focused on learning and implementing Azure IoT Operations (AI
 
 ### Core Directories
 - **`iotopps/`** - IoT Operations applications (containerized apps for edge deployment)
-- **`linux_build/`** - Azure IoT Operations setup scripts and K3s cluster configuration
+  - `edgemqttsim/` - Industrial IoT simulator with configurable message generation
+  - `sputnik/` - Simple MQTT test publisher
+  - `hello-flask/` - REST API example
+  - `wasm-quality-filter-python/` - WebAssembly quality control module
+- **`linux_build/`** - Azure IoT Operations automated installation system
+  - `linuxAIO.sh` - Main installation script with comprehensive error handling
+  - `linux_aio_config.json` - Configuration file for customized deployments
+  - Diagnostic scripts for K3s troubleshooting (`k3s_troubleshoot.sh`, `diagnose-orchestrator.sh`)
+  - Network and port configuration utilities
 - **`operations/`** - Azure operations and integration configurations
-- **`devices/` & `certs/`** - Device management and certificate handling
+- **`certs/`** - Certificate handling (base64 encoded)
 
 ### Key Applications
 - **Sputnik** - MQTT publisher sending periodic "beep" messages for testing
-- **Spaceship Factory Simulator** - Complex IoT simulation generating factory telemetry
+- **Edge MQTT Simulator (edgemqttsim)** - Comprehensive industrial IoT simulator with modular message generation
+  - Simulates factory equipment (CNC, 3D printers, welding, painting, testing rigs)
+  - Configurable via YAML (`message_structure.yaml`) for message types, frequencies, and distributions
+  - Supports business events (customer orders, dispatch notifications)
+  - Intelligent topic routing and queue management
+  - Built-in statistics tracking
 - **Hello-Flask** - Simple REST API demonstrating containerized deployment
 - **WASM Quality Filter** - WebAssembly module for real-time quality control filtering
 
@@ -47,8 +60,11 @@ This repository is focused on learning and implementing Azure IoT Operations (AI
 
 ### MQTT Message Structure
 - JSON format with consistent schema
-- Include: `timestamp`, `machine_id`/`station_id`, `status`, telemetry data
-- Support for quality metrics (good/scrap/rework) and OEE calculations
+- Required fields: `timestamp` (ISO 8601), `machine_id`, `station_id`, `status`
+- Equipment-specific fields: `part_type`, `part_id`, `cycle_time`, `assembly_type`, `progress`
+- Quality metrics: `good`, `scrap`, or `null` (for in-progress operations)
+- Support for OEE calculations (Availability, Performance, Quality)
+- Business event messages: order placement, dispatch/fulfillment
 
 ## Coding Guidelines
 
@@ -72,6 +88,26 @@ This repository is focused on learning and implementing Azure IoT Operations (AI
 
 ## Common Operations
 
+### Azure IoT Operations Installation (Linux)
+```bash
+# Configure installation (optional but recommended)
+cd linux_build
+cp linux_aio_config.template.json linux_aio_config.json
+# Edit linux_aio_config.json with your Azure settings
+
+# Run automated installation
+chmod +x linuxAIO.sh
+./linuxAIO.sh
+
+# The script handles:
+# - System prerequisites and updates
+# - K3s cluster installation and configuration
+# - Azure CLI and IoT Operations CLI setup
+# - Azure Arc connection
+# - Azure IoT Operations deployment
+# - Post-deployment verification
+```
+
 ### Local Development
 ```bash
 # Setup Python environment
@@ -79,15 +115,19 @@ uv sync
 
 # Run application locally
 .\Deploy-Local.ps1 -AppFolder "app-name" -Mode python
+
+# For simulator: configure message generation
+cd iotopps/edgemqttsim
+# Edit message_structure.yaml to adjust message types and frequencies
 ```
 
 ### Edge Deployment
 ```powershell
 # Deploy to remote IoT Operations cluster
-.\Deploy-ToIoTEdge.ps1 -AppFolder "app-name" -RegistryName "username"
+.\Deploy-ToIoTEdge.ps1 -AppFolder "edgemqttsim" -RegistryName "username"
 
 # Check deployment status
-.\Deploy-Check.ps1 -AppFolder "app-name"
+.\Deploy-Check.ps1 -AppFolder "edgemqttsim"
 ```
 
 ### MQTT Testing
@@ -107,11 +147,16 @@ kubectl get pods -l app=sputnik
 - Data flow processing and transformation
 - Integration with Azure cloud services
 
-### Industrial IoT Simulation
-- Factory equipment telemetry (CNC, welding, painting)
-- Quality control and OEE metrics
-- Real-time data processing with WASM modules
-- Integration with Microsoft Fabric for analytics
+### Industrial IoT Simulation (Edge MQTT Simulator)
+- **Modular Architecture**: Separate `app.py` (MQTT client) and `messages.py` (message generation)
+- **YAML Configuration**: All message types, frequencies, and parameters in `message_structure.yaml`
+- **Equipment Types**: CNC machines, 3D printers, welding stations, painting booths, testing rigs
+- **Business Events**: Customer orders and dispatch notifications
+- **Topic Routing**: Intelligent routing to type-specific topics (e.g., `factory/cnc`, `factory/welding`)
+- **State Management**: Realistic machine state tracking across cycles
+- **Quality & OEE**: Configurable quality distributions supporting OEE calculations
+- **Real-time Processing**: WASM modules for quality filtering
+- **Analytics Integration**: Microsoft Fabric for visualization and insights
 
 ### Edge Computing Workflow
 1. Devices/simulators → MQTT broker (edge)
@@ -127,14 +172,18 @@ kubectl get pods -l app=sputnik
 - ServiceAccountToken preferred over X.509 for simplicity
 
 ### Troubleshooting Resources
-- K3s troubleshooting guide with diagnostic scripts
-- IoT-specific troubleshooting documentation
-- Network and port configuration helpers
+- **K3s Diagnostics**: `k3s_troubleshoot.sh`, `k3s_advanced_diagnostics.sh`, `diagnose-orchestrator.sh`
+- **Network Tools**: `test_network.sh`, `fix_k3s_ports.sh`, `fix_port_6443.sh`
+- **Resource Discovery**: `find-namespace-resource.sh`, `check_discovery.sh`
+- **IoT-Specific**: `IOT_TROUBLESHOOTING.md` in edgemqttsim, `fix-mqtt-connection.sh`
+- **Installation Logs**: Detailed logging in `linuxAIO_*.log` files
 
 ### Quality Assurance
-- WASM-based real-time quality filtering
-- Factory simulation with configurable defect rates
-- Quality metrics integration with telemetry data
+- **WASM Filtering**: Real-time quality control filtering at the edge
+- **Configurable Quality**: Defect rates and quality distributions in `message_structure.yaml`
+- **Quality Metrics**: Good/scrap tracking with part and assembly IDs
+- **OEE Support**: Messages structured to calculate Availability, Performance, and Quality metrics
+- **State Tracking**: Machine state management for accurate availability calculations
 
 ## Avoid These Patterns
 - Don't use plain MQTT without authentication
