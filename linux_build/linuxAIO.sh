@@ -294,7 +294,7 @@ load_config() {
 # Update system packages
 update_system() {
     if [ "$SKIP_SYSTEM_UPDATE" = "true" ]; then
-        log "Skipping system update (skip_system_update=true in config)"
+        log "Skipping system update - skip_system_update=true in config"
         # Still install essential packages
         sudo apt install -y curl wget gnupg lsb-release ca-certificates software-properties-common apt-transport-https jq
     else
@@ -393,7 +393,7 @@ check_kubelite_conflicts() {
     # Check for kubelite process
     if pgrep -f kubelite >/dev/null 2>&1; then
         warn "Found kubelite process running (likely MicroK8s or similar)"
-        log "kubelite often conflicts with K3s by using the same ports (6443, 10257)"
+        log "kubelite often conflicts with K3s by using the same ports 6443, 10257"
         
         # Check if it is MicroK8s
         if command -v microk8s >/dev/null 2>&1; then
@@ -501,7 +501,7 @@ cleanup_k3s() {
         
         # Check if K3s is running (but not healthy from above check)
         if sudo systemctl is-active --quiet k3s 2>/dev/null; then
-            log "K3s service is currently running (but not healthy)"
+            log "K3s service is currently running but not healthy"
             read -p "Do you want to stop and clean up the existing K3s installation? (y/N): " cleanup
             if [[ "$cleanup" =~ ^[Yy]$ ]]; then
                 log "Stopping K3s service..."
@@ -641,7 +641,7 @@ install_k3s() {
         fi
         
         # Download and install with timeout and better error handling
-        log "Downloading K3s installer (this may take a few minutes)..."
+        log "Downloading K3s installer - this may take a few minutes..."
         if ! timeout 300 curl -sfL https://get.k3s.io | sh -s - --disable=traefik --write-kubeconfig-mode 644; then
             error "K3s installation failed. This could be due to network issues, insufficient resources, or firewall blocking. Check: sudo journalctl -u k3s"
         fi
@@ -932,7 +932,7 @@ create_namespace() {
     fi
     
     log "Namespace $NAMESPACE_NAME will be created automatically during Azure IoT Operations deployment"
-    log "Note: Explicit namespace creation requires preview CLI version (1.2.36+)"
+    log "Note: Explicit namespace creation requires preview CLI version 1.2.36+"
 }
 
 # Deploy Azure IoT Operations
@@ -1160,7 +1160,7 @@ JSONEOF
 
 # Enable resource sync for asset discovery
 enable_asset_sync() {
-    log "Enabling edge-to-cloud asset sync (rsync) for discovered assets..."
+    log "Enabling edge-to-cloud asset sync for discovered assets..."
     
     # Enable resource sync rules on Azure IoT Operations instance
     log "Enabling rsync to surface discovered assets in cloud experience..."
@@ -1258,7 +1258,7 @@ deploy_opc_ua_bridge() {
     log "OPC UA Endpoint Details:"
     log "- Internal URL: opc.tcp://opc-plc-service.azure-iot-operations.svc.cluster.local:50000"
     log "- Namespace: azure-iot-operations"
-    log "- Authentication: Anonymous (development setup)"
+    log "- Authentication: Anonymous development setup"
     echo
     log "Next Steps for OPC UA Bridge:"
     log "1. Access Azure IoT Operations Portal"
