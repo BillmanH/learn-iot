@@ -1116,22 +1116,14 @@ EOF
             # Use az resource create instead of the iot ops commands
             log "Creating placeholder namespace resource..."
             
-            # Create a simple JSON file for the properties to avoid quote issues
-            cat > /tmp/endpoint_properties.json << 'JSONEOF'
-{
-  "targetAddress": "opc.tcp://placeholder:50000",
-  "transportAuthentication": {
-    "ownCertificates": []
-  },
-  "additionalConfiguration": ""
-}
-JSONEOF
+            # Create a simple JSON properties string to avoid quote issues
+            ENDPOINT_PROPS='{"targetAddress":"opc.tcp://placeholder:50000","transportAuthentication":{"ownCertificates":[]},"additionalConfiguration":""}'
             
             if az resource create \
                 --resource-group "$RESOURCE_GROUP" \
                 --resource-type "Microsoft.DeviceRegistry/assetEndpointProfiles" \
                 --name "$FALLBACK_ENDPOINT_NAME" \
-                --properties "@/tmp/endpoint_properties.json" \
+                --properties "$ENDPOINT_PROPS" \
                 --api-version "2024-09-01-preview" 2>/dev/null; then
                 log "SUCCESS: Created placeholder namespace resource"
                 rm -f /tmp/endpoint_properties.json
