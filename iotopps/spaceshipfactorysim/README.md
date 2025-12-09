@@ -106,9 +106,79 @@ kubectl apply -f deployment.yaml
 
 ### Register Assets in Azure IoT Operations
 
-After deployment, register the factory assets in Azure IoT Operations for monitoring and management:
+After deployment, register the factory assets in Azure IoT Operations for monitoring and management.
 
-**📋 See the comprehensive guide: [AZURE_ASSET_REGISTRATION.md](./AZURE_ASSET_REGISTRATION.md)**
+#### 🔑 Important: MQTT Assets are NOT Auto-Discovered
+
+Unlike OPC UA assets, **MQTT-based assets do NOT appear in the "Discovery" window** in the Azure portal. The Discovery feature is exclusively for OPC UA auto-discovery. For MQTT assets, you must create them manually using one of these methods:
+
+##### Option 1: Deploy Using Kubernetes Manifests (Recommended)
+
+Use the provided asset manifest examples:
+
+```bash
+# Deploy MQTT asset endpoint profile
+kubectl apply -f mqtt-asset-endpoint.yaml
+
+# Deploy example asset definition
+kubectl apply -f mqtt-asset-example.yaml
+
+# Or use the deployment script
+bash deploy-mqtt-assets.sh
+```
+
+The manifests include:
+- **mqtt-asset-endpoint.yaml** - Defines the MQTT broker endpoint configuration
+- **mqtt-asset-example.yaml** - Example asset with data points (customize for your needs)
+- **deploy-mqtt-assets.sh** - Automated deployment script
+
+After deployment:
+1. Wait 2-3 minutes for `enable-rsync` to sync resources to Azure
+2. Check Azure Portal → IoT Operations Instance → **Assets** (not Discovery)
+3. Your assets will appear in the Assets list
+
+##### Option 2: Create Assets via Azure Portal
+
+1. Navigate to your IoT Operations instance
+2. Go to **Assets** → **Create asset**
+3. Configure:
+   - Asset endpoint: Select or create MQTT endpoint
+   - Asset properties: Name, description, manufacturer
+   - Data points: Map to MQTT topics your simulator publishes to
+
+##### Option 3: Create Assets via Azure CLI
+
+```bash
+# Create asset endpoint profile
+az iot ops asset endpoint create \
+  --name spaceship-factory-mqtt \
+  --resource-group <resource-group> \
+  --cluster <cluster-name> \
+  --target-address "mqtt://aio-broker.azure-iot-operations.svc.cluster.local:18883"
+
+# Create asset
+az iot ops asset create \
+  --name spaceship-assembly-line-1 \
+  --resource-group <resource-group> \
+  --cluster <cluster-name> \
+  --endpoint spaceship-factory-mqtt \
+  --data-points temperature,pressure,status
+```
+
+#### Customizing Asset Definitions
+
+Edit `mqtt-asset-example.yaml` to match your actual:
+- MQTT topics from the simulator
+- Data point names and schemas
+- Asset properties (manufacturer, model, serial number)
+
+The example includes common data points:
+- `temperature` - Temperature readings
+- `pressure` - Pressure measurements  
+- `production_count` - Production counters
+- `status` - Machine status
+
+**📋 See the comprehensive guide: [AZURE_ASSET_REGISTRATION.md](./AZURE_ASSET_REGISTRATION.md)** (if available)
 
 This guide provides:
 - Complete asset definitions for all factory equipment
