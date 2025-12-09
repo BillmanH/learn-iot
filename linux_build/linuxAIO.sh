@@ -310,7 +310,7 @@ install_azure_cli() {
     
     if command -v az &> /dev/null && [ "$FORCE_REINSTALL" != "true" ]; then
         log "Azure CLI already installed. Checking version..."
-        current_version=$(az version --query 'azure-cli' -o tsv)
+        current_version=$(az version -o json 2>/dev/null | jq -r '."azure-cli"' 2>/dev/null || echo "unknown")
         log "Current Azure CLI version: $current_version"
         
         # Update Azure CLI
