@@ -1032,114 +1032,20 @@ deploy_iot_operations() {
         
         # Get schema registry resource ID
         SCHEMA_REGISTRY_RESOURCE_ID=$(az iot ops schema registry show --name "$SCHEMA_REGISTRY_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv)
-    fi    # Create namespace resource using Device Registry (required for newer AIO versions)
-    log "Creating namespace resource for Azure IoT Operations using Device Registry..."
-    NAMESPACE_RESOURCE_NAME="${NAMESPACE_NAME}-namespace"
+    fi    
     
-    log "DEBUG: Namespace name: $NAMESPACE_NAME"
-    log "DEBUG: Namespace resource name: $NAMESPACE_RESOURCE_NAME"
-    log "DEBUG: Resource group: $RESOURCE_GROUP"
-    log "DEBUG: Cluster name: $CLUSTER_NAME"
+    # Use the namespace from config to construct the namespace resource ID
+    log "Constructing namespace resource ID from configuration..."
+    NAMESPACE_RESOURCE_NAME="${NAMESPACE_NAME}"
+    NAMESPACE_RESOURCE_ID="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.DeviceRegistry/namespaces/$NAMESPACE_RESOURCE_NAME"
     
-    # Since asset endpoint commands do not exist in current CLI version, create a Device Registry namespace directly
-    log "Creating Device Registry namespace resource as workaround for missing asset endpoint commands..."
-    
-    # Try creating a Device Registry namespace directly
-    log "Attempting to create namespace using Device Registry API..."
-    
-    # Create a namespace resource for Azure IoT Operations using Azure REST API
-    NAMESPACE_RESOURCE_ID="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.DeviceRegistry/assetEndpointProfiles/$NAMESPACE_RESOURCE_NAME"
-    
-    log "Using constructed namespace resource ID: $NAMESPACE_RESOURCE_ID"
-    
-    # Create a minimal asset endpoint profile using Azure CLI generic commands
-    log "Creating minimal asset endpoint profile for namespace..."
-    
-    # Create the namespace resource using az rest command (more reliable than extension commands)
-    NAMESPACE_JSON=$(cat << EOF
-{
-  "location": "$LOCATION",
-  "properties": {
-    "targetAddress": "opc.tcp://namespace-placeholder:50000",
-    "transportAuthentication": {
-      "ownCertificates": []
-    },
-    "additionalConfiguration": "{}"
-  }
-}
-EOF
-)
-
-    # Use az rest to create the asset endpoint profile
-    log "Creating namespace resource using REST API..."
-    CREATE_RESULT=$(az rest \
-        --method PUT \
-        --url "https://management.azure.com$NAMESPACE_RESOURCE_ID?api-version=2024-09-01-preview" \
-        --body "$NAMESPACE_JSON" \
-        --headers "Content-Type=application/json" 2>&1 || echo "REST API creation failed")
-    
-    if [[ "$CREATE_RESULT" != *"failed"* ]] && [[ "$CREATE_RESULT" != *"ERROR"* ]]; then
-        log "SUCCESS: Created namespace resource using REST API"
-        log "Namespace Resource ID: $NAMESPACE_RESOURCE_ID"
-    else
-        warn "Failed to create namespace using REST API. Output: $CREATE_RESULT"
-        
-        # Fallback: Try to find any existing Device Registry resources that could work
-        log "Attempting fallback: looking for existing Device Registry resources..."
-        
-        EXISTING_REGISTRY_RESOURCES=$(az resource list \
-            --resource-group "$RESOURCE_GROUP" \
-            --resource-type "Microsoft.DeviceRegistry/assetEndpointProfiles" \
-            --query "[0].id" -o tsv 2>/dev/null || echo "")
-        
-        if [ -n "$EXISTING_REGISTRY_RESOURCES" ] && [[ "$EXISTING_REGISTRY_RESOURCES" != *"ERROR"* ]]; then
-            NAMESPACE_RESOURCE_ID="$EXISTING_REGISTRY_RESOURCES"
-            log "SUCCESS: Found existing Device Registry resource to use: $NAMESPACE_RESOURCE_ID"
-        else
-            warn "Could not create or find any suitable namespace resource"
-            log "Will attempt deployment without namespace resource ID"
-            NAMESPACE_RESOURCE_ID="skip"
-        fi
-    fi
-    
-    if [ "$NAMESPACE_RESOURCE_ID" = "skip" ]; then
-        log "DEPLOYMENT APPROACH: Will deploy Azure IoT Operations WITHOUT --ns-resource-id parameter"
-    else
-        log "FINAL RESULT: Using namespace resource ID: $NAMESPACE_RESOURCE_ID"
-    fi
+    log "Using namespace resource ID: $NAMESPACE_RESOURCE_ID"
+    log "Note: This namespace will be created automatically during Azure IoT Operations deployment"
     
     # Deploy Azure IoT Operations with schema registry and namespace
     log "Deploying Azure IoT Operations - this may take several minutes..."
     log "Note: Using schema registry: $SCHEMA_REGISTRY_NAME"
     log "Note: Schema Registry ID: $SCHEMA_REGISTRY_RESOURCE_ID"
-    
-    # Since --ns-resource-id is REQUIRED, ensure we have a valid one
-    if [ "$NAMESPACE_RESOURCE_ID" = "skip" ] || [ -z "$NAMESPACE_RESOURCE_ID" ]; then
-        warn "--ns-resource-id is required but we do not have a valid namespace resource"
-        log "Checking for existing asset endpoint profiles to use as namespace resource..."
-        
-        # Try to find any existing asset endpoint profile in the resource group
-        EXISTING_ENDPOINT=$(az resource list \
-            --resource-group "$RESOURCE_GROUP" \
-            --resource-type "Microsoft.DeviceRegistry/assetEndpointProfiles" \
-            --query "[0].id" -o tsv 2>/dev/null || echo "")
-        
-        if [ -n "$EXISTING_ENDPOINT" ] && [[ "$EXISTING_ENDPOINT" != *"ERROR"* ]]; then
-            NAMESPACE_RESOURCE_ID="$EXISTING_ENDPOINT"
-            log "SUCCESS: Found existing asset endpoint profile to use as namespace resource"
-            log "Namespace Resource ID: $NAMESPACE_RESOURCE_ID"
-        else
-            error "Cannot proceed without a valid --ns-resource-id. No existing asset endpoint profiles found."
-            error "Please create an asset endpoint profile first or specify a namespace resource ID."
-            error ""
-            error "To create manually:"
-            error "1. Create an asset endpoint profile in Kubernetes:"
-            error "   kubectl apply -f opcua/assets/asset-endpoint-profile.yaml"
-            error "2. Wait for it to sync to Azure (requires rsync to be enabled)"
-            error "3. Re-run this script"
-            exit 1
-        fi
-    fi
     
     log "FINAL Namespace Resource ID: $NAMESPACE_RESOURCE_ID"
     log "EXECUTING: az iot ops create --cluster $CLUSTER_NAME --resource-group $RESOURCE_GROUP --name ${CLUSTER_NAME}-aio --sr-resource-id $SCHEMA_REGISTRY_RESOURCE_ID --ns-resource-id $NAMESPACE_RESOURCE_ID --enable-rsync"

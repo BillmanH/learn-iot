@@ -38,21 +38,24 @@ else
     echo ""
     echo "Creating a new one in Kubernetes first..."
     
-    cat > /tmp/temp-namespace-endpoint.yaml << 'EOF'
+    NAMESPACE_NAME=$(jq -r '.azure.namespace_name' "$CONFIG_FILE")
+    PLACEHOLDER_NAME="aio-namespace-${NAMESPACE_NAME}"
+    
+    cat > /tmp/temp-namespace-endpoint.yaml << EOF
 apiVersion: deviceregistry.microsoft.com/v1
 kind: AssetEndpointProfile
 metadata:
-  name: aio-namespace-placeholder
+  name: ${PLACEHOLDER_NAME}
   namespace: azure-iot-operations
 spec:
-  uuid: aio-namespace-placeholder
+  uuid: ${PLACEHOLDER_NAME}
   targetAddress: "opc.tcp://placeholder:50000"
   endpointProfileType: Microsoft.AssetEndpointProfile/opcua/1.0.0
   authentication:
     method: Anonymous
   additionalConfiguration: |
     {
-      "applicationName": "Namespace Placeholder"
+      "applicationName": "Namespace Placeholder for ${NAMESPACE_NAME}"
     }
 EOF
     
@@ -65,7 +68,7 @@ EOF
     
     echo ""
     echo "Checking if it appeared in Azure..."
-    NAMESPACE_RESOURCE_ID="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.DeviceRegistry/assetEndpointProfiles/aio-namespace-placeholder"
+    NAMESPACE_RESOURCE_ID="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.DeviceRegistry/assetEndpointProfiles/${PLACEHOLDER_NAME}"
     
     if az resource show --ids "$NAMESPACE_RESOURCE_ID" &>/dev/null; then
         echo "✅ Resource synced to Azure successfully!"
