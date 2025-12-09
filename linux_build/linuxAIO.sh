@@ -828,9 +828,9 @@ create_azure_resources() {
     # Create resource group if it doesn't exist
     if ! az group show --name "$RESOURCE_GROUP" &> /dev/null; then
         az group create --location "$LOCATION" --resource-group "$RESOURCE_GROUP"
-        log "Resource group '$RESOURCE_GROUP' created"
+        log "Resource group $RESOURCE_GROUP created"
     else
-        log "Resource group '$RESOURCE_GROUP' already exists"
+        log "Resource group $RESOURCE_GROUP already exists"
     fi
 }
 
@@ -840,7 +840,7 @@ arc_enable_cluster() {
     
     # Check if cluster is already Arc-enabled
     if az connectedk8s show --name "$CLUSTER_NAME" --resource-group "$RESOURCE_GROUP" &> /dev/null; then
-        log "Cluster '$CLUSTER_NAME' is already Arc-enabled"
+        log "Cluster $CLUSTER_NAME is already Arc-enabled"
     else
         # Connect cluster to Azure Arc
         az connectedk8s connect --name "$CLUSTER_NAME" --resource-group "$RESOURCE_GROUP"
@@ -931,7 +931,7 @@ create_namespace() {
         export NAMESPACE_NAME
     fi
     
-    log "Namespace '$NAMESPACE_NAME' will be created automatically during Azure IoT Operations deployment"
+    log "Namespace $NAMESPACE_NAME will be created automatically during Azure IoT Operations deployment"
     log "Note: Explicit namespace creation requires preview CLI version (1.2.36+)"
 }
 
@@ -942,7 +942,7 @@ deploy_iot_operations() {
     # Check if Azure IoT Operations instance already exists
     INSTANCE_NAME="${CLUSTER_NAME}-aio"
     if az iot ops show --name "$INSTANCE_NAME" --resource-group "$RESOURCE_GROUP" &> /dev/null; then
-        log "Azure IoT Operations instance '$INSTANCE_NAME' already exists - skipping deployment"
+        log "Azure IoT Operations instance $INSTANCE_NAME already exists - skipping deployment"
         log "To force reinstall, delete the existing instance first:"
         log "az iot ops delete --name $INSTANCE_NAME --resource-group $RESOURCE_GROUP"
         return 0
@@ -976,12 +976,12 @@ deploy_iot_operations() {
     
     # Check if schema registry already exists
     if az iot ops schema registry show --name "$SCHEMA_REGISTRY_NAME" --resource-group "$RESOURCE_GROUP" &> /dev/null; then
-        log "Schema registry '$SCHEMA_REGISTRY_NAME' already exists - using existing one"
+        log "Schema registry $SCHEMA_REGISTRY_NAME already exists - using existing one"
         SCHEMA_REGISTRY_RESOURCE_ID=$(az iot ops schema registry show --name "$SCHEMA_REGISTRY_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv)
     else
         # Create storage account for schema registry
         log "Creating storage account: $STORAGE_ACCOUNT_NAME"NT_NAME" --resource-group "$RESOURCE_GROUP" &> /dev/null; then
-            log "Storage account '$STORAGE_ACCOUNT_NAME' already exists - using existing one"
+            log "Storage account $STORAGE_ACCOUNT_NAME already exists - using existing one"
         else
             log "Creating storage account: $STORAGE_ACCOUNT_NAME"
             az storage account create \
@@ -995,7 +995,7 @@ deploy_iot_operations() {
         fi        # Create container in storage account
         CONTAINER_NAME="schemas"
         if az storage container exists --name "$CONTAINER_NAME" --account-name "$STORAGE_ACCOUNT_NAME" --auth-mode login --query exists -o tsv 2>/dev/null | grep -q true; then
-            log "Storage container '$CONTAINER_NAME' already exists - using existing one"
+            log "Storage container $CONTAINER_NAME already exists - using existing one"
         else
             log "Creating storage container: $CONTAINER_NAME"
             az storage container create \
@@ -1095,7 +1095,7 @@ EOF
     
     # Deploy Azure IoT Operations with schema registry and namespace
     log "Deploying Azure IoT Operations - this may take several minutes..."
-    log "Note: Using schema registry '$SCHEMA_REGISTRY_NAME'"
+    log "Note: Using schema registry: $SCHEMA_REGISTRY_NAME"
     log "Note: Schema Registry ID: $SCHEMA_REGISTRY_RESOURCE_ID"
     
     # Since --ns-resource-id is REQUIRED, ensure we have a valid one
@@ -1111,7 +1111,7 @@ EOF
         
         # Check if the namespace resource already exists
         if az resource show --resource-group "$RESOURCE_GROUP" --resource-type "Microsoft.DeviceRegistry/assetEndpointProfiles" --name "$FALLBACK_ENDPOINT_NAME" &> /dev/null; then
-            log "Placeholder namespace resource '$FALLBACK_ENDPOINT_NAME' already exists - using existing one"
+            log "Placeholder namespace resource $FALLBACK_ENDPOINT_NAME already exists - using existing one"
         else
             # Use az resource create instead of the iot ops commands
             log "Creating placeholder namespace resource..."
@@ -1187,7 +1187,7 @@ deploy_opc_ua_bridge() {
     # Check if OPC UA bridge deployment is enabled
     if [ "$DEPLOY_OPC_UA_BRIDGE" = "false" ]; then
         log "OPC UA Bridge deployment disabled in configuration"
-        log "To enable: set 'deploy_opc_ua_bridge: true' in linux_aio_config.json"
+        log "To enable: set deploy_opc_ua_bridge: true in linux_aio_config.json"
         return 0
     fi
     
@@ -1249,7 +1249,7 @@ deploy_opc_ua_bridge() {
     echo
     log "Next Steps for OPC UA Bridge:"
     log "1. Access Azure IoT Operations Portal"
-    log "2. Navigate to 'Asset endpoints' and verify 'spaceship-factory-opcua' appears"
+    log "2. Navigate to Asset endpoints and verify spaceship-factory-opcua appears"
     log "3. Create assets using the portal with the OPC UA endpoint"
     log "4. Configure data flows and dashboards"
     echo
@@ -1285,8 +1285,8 @@ show_next_steps() {
     echo "   https://portal.azure.com/#blade/HubsExtension/BrowseResource/resourceType/Microsoft.IoTOperations%2Finstances"
     echo
     echo "2. Access OPC UA Bridge for factory integration:"
-    echo "   - Navigate to 'Asset endpoints' in the portal"
-    echo "   - Verify 'spaceship-factory-opcua' endpoint is available"
+    echo "   - Navigate to Asset endpoints in the portal"
+    echo "   - Verify spaceship-factory-opcua endpoint is available"
     echo "   - Create assets using the OPC UA endpoint"
     echo "   - Configure data flows for factory data processing"
     echo
