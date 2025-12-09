@@ -980,7 +980,8 @@ deploy_iot_operations() {
         SCHEMA_REGISTRY_RESOURCE_ID=$(az iot ops schema registry show --name "$SCHEMA_REGISTRY_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv)
     else
         # Create storage account for schema registry
-        log "Creating storage account: $STORAGE_ACCOUNT_NAME"NT_NAME" --resource-group "$RESOURCE_GROUP" &> /dev/null; then
+        log "Creating storage account: $STORAGE_ACCOUNT_NAME"
+        if az storage account show --name "$STORAGE_ACCOUNT_NAME" --resource-group "$RESOURCE_GROUP" &> /dev/null; then
             log "Storage account $STORAGE_ACCOUNT_NAME already exists - using existing one"
         else
             log "Creating storage account: $STORAGE_ACCOUNT_NAME"
