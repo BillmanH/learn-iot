@@ -1118,13 +1118,7 @@ EOF
                 --resource-group "$RESOURCE_GROUP" \
                 --resource-type "Microsoft.DeviceRegistry/assetEndpointProfiles" \
                 --name "$FALLBACK_ENDPOINT_NAME" \
-                --properties '{
-                    "targetAddress": "opc.tcp://placeholder:50000",
-                    "transportAuthentication": {
-                        "ownCertificates": []
-                    },
-                    "additionalConfiguration": "{}"
-                }' \
+                --properties '{"targetAddress":"opc.tcp://placeholder:50000","transportAuthentication":{"ownCertificates":[]},"additionalConfiguration":"{}"}' \
                 --api-version "2024-09-01-preview" 2>&1 || echo "Create namespace resource failed")
             
             if [[ "$CREATE_NAMESPACE_RESULT" != *"failed"* ]] && [[ "$CREATE_NAMESPACE_RESULT" != *"ERROR"* ]]; then
