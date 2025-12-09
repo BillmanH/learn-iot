@@ -4,11 +4,11 @@
 set -e
 
 echo "=== Deploying MQTT Asset Endpoint Profile ==="
-kubectl apply -f iotopps/spaceshipfactorysim/mqtt-asset-endpoint.yaml
+kubectl apply -f mqtt-asset-endpoint.yaml
 
 echo ""
 echo "=== Deploying Example Asset ==="
-kubectl apply -f iotopps/spaceshipfactorysim/mqtt-asset-example.yaml
+kubectl apply -f mqtt-asset-example.yaml
 
 echo ""
 echo "=== Verifying Deployment ==="
