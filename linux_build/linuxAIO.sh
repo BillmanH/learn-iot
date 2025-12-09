@@ -1113,23 +1113,14 @@ EOF
         if az resource show --resource-group "$RESOURCE_GROUP" --resource-type "Microsoft.DeviceRegistry/assetEndpointProfiles" --name "$FALLBACK_ENDPOINT_NAME" &> /dev/null; then
             log "Placeholder namespace resource $FALLBACK_ENDPOINT_NAME already exists - using existing one"
         else
-            # Use az resource create instead of the iot ops commands
-            log "Creating placeholder namespace resource..."
-            
             # Create a simple JSON properties string to avoid quote issues
             ENDPOINT_PROPS='{"targetAddress":"opc.tcp://placeholder:50000","transportAuthentication":{"ownCertificates":[]},"additionalConfiguration":""}'
             
-            if az resource create \
-                --resource-group "$RESOURCE_GROUP" \
-                --resource-type "Microsoft.DeviceRegistry/assetEndpointProfiles" \
-                --name "$FALLBACK_ENDPOINT_NAME" \
-                --properties "$ENDPOINT_PROPS" \
-                --api-version "2024-09-01-preview" 2>/dev/null; then
+            log "Creating placeholder namespace resource..."
+            if az resource create --resource-group "$RESOURCE_GROUP" --resource-type "Microsoft.DeviceRegistry/assetEndpointProfiles" --name "$FALLBACK_ENDPOINT_NAME" --properties "$ENDPOINT_PROPS" --api-version "2024-09-01-preview" 2>/dev/null; then
                 log "SUCCESS: Created placeholder namespace resource"
-                rm -f /tmp/endpoint_properties.json
             else
                 warn "Failed to create placeholder namespace resource"
-                rm -f /tmp/endpoint_properties.json
                 error "Cannot proceed without a valid --ns-resource-id. Azure IoT Operations requires this parameter."
             fi
         fi
