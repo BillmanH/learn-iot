@@ -15,40 +15,8 @@ spec:
   softwareRevision: "2.1.0"
   documentationUri: "https://github.com/BillmanH/learn-iot"
   serialNumber: "ASL-001-2024"
-  defaultTopic: "factory/assembly-line-1"
-  defaultDataSource: 
-    name: "SpaceShip Factory MQTT"
-    observabilityMode: "None"
-  dataPoints:
-  - name: temperature
-    dataSource: "factory/assembly-line-1/telemetry"
-    observabilityMode: "None"
-    dataPointConfiguration: |
-      {
-        "mqttPath": "temperature",
-        "schema": "double"
-      }
-  - name: pressure
-    dataSource: "factory/assembly-line-1/telemetry"
-    observabilityMode: "None"
-    dataPointConfiguration: |
-      {
-        "mqttPath": "pressure",
-        "schema": "double"
-      }
-  - name: production_count
-    dataSource: "factory/assembly-line-1/telemetry"
-    observabilityMode: "None"
-    dataPointConfiguration: |
-      {
-        "mqttPath": "production_count",
-        "schema": "integer"
-      }
-  - name: status
-    dataSource: "factory/assembly-line-1/telemetry"
-    observabilityMode: "None"
-    dataPointConfiguration: |
-      {
-        "mqttPath": "status",
-        "schema": "string"
-      }
+  attributes:
+    temperature: "factory/assembly-line-1/telemetry"
+    pressure: "factory/assembly-line-1/telemetry"
+    production_count: "factory/assembly-line-1/telemetry"
+    status: "factory/assembly-line-1/telemetry"
