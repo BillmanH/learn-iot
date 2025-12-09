@@ -121,12 +121,12 @@ check_port_conflicts() {
     
     # Check if port 6443 (Kubernetes API) is in use by non-working processes
     if check_port_in_use; then
-        log "Port 6443 is in use - checking if it's a conflict..."
+        log "Port 6443 is in use - checking if there is a conflict..."
         echo "Processes using port 6443:"
         get_port_info
         echo
         
-        # Check if it's K3s that's not working properly
+        # Check if it is K3s that is not working properly
         if get_port_info | grep -q "k3s"; then
             warn "K3s is using port 6443 but the cluster is not healthy"
             log "This suggests K3s needs to be restarted rather than having port conflicts"
@@ -136,7 +136,7 @@ check_port_conflicts() {
                 sudo systemctl restart k3s || true
                 sleep 10
                 
-                # Check if it's working now
+                # Check if it is working now
                 if sudo k3s kubectl get nodes --no-headers 2>/dev/null | grep -q "Ready"; then
                     log "K3s cluster is now healthy after restart"
                     return 0
@@ -187,7 +187,7 @@ check_port_conflicts() {
         log "Port 6443 is free - no conflicts detected"
     fi
     
-    # Check other common Kubernetes ports for potential issues (but don't block on them)
+    # Check other common Kubernetes ports for potential issues (but do not block on them)
     for port in 6444 10250 10251 10252; do
         if command -v ss >/dev/null 2>&1; then
             if ss -tlnp 2>/dev/null | grep -q ":$port "; then
@@ -395,7 +395,7 @@ check_kubelite_conflicts() {
         warn "Found kubelite process running (likely MicroK8s or similar)"
         log "kubelite often conflicts with K3s by using the same ports (6443, 10257)"
         
-        # Check if it's MicroK8s
+        # Check if it is MicroK8s
         if command -v microk8s >/dev/null 2>&1; then
             log "MicroK8s is installed - this uses kubelite internally"
             read -p "Do you want to stop MicroK8s to avoid port conflicts? (y/N): " stop_microk8s
@@ -801,7 +801,7 @@ azure_login_setup() {
     if [ -z "$RESOURCE_GROUP" ]; then
         echo
         echo -e "${BLUE}Please provide the following Azure configuration:${NC}"
-        read -p "Enter resource group name (will be created if it doesn't exist): " RESOURCE_GROUP
+        read -p "Enter resource group name (will be created if it does not exist): " RESOURCE_GROUP
     fi
     
     if [ -z "$LOCATION" ]; then
@@ -825,7 +825,7 @@ azure_login_setup() {
 create_azure_resources() {
     log "Creating Azure resource group..."
     
-    # Create resource group if it doesn't exist
+    # Create resource group if it does not exist
     if ! az group show --name "$RESOURCE_GROUP" &> /dev/null; then
         az group create --location "$LOCATION" --resource-group "$RESOURCE_GROUP"
         log "Resource group $RESOURCE_GROUP created"
@@ -897,7 +897,7 @@ verify_cluster_connectivity() {
         sleep 5
         count=$((count + 5))
         
-        # Try to restart K3s if it's taking too long
+        # Try to restart K3s if it is taking too long
         if [ $count -eq 60 ]; then
             warn "Kubernetes API server not responding. Restarting K3s..."
             sudo systemctl restart k3s
@@ -1026,7 +1026,7 @@ deploy_iot_operations() {
     log "DEBUG: Resource group: $RESOURCE_GROUP"
     log "DEBUG: Cluster name: $CLUSTER_NAME"
     
-    # Since asset endpoint commands don't exist in current CLI version, create a Device Registry namespace directly
+    # Since asset endpoint commands do not exist in current CLI version, create a Device Registry namespace directly
     log "Creating Device Registry namespace resource as workaround for missing asset endpoint commands..."
     
     # Try creating a Device Registry namespace directly
@@ -1100,7 +1100,7 @@ EOF
     
     # Since --ns-resource-id is REQUIRED, ensure we have a valid one
     if [ "$NAMESPACE_RESOURCE_ID" = "skip" ] || [ -z "$NAMESPACE_RESOURCE_ID" ]; then
-        warn "--ns-resource-id is required but we don't have a valid namespace resource"
+        warn "--ns-resource-id is required but we do not have a valid namespace resource"
         log "Creating a simple placeholder namespace resource as workaround..."
         
         # Create a minimal asset endpoint profile using Azure CLI commands that work
