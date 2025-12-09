@@ -992,9 +992,7 @@ deploy_iot_operations() {
                 --kind StorageV2 \
                 --enable-hierarchical-namespace true \
                 --allow-blob-public-access false
-        fi
-        
-        # Create container in storage account
+        fi        # Create container in storage account
         CONTAINER_NAME="schemas"
         if az storage container exists --name "$CONTAINER_NAME" --account-name "$STORAGE_ACCOUNT_NAME" --auth-mode login --query exists -o tsv 2>/dev/null | grep -q true; then
             log "Storage container '$CONTAINER_NAME' already exists - using existing one"
@@ -1096,7 +1094,7 @@ EOF
     fi
     
     # Deploy Azure IoT Operations with schema registry and namespace
-    log "Deploying Azure IoT Operations this may take several minutes"
+    log "Deploying Azure IoT Operations - this may take several minutes..."
     log "Note: Using schema registry '$SCHEMA_REGISTRY_NAME'"
     log "Note: Schema Registry ID: $SCHEMA_REGISTRY_RESOURCE_ID"
     
