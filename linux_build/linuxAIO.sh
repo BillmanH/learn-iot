@@ -1096,7 +1096,7 @@ EOF
     fi
     
     # Deploy Azure IoT Operations with schema registry and namespace
-    log "Deploying Azure IoT Operations (this may take several minutes)..."
+    log "Deploying Azure IoT Operations this may take several minutes"
     log "Note: Using schema registry '$SCHEMA_REGISTRY_NAME'"
     log "Note: Schema Registry ID: $SCHEMA_REGISTRY_RESOURCE_ID"
     
