@@ -1268,6 +1268,7 @@ show_next_steps() {
 main() {
     log "Starting Azure IoT Operations installation for Linux..."
     log "This script will install K3s, Azure CLI, and Azure IoT Operations"
+    warn "IMPORTANT: First-time installation can take 30 minutes to 1 hour depending on system resources and network speed"
     echo
     
     check_root
