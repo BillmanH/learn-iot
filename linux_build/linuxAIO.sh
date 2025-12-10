@@ -297,11 +297,7 @@ load_config() {
         log "Resource Group: $RESOURCE_GROUP, Location: $LOCATION, Cluster: $CLUSTER_NAME"
         return 0
     else
-        log "Configuration file $config_file not found. Will prompt for values interactively."
-        # Set default values
-        DEPLOY_OPC_UA_BRIDGE="true"
-        export DEPLOY_OPC_UA_BRIDGE
-        return 1
+        error "Configuration file $config_file not found. Please create it from the template: cp linux_aio_config.template.json linux_aio_config.json"
     fi
 }
 
