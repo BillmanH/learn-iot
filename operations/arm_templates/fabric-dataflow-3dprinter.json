@@ -8,6 +8,12 @@
         "description": "Name of the custom location"
       }
     },
+    "aioInstanceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the Azure IoT Operations instance"
+      }
+    },
     "fabricTopicId": {
       "type": "string",
       "metadata": {
@@ -19,7 +25,7 @@
     {
       "type": "Microsoft.IoTOperations/instances/dataflowProfiles/dataflows",
       "apiVersion": "2024-11-01",
-      "name": "[concat('default/default/', 'factory-3dprinter-to-fabric')]",
+      "name": "[concat(parameters('aioInstanceName'), '/default/', 'factory-3dprinter-to-fabric')]",
       "extendedLocation": {
         "name": "[resourceId('Microsoft.ExtendedLocation/customLocations', parameters('customLocationName'))]",
         "type": "CustomLocation"

@@ -7,6 +7,7 @@
     "cluster_name": "iot-ops-cluster",
     "namespace_name": "iot-operations-ns",
     "custom_location_name": "",
+    "aio_instance_name": "",
     "custom_asset_endpoint": ""
   },
   "fabric": {
@@ -27,6 +28,7 @@
     "cluster_name": "Name for your Arc-enabled Kubernetes cluster",
     "namespace_name": "Name for Azure Device Registry namespace",
     "custom_location_name": "Custom location name created during AIO installation (usually auto-generated like 'location-xxxxx'). Find with: az customlocation list -g <resource-group> -o table",
+    "aio_instance_name": "Azure IoT Operations instance name (usually '<cluster-name>-aio'). Find with: az iot ops list -g <resource-group> -o table",
     "custom_asset_endpoint": "OPTIONAL: Name of existing asset endpoint to use as namespace resource (create this manually first)",
     "eventstream_topic_id": "Get from Fabric portal: https://app.fabric.microsoft.com → Eventstream → Copy topic ID (format: es_aaaaaaaa-0000-1111-2222-bbbbbbbbbbbb)",
     "eventstream_alerts_topic_id": "OPTIONAL: Separate Eventstream topic for critical alerts. Use same as eventstream_topic_id if not needed",

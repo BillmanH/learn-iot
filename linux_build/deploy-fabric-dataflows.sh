@@ -69,11 +69,13 @@ echo ""
 SUBSCRIPTION_ID=$(jq -r '.azure.subscription_id' "$CONFIG_FILE")
 RESOURCE_GROUP=$(jq -r '.azure.resource_group' "$CONFIG_FILE")
 CLUSTER_NAME=$(jq -r '.azure.cluster_name' "$CONFIG_FILE")
+AIO_INSTANCE_NAME=$(jq -r '.azure.aio_instance_name' "$CONFIG_FILE")
 
 echo "Azure Configuration:"
 echo "  Subscription: $SUBSCRIPTION_ID"
 echo "  Resource Group: $RESOURCE_GROUP"
 echo "  Cluster: $CLUSTER_NAME"
+echo "  AIO Instance: $AIO_INSTANCE_NAME"
 echo ""
 
 # Get custom location name from config
@@ -195,6 +197,7 @@ for TEMPLATE in $ARM_TEMPLATES; do
         --template-file "$TEMPLATE_PATH" \
         --parameters \
             customLocationName="$CUSTOM_LOCATION" \
+            aioInstanceName="$AIO_INSTANCE_NAME" \
             fabricTopicId="$FABRIC_TOPIC_ID" \
         --output table
     
