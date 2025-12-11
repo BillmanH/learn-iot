@@ -1245,10 +1245,11 @@ show_next_steps() {
     echo "   - View MQTT assets publishing factory telemetry"
     echo "   - Configure data flows for factory data processing"
     echo
-    echo "3. Asset Discovery and Sync:"
-    echo "   - Edge-to-cloud asset sync is enabled for discovered assets"
-    echo "   - Discovered OPC UA assets will appear in the cloud experience"
-    echo "   - Assets will show Discovered status in the Azure portal"
+    echo "3. Deploy MQTT Assets to Azure (Recommended):"
+    echo "   - Assets can be deployed directly to Azure using ARM templates"
+    echo "   - This bypasses resource sync and is more reliable"
+    echo "   - Run: cd iotopps/edgemqttsim/arm_templates && bash deploy-assets.sh"
+    echo "   - Alternative: Enable resource sync with: az iot ops enable-rsync --name ${CLUSTER_NAME}-aio --resource-group $RESOURCE_GROUP"
     echo
     echo "4. Configure assets and data flows:"
     echo "   - Create assets to represent your industrial equipment"
