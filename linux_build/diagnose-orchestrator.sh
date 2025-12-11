@@ -13,13 +13,10 @@ kubectl get pods -n azure-iot-operations
 
 echo ""
 echo "=== Searching for Orchestrator/Sync Components ==="
-ORCHESTRATOR_FOUND=$(kubectl get all -n azure-iot-operations 2>/dev/null | grep -i "orc\|orchestrator" || echo "")
-if [ -n "$ORCHESTRATOR_FOUND" ]; then
-    echo "Orchestrator components found:"
-    echo "$ORCHESTRATOR_FOUND"
-else
-    echo "Note: No pods with 'orchestrator' in name (this may be normal in v1.2+)"
-fi
+echo "Note: In AIO v1.2+, resource sync is handled by aio-operator (no separate orchestrator)"
+echo ""
+echo "Checking aio-operator status:"
+kubectl get pods -n azure-iot-operations -l app.kubernetes.io/name=aio-operator
 
 echo ""
 echo "=== Checking IoT Operations Instance ==="
@@ -46,12 +43,28 @@ fi
 
 echo ""
 echo "=== Resource Sync Status ==="
-RSYNC_STATUS=$(az iot ops show --name "$INSTANCE_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.resourceSync" -o json 2>/dev/null)
-if [ -n "$RSYNC_STATUS" ] && [ "$RSYNC_STATUS" != "null" ]; then
-    echo "Resource Sync is configured:"
-    echo "$RSYNC_STATUS" | jq '.' 2>/dev/null || echo "$RSYNC_STATUS"
+# Check if rsync is enabled in the IoT Ops instance
+RSYNC_ENABLED=$(az iot ops show --name "$INSTANCE_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.components.resourceSync.enabled" -o tsv 2>/dev/null)
+
+if [ "$RSYNC_ENABLED" = "true" ]; then
+    echo "✓ Resource Sync is ENABLED"
+    echo ""
+    echo "Checking sync configuration:"
+    az iot ops show --name "$INSTANCE_NAME" --resource-group "$RESOURCE_GROUP" --query "properties.components.resourceSync" -o json 2>/dev/null | jq '.' 2>/dev/null || echo "Could not retrieve sync details"
+    echo ""
+    echo "Verifying assets can sync:"
+    ASSETS_COUNT=$(kubectl get assets -A --no-headers 2>/dev/null | wc -l)
+    echo "  - Assets in Kubernetes: $ASSETS_COUNT"
+    echo "  - If assets exist but aren't syncing, check aio-operator logs"
+elif [ "$RSYNC_ENABLED" = "false" ]; then
+    echo "✗ Resource Sync is DISABLED"
+    echo ""
+    echo "To enable resource sync, run:"
+    echo "  az iot ops enable-rsync --name $INSTANCE_NAME --resource-group $RESOURCE_GROUP"
 else
-    echo "Resource Sync may not be enabled. To enable it, run:"
+    echo "⚠ Resource Sync status unknown (property may not exist in this version)"
+    echo ""
+    echo "To enable/verify resource sync, run:"
     echo "  az iot ops enable-rsync --name $INSTANCE_NAME --resource-group $RESOURCE_GROUP"
 fi
 
