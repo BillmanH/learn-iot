@@ -14,10 +14,27 @@ NC='\033[0m' # No Color
 
 # Script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="$SCRIPT_DIR/linux_aio_config.json"
 
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}Factory Fabric Dataflow Deployment${NC}"
 echo -e "${BLUE}========================================${NC}"
+echo ""
+
+# Check if config file exists
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo -e "${RED}ERROR: Configuration file not found: $CONFIG_FILE${NC}"
+    exit 1
+fi
+
+# Check if jq is available
+if ! command -v jq &> /dev/null; then
+    echo -e "${RED}ERROR: jq not found. Please install jq to parse JSON.${NC}"
+    echo "Install: sudo apt-get install jq"
+    exit 1
+fi
+
+echo -e "${YELLOW}Loading configuration from: $CONFIG_FILE${NC}"
 echo ""
 
 # Check if kubectl is available
@@ -48,44 +65,43 @@ fi
 echo -e "${GREEN}✓ Namespace exists${NC}"
 echo ""
 
-# Prompt for Fabric Eventstream topic ID
+# Read Fabric configuration from config file
 echo -e "${YELLOW}========================================${NC}"
 echo -e "${YELLOW}Fabric Eventstream Configuration${NC}"
 echo -e "${YELLOW}========================================${NC}"
 echo ""
-echo "Before deploying, you need your Fabric Eventstream topic ID."
-echo ""
-echo "To get this:"
-echo "  1. Go to https://app.fabric.microsoft.com"
-echo "  2. Create or open your Eventstream"
-echo "  3. Copy the topic ID (format: es_aaaaaaaa-0000-1111-2222-bbbbbbbbbbbb)"
-echo ""
-read -p "Enter your Fabric Eventstream topic ID (or press Enter to use placeholder): " FABRIC_TOPIC_ID
 
-if [ -z "$FABRIC_TOPIC_ID" ]; then
-    FABRIC_TOPIC_ID="es_YOUR_FABRIC_TOPIC_ID"
-    echo -e "${YELLOW}⚠ Using placeholder. You'll need to update the dataflows later.${NC}"
-else
-    echo -e "${GREEN}✓ Will use topic: ${FABRIC_TOPIC_ID}${NC}"
-fi
+FABRIC_TOPIC_ID=$(jq -r '.fabric.eventstream_topic_id // "es_YOUR_FABRIC_TOPIC_ID"' "$CONFIG_FILE")
+FABRIC_ALERTS_TOPIC_ID=$(jq -r '.fabric.eventstream_alerts_topic_id // "es_YOUR_FABRIC_ALERTS_TOPIC"' "$CONFIG_FILE")
+
+echo "Eventstream Topic ID: $FABRIC_TOPIC_ID"
+echo "Alerts Topic ID: $FABRIC_ALERTS_TOPIC_ID"
 echo ""
 
-# Optional: Separate topic for critical alerts
-read -p "Use separate Eventstream topic for critical alerts? (y/N): " USE_SEPARATE_ALERTS
-if [[ "$USE_SEPARATE_ALERTS" =~ ^[Yy]$ ]]; then
-    read -p "Enter critical alerts topic ID: " FABRIC_ALERTS_TOPIC_ID
-    if [ -z "$FABRIC_ALERTS_TOPIC_ID" ]; then
-        FABRIC_ALERTS_TOPIC_ID="es_YOUR_FABRIC_ALERTS_TOPIC"
-        echo -e "${YELLOW}⚠ Using placeholder for alerts topic.${NC}"
+# Validate topic IDs
+if [ "$FABRIC_TOPIC_ID" == "es_YOUR_FABRIC_TOPIC_ID" ]; then
+    echo -e "${YELLOW}⚠ WARNING: Using placeholder topic ID from config file.${NC}"
+    echo ""
+    echo "To configure Fabric Eventstream:"
+    echo "  1. Go to https://app.fabric.microsoft.com"
+    echo "  2. Create or open your Eventstream"
+    echo "  3. Copy the topic ID (format: es_aaaaaaaa-0000-1111-2222-bbbbbbbbbbbb)"
+    echo "  4. Update linux_build/linux_aio_config.json:"
+    echo "     \"eventstream_topic_id\": \"es_YOUR_ACTUAL_TOPIC_ID\""
+    echo ""
+    read -p "Continue with placeholder? (y/N): " CONTINUE_PLACEHOLDER
+    if [[ ! "$CONTINUE_PLACEHOLDER" =~ ^[Yy]$ ]]; then
+        echo -e "${RED}Deployment cancelled. Please update config file first.${NC}"
+        exit 1
     fi
 else
-    FABRIC_ALERTS_TOPIC_ID="$FABRIC_TOPIC_ID"
+    echo -e "${GREEN}✓ Topic IDs loaded from config${NC}"
 fi
 echo ""
 
 # Create temporary file with updated topic IDs
 TEMP_FILE=$(mktemp)
-sed "s|es_YOUR_FABRIC_TOPIC_ID|$FABRIC_TOPIC_ID|g" "$SCRIPT_DIR/fabric-factory-dataflows.yaml" | \
+sed "s|es_YOUR_FABRIC_TOPIC_ID|$FABRIC_TOPIC_ID|g" "$SCRIPT_DIR/../operations/fabric-factory-dataflows.yaml" | \
     sed "s|es_YOUR_FABRIC_ALERTS_TOPIC|$FABRIC_ALERTS_TOPIC_ID|g" > "$TEMP_FILE"
 
 # Deployment strategy selection
@@ -136,9 +152,9 @@ echo -e "${YELLOW}Deploying Fabric Endpoint${NC}"
 echo -e "${YELLOW}========================================${NC}"
 echo ""
 
-if [ -f "$SCRIPT_DIR/fabric-realtime-endpoint.yaml" ]; then
+if [ -f "$SCRIPT_DIR/../operations/fabric-realtime-endpoint.yaml" ]; then
     echo -e "${BLUE}Applying fabric-realtime-endpoint.yaml...${NC}"
-    kubectl apply -f "$SCRIPT_DIR/fabric-realtime-endpoint.yaml"
+    kubectl apply -f "$SCRIPT_DIR/../operations/fabric-realtime-endpoint.yaml"
     echo -e "${GREEN}✓ Fabric endpoint deployed${NC}"
 else
     echo -e "${YELLOW}⚠ fabric-realtime-endpoint.yaml not found. Skipping...${NC}"
@@ -221,12 +237,14 @@ echo ""
 
 if [ "$FABRIC_TOPIC_ID" == "es_YOUR_FABRIC_TOPIC_ID" ]; then
     echo -e "${YELLOW}⚠ IMPORTANT: You used placeholder topic IDs.${NC}"
-    echo "   Update dataflows with actual Fabric Eventstream topic IDs:"
-    echo "   1. Get topic ID from Fabric portal"
-    echo "   2. Edit: kubectl edit dataflow <name> -n azure-iot-operations"
-    echo "   3. Update: dataDestination: \"es_YOUR_TOPIC_ID\""
+    echo "   Update linux_build/linux_aio_config.json with actual topic IDs:"
+    echo "   1. Get topic ID from Fabric portal: https://app.fabric.microsoft.com"
+    echo "   2. Edit: linux_build/linux_aio_config.json"
+    echo "   3. Update: \"eventstream_topic_id\": \"es_YOUR_ACTUAL_TOPIC_ID\""
+    echo "   4. Re-run: bash linux_build/deploy-fabric-dataflows.sh"
     echo ""
 fi
 
-echo "Dataflow configuration file: $SCRIPT_DIR/fabric-factory-dataflows.yaml"
+echo "Configuration file: $CONFIG_FILE"
+echo "Dataflow definitions: operations/fabric-factory-dataflows.yaml"
 echo ""

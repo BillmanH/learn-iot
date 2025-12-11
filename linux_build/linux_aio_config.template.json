@@ -8,6 +8,10 @@
     "namespace_name": "iot-operations-ns",
     "custom_asset_endpoint": ""
   },
+  "fabric": {
+    "eventstream_topic_id": "es_YOUR_FABRIC_TOPIC_ID",
+    "eventstream_alerts_topic_id": "es_YOUR_FABRIC_ALERTS_TOPIC"
+  },
   "deployment": {
     "skip_system_update": false,
     "force_reinstall": false,
@@ -22,6 +26,8 @@
     "cluster_name": "Name for your Arc-enabled Kubernetes cluster",
     "namespace_name": "Name for Azure Device Registry namespace",
     "custom_asset_endpoint": "OPTIONAL: Name of existing asset endpoint to use as namespace resource (create this manually first)",
+    "eventstream_topic_id": "Get from Fabric portal: https://app.fabric.microsoft.com → Eventstream → Copy topic ID (format: es_aaaaaaaa-0000-1111-2222-bbbbbbbbbbbb)",
+    "eventstream_alerts_topic_id": "OPTIONAL: Separate Eventstream topic for critical alerts. Use same as eventstream_topic_id if not needed",
     "deployment_mode": "Options: 'test' for development, 'secure' for production (future)",
     "deploy_opc_ua_bridge": "Set to true to automatically deploy OPC UA bridge for factory integration, set to false as I'm not using it",
     "skip_system_update": "Set to true to skip apt update/upgrade for faster runs",
