@@ -177,11 +177,23 @@ else
     for DATAFLOW_NAME in $DATAFLOWS; do
         echo -e "${BLUE}Deploying: ${DATAFLOW_NAME}...${NC}"
         
-        # Extract specific dataflow from file
-        kubectl apply -f "$TEMP_FILE" --selector=app.kubernetes.io/name="$DATAFLOW_NAME" 2>/dev/null || \
-            kubectl apply -f - <<EOF
-$(awk "/name: ${DATAFLOW_NAME}$/,/^---$/" "$TEMP_FILE" | sed '/^---$/d')
-EOF
+        # Extract specific dataflow from file (include from metadata: line to next --- or EOF)
+        awk "/metadata:/,/^---$/ { 
+            if (/name: ${DATAFLOW_NAME}$/) { 
+                found=1; 
+                # Go back to find apiVersion
+                for (i=NR-10; i<NR; i++) {
+                    if (i in lines && lines[i] ~ /^apiVersion:/) {
+                        start=i;
+                        break;
+                    }
+                }
+            } 
+            if (found && NR >= start) print 
+            if (/^---$/ && found) exit 
+        } 
+        { lines[NR]=$0 }" "$TEMP_FILE" | kubectl apply -f -
+        
         echo -e "${GREEN}✓ ${DATAFLOW_NAME} deployed${NC}"
     done
 fi
