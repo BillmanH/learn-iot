@@ -57,4 +57,7 @@ az resource list --resource-group "$RESOURCE_GROUP" --resource-type Microsoft.De
 
 echo ""
 echo "✓ Deployment complete!"
-echo "View in portal: https://portal.azure.com/#view/Microsoft_Azure_DeviceRegistry/AssetsListBlade"
+SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+echo "View resources in portal:"
+echo "  Resource Group: https://portal.azure.com/#@/resource/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/overview"
+echo "  MQTT Asset: https://portal.azure.com/#@/resource/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.DeviceRegistry/assets/factory-mqtt-asset/overview"

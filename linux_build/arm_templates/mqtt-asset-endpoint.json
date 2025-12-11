@@ -40,7 +40,8 @@
         "authentication": {
           "method": "Anonymous"
         },
-        "additionalConfiguration": "{\"applicationName\":\"Factory MQTT Connector\",\"cleanSession\":false}"
+        "additionalConfiguration": "{\"applicationName\":\"Factory MQTT Connector\",\"cleanSession\":false}",
+        "discoveryEnabled": true
       }
     }
   ],
