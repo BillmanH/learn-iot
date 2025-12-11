@@ -1133,52 +1133,64 @@ deploy_mqtt_assets() {
         return 0
     fi
     
-    log "Deploying MQTT assets and simulator for factory integration..."
+    log "Deploying MQTT assets and simulator..."
     
-    # Check if OPC UA config directory exists
-    local opcua_config_dir="./opcua/assets"
-    if [ ! -d "$opcua_config_dir" ]; then
-        opcua_config_dir="../opcua/assets"
-        if [ ! -d "$opcua_config_dir" ]; then
-            warn "OPC UA configuration directory not found. Skipping OPC UA bridge deployment."
-            warn "To manually deploy later, run: kubectl apply -f opcua/assets/opc-plc-simulator.yaml"
+    # Check if MQTT config directory exists
+    local mqtt_config_dir="./iotopps/edgemqttsim"
+    if [ ! -d "$mqtt_config_dir" ]; then
+        mqtt_config_dir="../iotopps/edgemqttsim"
+        if [ ! -d "$mqtt_config_dir" ]; then
+            warn "MQTT configuration directory not found. Skipping MQTT assets deployment."
+            warn "To manually deploy later, run: kubectl apply -f iotopps/edgemqttsim/deployment.yaml"
             return 0
         fi
     fi
     
-    local opc_simulator_file="$opcua_config_dir/opc-plc-simulator.yaml"
-    local asset_endpoint_file="$opcua_config_dir/asset-endpoint-profile.yaml"
+    local mqtt_simulator_file="$mqtt_config_dir/deployment.yaml"
+    local mqtt_endpoint_file="$mqtt_config_dir/mqtt-asset-endpoint.yaml"
+    local mqtt_asset_file="./assets/cnc-machine-asset.yaml"
     
-    # Check if OPC UA simulator YAML exists
-    if [ ! -f "$opc_simulator_file" ]; then
-        warn "OPC PLC Simulator configuration file not found at: $opc_simulator_file"
-        warn "Skipping OPC UA bridge deployment."
+    # Check if MQTT simulator YAML exists
+    if [ ! -f "$mqtt_simulator_file" ]; then
+        warn "MQTT Simulator configuration file not found at: $mqtt_simulator_file"
+        warn "Skipping MQTT assets deployment."
         return 0
     fi
     
-    # Deploy OPC PLC Simulator
-    log "Deploying OPC PLC Simulator..."
-    kubectl apply -f "$opc_simulator_file"
+    # Deploy MQTT Simulator
+    log "Deploying MQTT Simulator (edgemqttsim)..."
+    kubectl apply -f "$mqtt_simulator_file"
     
-    # Wait for OPC PLC Simulator to be ready
-    log "Waiting for OPC PLC Simulator to be ready..."
-    kubectl wait --for=condition=available --timeout=300s deployment/opc-plc-simulator -n azure-iot-operations
+    # Wait for MQTT Simulator to be ready
+    log "Waiting for MQTT Simulator to be ready..."
+    kubectl wait --for=condition=available --timeout=300s deployment/edgemqttsim -n azure-iot-operations 2>/dev/null || true
     
     if [ $? -eq 0 ]; then
-        log "OPC PLC Simulator deployed successfully"
+        log "MQTT Simulator deployed successfully"
     else
-        warn "OPC PLC Simulator deployment may have timed out. Checking status..."
-        kubectl get pods -n azure-iot-operations -l app=opc-plc-simulator
+        warn "MQTT Simulator deployment may have timed out. Checking status..."
+        kubectl get pods -n azure-iot-operations -l app=edgemqttsim
     fi
     
-    # Deploy Asset Endpoint Profile if it exists
-    if [ -f "$asset_endpoint_file" ]; then
-        log "Deploying Asset Endpoint Profile..."
-        kubectl apply -f "$asset_endpoint_file"
-        log "Asset Endpoint Profile deployed"
+    # Deploy MQTT Asset Endpoint Profile if it exists
+    if [ -f "$mqtt_endpoint_file" ]; then
+        log "Deploying MQTT Asset Endpoint Profile..."
+        kubectl apply -f "$mqtt_endpoint_file"
+        log "MQTT Asset Endpoint Profile deployed"
     else
-        log "Asset Endpoint Profile file not found. You can deploy it later with:"
-        log "kubectl apply -f opcua/assets/asset-endpoint-profile.yaml"
+        log "MQTT Asset Endpoint Profile file not found. You can deploy it later with:"
+        log "kubectl apply -f iotopps/edgemqttsim/mqtt-asset-endpoint.yaml"
+    fi
+    
+    # Deploy MQTT Asset if it exists
+    if [ -f "$mqtt_asset_file" ]; then
+        log "Deploying MQTT Asset..."
+        kubectl apply -f "$mqtt_asset_file"
+        log "MQTT Asset deployed"
+    else
+        warn "MQTT Asset file not found at: $mqtt_asset_file"
+        log "You can deploy it later with:"
+        log "kubectl apply -f assets/cnc-machine-asset.yaml"
     fi
     
     # Display MQTT endpoint information
