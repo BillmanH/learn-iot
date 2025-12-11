@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Deploy Fabric Dataflows for Factory MQTT Telemetry
+# Deploy Fabric Dataflows for Factory MQTT Telemetry using ARM Templates
 # This script deploys dataflow configurations to route MQTT messages to Microsoft Fabric RTI
 
 set -e  # Exit on any error
@@ -65,6 +65,30 @@ fi
 echo -e "${GREEN}✓ Namespace exists${NC}"
 echo ""
 
+# Read Azure configuration from config file
+SUBSCRIPTION_ID=$(jq -r '.azure.subscription_id' "$CONFIG_FILE")
+RESOURCE_GROUP=$(jq -r '.azure.resource_group' "$CONFIG_FILE")
+CLUSTER_NAME=$(jq -r '.azure.cluster_name' "$CONFIG_FILE")
+
+echo "Azure Configuration:"
+echo "  Subscription: $SUBSCRIPTION_ID"
+echo "  Resource Group: $RESOURCE_GROUP"
+echo "  Cluster: $CLUSTER_NAME"
+echo ""
+
+# Get custom location name
+echo -e "${YELLOW}Getting custom location...${NC}"
+CUSTOM_LOCATION=$(az iot ops show --cluster "$CLUSTER_NAME" -g "$RESOURCE_GROUP" --query "extendedLocation.name" -o tsv 2>/dev/null | awk -F'/' '{print $NF}')
+
+if [ -z "$CUSTOM_LOCATION" ]; then
+    echo -e "${RED}ERROR: Could not find custom location for cluster ${CLUSTER_NAME}${NC}"
+    echo "Make sure Azure IoT Operations is installed."
+    exit 1
+fi
+
+echo -e "${GREEN}✓ Custom Location: ${CUSTOM_LOCATION}${NC}"
+echo ""
+
 # Read Fabric configuration from config file
 echo -e "${YELLOW}========================================${NC}"
 echo -e "${YELLOW}Fabric Eventstream Configuration${NC}"
@@ -99,10 +123,25 @@ else
 fi
 echo ""
 
-# Create temporary file with updated topic IDs
-TEMP_FILE=$(mktemp)
-sed "s|es_YOUR_FABRIC_TOPIC_ID|$FABRIC_TOPIC_ID|g" "$SCRIPT_DIR/../operations/fabric-factory-dataflows.yaml" | \
-    sed "s|es_YOUR_FABRIC_ALERTS_TOPIC|$FABRIC_ALERTS_TOPIC_ID|g" > "$TEMP_FILE"
+# Create fabric endpoint first if needed
+echo -e "${YELLOW}========================================${NC}"
+echo -e "${YELLOW}Deploying Fabric Endpoint${NC}"
+echo -e "${YELLOW}========================================${NC}"
+echo ""
+
+# Check if endpoint already exists in Kubernetes
+if kubectl get dataflowendpoint fabric-realtime -n azure-iot-operations &> /dev/null; then
+    echo -e "${GREEN}✓ Fabric endpoint already exists${NC}"
+else
+    if [ -f "$SCRIPT_DIR/../operations/fabric-realtime-endpoint.yaml" ]; then
+        echo -e "${BLUE}Applying fabric-realtime-endpoint.yaml...${NC}"
+        kubectl apply -f "$SCRIPT_DIR/../operations/fabric-realtime-endpoint.yaml"
+        echo -e "${GREEN}✓ Fabric endpoint deployed${NC}"
+    else
+        echo -e "${YELLOW}⚠ fabric-realtime-endpoint.yaml not found. Skipping...${NC}"
+    fi
+fi
+echo ""
 
 # Deployment strategy selection
 echo -e "${YELLOW}========================================${NC}"
@@ -110,104 +149,55 @@ echo -e "${YELLOW}Select Deployment Strategy${NC}"
 echo -e "${YELLOW}========================================${NC}"
 echo ""
 echo "1) Aggregated - All factory data in one stream (recommended)"
-echo "2) Per-Machine - Separate dataflows for each machine type"
-echo "3) Critical-Only - Only critical alerts (temp > 80, errors, maintenance)"
-echo "4) Aggregated + Critical - All data + separate alert stream"
-echo "5) All Dataflows - Deploy everything (testing/development)"
+echo "2) Per-Machine - Separate dataflows for CNC, 3D Printer, Welding"
 echo ""
-read -p "Select strategy (1-5): " STRATEGY
+read -p "Select strategy (1-2): " STRATEGY
 
 case $STRATEGY in
     1)
-        DATAFLOWS="factory-aggregated"
+        ARM_TEMPLATES="fabric-dataflow-aggregated.json"
         echo -e "${GREEN}✓ Selected: Aggregated (all data, single stream)${NC}"
         ;;
     2)
-        DATAFLOWS="factory-cnc-to-fabric factory-3dprinter-to-fabric factory-welding-to-fabric"
+        ARM_TEMPLATES="fabric-dataflow-cnc.json fabric-dataflow-3dprinter.json fabric-dataflow-welding.json"
         echo -e "${GREEN}✓ Selected: Per-Machine (separate streams)${NC}"
-        ;;
-    3)
-        DATAFLOWS="factory-critical-only"
-        echo -e "${GREEN}✓ Selected: Critical-Only (alerts only)${NC}"
-        ;;
-    4)
-        DATAFLOWS="factory-aggregated factory-critical-only"
-        echo -e "${GREEN}✓ Selected: Aggregated + Critical (dual stream)${NC}"
-        ;;
-    5)
-        DATAFLOWS="all"
-        echo -e "${GREEN}✓ Selected: All Dataflows (complete deployment)${NC}"
         ;;
     *)
         echo -e "${RED}Invalid selection. Exiting.${NC}"
-        rm "$TEMP_FILE"
         exit 1
         ;;
 esac
 echo ""
 
-# Deploy Fabric endpoint first
+# Deploy dataflows using ARM templates
 echo -e "${YELLOW}========================================${NC}"
-echo -e "${YELLOW}Deploying Fabric Endpoint${NC}"
-echo -e "${YELLOW}========================================${NC}"
-echo ""
-
-if [ -f "$SCRIPT_DIR/../operations/fabric-realtime-endpoint.yaml" ]; then
-    echo -e "${BLUE}Applying fabric-realtime-endpoint.yaml...${NC}"
-    kubectl apply -f "$SCRIPT_DIR/../operations/fabric-realtime-endpoint.yaml"
-    echo -e "${GREEN}✓ Fabric endpoint deployed${NC}"
-else
-    echo -e "${YELLOW}⚠ fabric-realtime-endpoint.yaml not found. Skipping...${NC}"
-    echo "Note: You may need to create this file manually."
-fi
-echo ""
-
-# Deploy dataflows
-echo -e "${YELLOW}========================================${NC}"
-echo -e "${YELLOW}Deploying Dataflows${NC}"
+echo -e "${YELLOW}Deploying Dataflows via ARM${NC}"
 echo -e "${YELLOW}========================================${NC}"
 echo ""
 
-if [ "$DATAFLOWS" == "all" ]; then
-    echo -e "${BLUE}Deploying all dataflows...${NC}"
-    kubectl apply -f "$TEMP_FILE"
-    echo -e "${GREEN}✓ All dataflows deployed${NC}"
-else
-    # Deploy selected dataflows only using yq or simpler approach
-    # Split the multi-document YAML and deploy matching dataflows
-    for DATAFLOW_NAME in $DATAFLOWS; do
-        echo -e "${BLUE}Deploying: ${DATAFLOW_NAME}...${NC}"
-        
-        # Use csplit to split multi-doc YAML, then grep for the right one
-        # Simpler approach: extract from apiVersion to next ---
-        awk -v name="$DATAFLOW_NAME" '
-            /^apiVersion:/ { capture=1; buffer=$0"\n"; next }
-            capture && /^metadata:/ { buffer=buffer$0"\n"; next }
-            capture && /name: / { 
-                if ($0 ~ name) found=1
-                buffer=buffer$0"\n"
-                next
-            }
-            capture { buffer=buffer$0"\n" }
-            /^---$/ { 
-                if (found) { print buffer; exit }
-                capture=0; buffer=""; found=0
-            }
-            END { if (found) print buffer }
-        ' "$TEMP_FILE" | kubectl apply -f -
-        
-        if [ $? -eq 0 ]; then
-            echo -e "${GREEN}✓ ${DATAFLOW_NAME} deployed${NC}"
-        else
-            echo -e "${RED}✗ Failed to deploy ${DATAFLOW_NAME}${NC}"
-        fi
-    done
-fi
-
-echo ""
-
-# Cleanup temp file
-rm "$TEMP_FILE"
+for TEMPLATE in $ARM_TEMPLATES; do
+    TEMPLATE_PATH="$SCRIPT_DIR/../operations/arm_templates/$TEMPLATE"
+    DEPLOYMENT_NAME="dataflow-$(basename $TEMPLATE .json)-$(date +%s)"
+    
+    echo -e "${BLUE}Deploying: $TEMPLATE${NC}"
+    
+    az deployment group create \
+        --resource-group "$RESOURCE_GROUP" \
+        --subscription "$SUBSCRIPTION_ID" \
+        --name "$DEPLOYMENT_NAME" \
+        --template-file "$TEMPLATE_PATH" \
+        --parameters \
+            customLocationName="$CUSTOM_LOCATION" \
+            fabricTopicId="$FABRIC_TOPIC_ID" \
+        --output table
+    
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}✓ $(basename $TEMPLATE .json) deployed${NC}"
+    else
+        echo -e "${RED}✗ Failed to deploy $(basename $TEMPLATE .json)${NC}"
+    fi
+    echo ""
+done
 
 # Wait for dataflows to be ready
 echo -e "${YELLOW}Waiting for dataflows to initialize...${NC}"

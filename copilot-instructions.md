@@ -48,6 +48,13 @@ This repository is focused on learning and implementing Azure IoT Operations (AI
 
 ## Development Patterns
 
+### Deployment Approach
+- **Prefer ARM Templates over Azure CLI** - ARM templates provide more stable and reliable deployments
+  - Use ARM templates for: assets, asset endpoints, dataflows, and other Azure resources
+  - ARM deployments are declarative and can be version-controlled
+  - CLI commands are acceptable for ad-hoc queries and troubleshooting
+  - Example: Use `az deployment group create --template-file` instead of `az iot ops dataflow create`
+
 ### Authentication
 - **Preferred**: ServiceAccountToken (K8S-SAT) for in-cluster applications
 - **Alternative**: X.509 certificates for external clients
