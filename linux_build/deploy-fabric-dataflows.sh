@@ -173,28 +173,34 @@ if [ "$DATAFLOWS" == "all" ]; then
     kubectl apply -f "$TEMP_FILE"
     echo -e "${GREEN}✓ All dataflows deployed${NC}"
 else
-    # Deploy selected dataflows only
+    # Deploy selected dataflows only using yq or simpler approach
+    # Split the multi-document YAML and deploy matching dataflows
     for DATAFLOW_NAME in $DATAFLOWS; do
         echo -e "${BLUE}Deploying: ${DATAFLOW_NAME}...${NC}"
         
-        # Extract specific dataflow from file (include from metadata: line to next --- or EOF)
-        awk "/metadata:/,/^---$/ { 
-            if (/name: ${DATAFLOW_NAME}$/) { 
-                found=1; 
-                # Go back to find apiVersion
-                for (i=NR-10; i<NR; i++) {
-                    if (i in lines && lines[i] ~ /^apiVersion:/) {
-                        start=i;
-                        break;
-                    }
-                }
-            } 
-            if (found && NR >= start) print 
-            if (/^---$/ && found) exit 
-        } 
-        { lines[NR]=$0 }" "$TEMP_FILE" | kubectl apply -f -
+        # Use csplit to split multi-doc YAML, then grep for the right one
+        # Simpler approach: extract from apiVersion to next ---
+        awk -v name="$DATAFLOW_NAME" '
+            /^apiVersion:/ { capture=1; buffer=$0"\n"; next }
+            capture && /^metadata:/ { buffer=buffer$0"\n"; next }
+            capture && /name: / { 
+                if ($0 ~ name) found=1
+                buffer=buffer$0"\n"
+                next
+            }
+            capture { buffer=buffer$0"\n" }
+            /^---$/ { 
+                if (found) { print buffer; exit }
+                capture=0; buffer=""; found=0
+            }
+            END { if (found) print buffer }
+        ' "$TEMP_FILE" | kubectl apply -f -
         
-        echo -e "${GREEN}✓ ${DATAFLOW_NAME} deployed${NC}"
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}✓ ${DATAFLOW_NAME} deployed${NC}"
+        else
+            echo -e "${RED}✗ Failed to deploy ${DATAFLOW_NAME}${NC}"
+        fi
     done
 fi
 
