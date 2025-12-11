@@ -49,10 +49,16 @@ kubectl logs -n default <edgemqttsim-pod-name>
 
 **Verify MQTT messages are being published:**
 
+First, deploy an MQTT debug client (if not already deployed):
 ```bash
-# Listen to all factory topics
-kubectl exec -it -n azure-iot-operations deploy/aio-broker-frontend -- \
-  mosquitto_sub -h localhost -p 18883 -t 'factory/#' -v
+kubectl apply -f ~/operations/learn-iot/linux_build/assets/mqtt-debug-client.yaml
+kubectl wait --for=condition=Ready pod/mqtt-debug-client -n azure-iot-operations --timeout=60s
+```
+
+Then subscribe to factory topics:
+```bash
+kubectl exec -it -n azure-iot-operations mqtt-debug-client -- \
+  mosquitto_sub -h aio-broker.azure-iot-operations.svc.cluster.local -p 18883 -t 'factory/#' -v
 ```
 
 You should see messages like:
