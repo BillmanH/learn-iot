@@ -1036,7 +1036,25 @@ deploy_iot_operations() {
     NAMESPACE_RESOURCE_ID="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.DeviceRegistry/namespaces/$NAMESPACE_RESOURCE_NAME"
     
     log "Using namespace resource ID: $NAMESPACE_RESOURCE_ID"
-    log "Note: This namespace will be created automatically during Azure IoT Operations deployment"
+    
+    # Check if namespace exists, create if it doesn't
+    log "Checking if Device Registry namespace exists..."
+    if az resource show --ids "$NAMESPACE_RESOURCE_ID" &>/dev/null; then
+        log "Device Registry namespace already exists"
+    else
+        log "Creating Device Registry namespace: $NAMESPACE_RESOURCE_NAME"
+        if az deviceregistry namespace create \
+            --name "$NAMESPACE_RESOURCE_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --location "$LOCATION"; then
+            log "Device Registry namespace created successfully"
+        else
+            error "Failed to create Device Registry namespace. This is required for Azure IoT Operations."
+            error "You can try creating it manually with:"
+            error "az deviceregistry namespace create --name $NAMESPACE_RESOURCE_NAME --resource-group $RESOURCE_GROUP --location $LOCATION"
+            exit 1
+        fi
+    fi
     
     # Deploy Azure IoT Operations with schema registry and namespace
     log "Deploying Azure IoT Operations - this may take several minutes..."
