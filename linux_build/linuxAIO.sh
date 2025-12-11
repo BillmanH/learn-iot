@@ -1248,7 +1248,7 @@ show_next_steps() {
     echo "3. Deploy MQTT Assets to Azure (Recommended):"
     echo "   - Assets can be deployed directly to Azure using ARM templates"
     echo "   - This bypasses resource sync and is more reliable"
-    echo "   - Run: cd iotopps/edgemqttsim/arm_templates && bash deploy-assets.sh"
+    echo "   - Run: bash deploy-assets.sh"
     echo "   - Alternative: Enable resource sync with: az iot ops enable-rsync --name ${CLUSTER_NAME}-aio --resource-group $RESOURCE_GROUP"
     echo
     echo "4. Configure assets and data flows:"
