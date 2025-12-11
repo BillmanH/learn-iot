@@ -76,13 +76,20 @@ echo "  Resource Group: $RESOURCE_GROUP"
 echo "  Cluster: $CLUSTER_NAME"
 echo ""
 
-# Get custom location name
-echo -e "${YELLOW}Getting custom location...${NC}"
-CUSTOM_LOCATION=$(az iot ops show --cluster "$CLUSTER_NAME" -g "$RESOURCE_GROUP" --query "extendedLocation.name" -o tsv 2>/dev/null | awk -F'/' '{print $NF}')
+# Get custom location name from config
+CUSTOM_LOCATION=$(jq -r '.azure.custom_location_name // ""' "$CONFIG_FILE")
 
 if [ -z "$CUSTOM_LOCATION" ]; then
-    echo -e "${RED}ERROR: Could not find custom location for cluster ${CLUSTER_NAME}${NC}"
-    echo "Make sure Azure IoT Operations is installed."
+    echo -e "${RED}ERROR: custom_location_name not found in config file${NC}"
+    echo ""
+    echo "Please add custom_location_name to linux_aio_config.json:"
+    echo ""
+    echo "Available custom locations:"
+    az customlocation list -g "$RESOURCE_GROUP" -o table
+    echo ""
+    echo "Add to config file:"
+    echo '  "custom_location_name": "location-xxxxx"'
+    echo ""
     exit 1
 fi
 
