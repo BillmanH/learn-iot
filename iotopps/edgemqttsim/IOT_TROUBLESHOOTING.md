@@ -35,7 +35,7 @@ The error indicates **ServiceAccountToken (K8S-SAT) authentication failure**. Th
 
 ```bash
 # Check if the pod is running
-kubectl get pods -n default | grep spaceshipfactorysim
+kubectl get pods -n default | grep edgemqttsim
 
 # Get detailed pod information
 kubectl describe pod -l app=spaceshipfactorysim -n default
@@ -51,13 +51,13 @@ kubectl logs -l app=spaceshipfactorysim -n default -f
 
 ```bash
 # Check if token is mounted correctly
-kubectl exec -it deployment/spaceshipfactorysim -n default -- ls -la /var/run/secrets/tokens/
+kubectl exec -it deployment/edgemqttsim -n default -- ls -la /var/run/secrets/tokens/
 
 # Verify token content (check length and format)
-kubectl exec -it deployment/spaceshipfactorysim -n default -- cat /var/run/secrets/tokens/broker-sat | wc -c
+kubectl exec -it deployment/edgemqttsim -n default -- cat /var/run/secrets/tokens/broker-sat | wc -c
 
 # Check token audience and other claims (decode JWT - first part is header, second is payload)
-kubectl exec -it deployment/spaceshipfactorysim -n default -- cat /var/run/secrets/tokens/broker-sat | cut -d. -f2 | base64 -d 2>/dev/null || echo "Unable to decode token payload"
+kubectl exec -it deployment/edgemqttsim -n default -- cat /var/run/secrets/tokens/broker-sat | cut -d. -f2 | base64 -d 2>/dev/null || echo "Unable to decode token payload"
 ```
 
 ### 3. Verify Service Account Configuration
@@ -67,23 +67,23 @@ kubectl exec -it deployment/spaceshipfactorysim -n default -- cat /var/run/secre
 kubectl get serviceaccount mqtt-client -n default
 
 # Verify service account is referenced in deployment
-kubectl get deployment spaceshipfactorysim -n default -o yaml | grep serviceAccountName
+kubectl get deployment edgemqttsim -n default -o yaml | grep serviceAccountName
 
 # Check service account token projection
-kubectl get deployment spaceshipfactorysim -n default -o yaml | grep -A 10 "serviceAccountToken:"
+kubectl get deployment edgemqttsim -n default -o yaml | grep -A 10 "serviceAccountToken:"
 ```
 
 ### 4. Test MQTT Broker Connectivity
 
 ```bash
 # Test DNS resolution of MQTT broker
-kubectl exec -it deployment/spaceshipfactorysim -n default -- nslookup aio-broker.azure-iot-operations.svc.cluster.local
+kubectl exec -it deployment/edgemqttsim -n default -- nslookup aio-broker.azure-iot-operations.svc.cluster.local
 
 # Test network connectivity to MQTT broker
-kubectl exec -it deployment/spaceshipfactorysim -n default -- nc -zv aio-broker.azure-iot-operations.svc.cluster.local 18883
+kubectl exec -it deployment/edgemqttsim -n default -- nc -zv aio-broker.azure-iot-operations.svc.cluster.local 18883
 
 # Alternative connectivity test
-kubectl exec -it deployment/spaceshipfactorysim -n default -- telnet aio-broker.azure-iot-operations.svc.cluster.local 18883
+kubectl exec -it deployment/edgemqttsim -n default -- telnet aio-broker.azure-iot-operations.svc.cluster.local 18883
 ```
 
 ### 5. Verify Azure IoT Operations Broker Status
@@ -106,7 +106,7 @@ kubectl get brokerauthentication -n azure-iot-operations -o yaml
 
 ```bash
 # Check projected service account token details
-kubectl exec -it deployment/spaceshipfactorysim -n default -- sh -c '
+kubectl exec -it deployment/edgemqttsim -n default -- sh -c '
   TOKEN=$(cat /var/run/secrets/tokens/broker-sat)
   echo "Token length: $(echo $TOKEN | wc -c)"
   echo "Token preview: $(echo $TOKEN | cut -c1-50)..."
@@ -114,7 +114,7 @@ kubectl exec -it deployment/spaceshipfactorysim -n default -- sh -c '
 '
 
 # Verify token expiration
-kubectl exec -it deployment/spaceshipfactorysim -n default -- sh -c '
+kubectl exec -it deployment/edgemqttsim -n default -- sh -c '
   TOKEN=$(cat /var/run/secrets/tokens/broker-sat)
   # Extract payload (second part of JWT)
   PAYLOAD=$(echo $TOKEN | cut -d. -f2)
@@ -127,7 +127,7 @@ kubectl exec -it deployment/spaceshipfactorysim -n default -- sh -c '
 
 ```bash
 # Enable debug mode in Python MQTT client
-kubectl exec -it deployment/spaceshipfactorysim -n default -- python3 -c "
+kubectl exec -it deployment/edgemqttsim -n default -- python3 -c "
 import paho.mqtt.client as mqtt
 import ssl
 print('MQTT Client version:', mqtt.__version__)
@@ -135,7 +135,7 @@ print('SSL version:', ssl.OPENSSL_VERSION)
 "
 
 # Test with minimal MQTT client
-kubectl exec -it deployment/spaceshipfactorysim -n default -- python3 -c "
+kubectl exec -it deployment/edgemqttsim -n default -- python3 -c "
 import os
 token_path = '/var/run/secrets/tokens/broker-sat'
 if os.path.exists(token_path):
@@ -165,13 +165,13 @@ else:
 **Fix**:
 ```bash
 # Restart deployment to refresh DNS cache and network connections
-kubectl rollout restart deployment/spaceshipfactorysim -n default
+kubectl rollout restart deployment/edgemqttsim -n default
 
 # Wait for rollout to complete
-kubectl rollout status deployment/spaceshipfactorysim -n default
+kubectl rollout status deployment/edgemqttsim -n default
 
 # Verify fix
-kubectl logs -l app=spaceshipfactorysim -n default --tail=20 | grep -E "(Connected|Messages|Rate)"
+kubectl logs -l app=edgemqttsim -n default --tail=20 | grep -E "(Connected|Messages|Rate)"
 ```
 
 **Validation**: Look for:
@@ -189,7 +189,7 @@ kubectl delete serviceaccount mqtt-client -n default --ignore-not-found
 kubectl create serviceaccount mqtt-client -n default
 
 # Restart deployment to get fresh token
-kubectl rollout restart deployment/spaceshipfactorysim -n default
+kubectl rollout restart deployment/edgemqttsim -n default
 ```
 
 ### Solution 3: Fix Network Connectivity Issues (Alternative Approach)

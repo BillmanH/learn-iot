@@ -1,22 +1,22 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: spaceshipfactorysim
+  name: edgemqttsim
   namespace: default
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: spaceshipfactorysim
+      app: edgemqttsim
   template:
     metadata:
       labels:
-        app: spaceshipfactorysim
+        app: edgemqttsim
     spec:
       serviceAccountName: mqtt-client  # Use the service account for SAT authentication
       containers:
-      - name: spaceshipfactorysim
-        image: <YOUR_REGISTRY>/spaceshipfactorysim:latest
+      - name: edgemqttsim
+        image: <YOUR_REGISTRY>/edgemqttsim:latest
         env:
         # IMPORTANT: When accessing services across namespaces in Kubernetes,
         # always use the fully qualified domain name (FQDN):

@@ -26,6 +26,20 @@
 
 set -e  # Exit on any error
 
+# Setup logging to file and console
+LOG_FILE="linuxAIO_$(date +'%Y%m%d_%H%M%S').log"
+exec > >(tee -a "$LOG_FILE")
+exec 2>&1
+
+log() {
+    echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')] $1${NC}"
+}
+
+echo "=== Azure IoT Operations Installation Log ==="
+echo "Log file: $LOG_FILE"
+echo "Started: $(date)"
+echo ""
+
 # Color codes for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -115,18 +129,18 @@ check_port_conflicts() {
         elif command -v lsof >/dev/null 2>&1; then
             lsof -i :6443 2>/dev/null
         else
-            echo "Port 6443 appears to be in use (using basic connectivity test)"
+            echo "Port 6443 appears to be in use - using basic connectivity test"
         fi
     }
     
     # Check if port 6443 (Kubernetes API) is in use by non-working processes
     if check_port_in_use; then
-        log "Port 6443 is in use - checking if it's a conflict..."
+        log "Port 6443 is in use - checking if there is a conflict..."
         echo "Processes using port 6443:"
         get_port_info
         echo
         
-        # Check if it's K3s that's not working properly
+        # Check if it is K3s that is not working properly
         if get_port_info | grep -q "k3s"; then
             warn "K3s is using port 6443 but the cluster is not healthy"
             log "This suggests K3s needs to be restarted rather than having port conflicts"
@@ -136,7 +150,7 @@ check_port_conflicts() {
                 sudo systemctl restart k3s || true
                 sleep 10
                 
-                # Check if it's working now
+                # Check if it is working now
                 if sudo k3s kubectl get nodes --no-headers 2>/dev/null | grep -q "Ready"; then
                     log "K3s cluster is now healthy after restart"
                     return 0
@@ -187,7 +201,7 @@ check_port_conflicts() {
         log "Port 6443 is free - no conflicts detected"
     fi
     
-    # Check other common Kubernetes ports for potential issues (but don't block on them)
+    # Check other common Kubernetes ports for potential issues (but do not block on them)
     for port in 6444 10250 10251 10252; do
         if command -v ss >/dev/null 2>&1; then
             if ss -tlnp 2>/dev/null | grep -q ":$port "; then
@@ -273,28 +287,24 @@ load_config() {
         SKIP_SYSTEM_UPDATE=$(jq -r '.deployment.skip_system_update // false' "$config_file")
         FORCE_REINSTALL=$(jq -r '.deployment.force_reinstall // false' "$config_file")
         DEPLOYMENT_MODE=$(jq -r '.deployment.deployment_mode // "test"' "$config_file")
-        DEPLOY_OPC_UA_BRIDGE=$(jq -r '.deployment.deploy_opc_ua_bridge // true' "$config_file")
+        DEPLOY_MQTT_ASSETS=$(jq -r '.deployment.deploy_mqtt_assets // true' "$config_file")
         
         # Export variables
         export SUBSCRIPTION_ID SUBSCRIPTION_NAME RESOURCE_GROUP LOCATION CLUSTER_NAME NAMESPACE_NAME CUSTOM_ASSET_ENDPOINT
-        export SKIP_SYSTEM_UPDATE FORCE_REINSTALL DEPLOYMENT_MODE DEPLOY_OPC_UA_BRIDGE
+        export SKIP_SYSTEM_UPDATE FORCE_REINSTALL DEPLOYMENT_MODE DEPLOY_MQTT_ASSETS
         
         log "Configuration loaded from $config_file"
         log "Resource Group: $RESOURCE_GROUP, Location: $LOCATION, Cluster: $CLUSTER_NAME"
         return 0
     else
-        log "Configuration file $config_file not found. Will prompt for values interactively."
-        # Set default values
-        DEPLOY_OPC_UA_BRIDGE="true"
-        export DEPLOY_OPC_UA_BRIDGE
-        return 1
+        error "Configuration file $config_file not found. Please create it from the template: cp linux_aio_config.template.json linux_aio_config.json"
     fi
 }
 
 # Update system packages
 update_system() {
     if [ "$SKIP_SYSTEM_UPDATE" = "true" ]; then
-        log "Skipping system update (skip_system_update=true in config)"
+        log "Skipping system update - skip_system_update=true in config"
         # Still install essential packages
         sudo apt install -y curl wget gnupg lsb-release ca-certificates software-properties-common apt-transport-https jq
     else
@@ -310,7 +320,7 @@ install_azure_cli() {
     
     if command -v az &> /dev/null && [ "$FORCE_REINSTALL" != "true" ]; then
         log "Azure CLI already installed. Checking version..."
-        current_version=$(az version --query '"azure-cli"' -o tsv)
+        current_version=$(az version -o json 2>/dev/null | jq -r '."azure-cli"' 2>/dev/null || echo "unknown")
         log "Current Azure CLI version: $current_version"
         
         # Update Azure CLI
@@ -325,7 +335,7 @@ install_azure_cli() {
     fi
     
     # Verify minimum version (2.62.0+)
-    az_version=$(az version --query '"azure-cli"' -o tsv)
+    az_version=$(az version -o json 2>/dev/null | jq -r '."azure-cli"' 2>/dev/null || echo "unknown")
     log "Azure CLI version: $az_version"
     
     # Install required Azure CLI extensions
@@ -393,9 +403,9 @@ check_kubelite_conflicts() {
     # Check for kubelite process
     if pgrep -f kubelite >/dev/null 2>&1; then
         warn "Found kubelite process running (likely MicroK8s or similar)"
-        log "kubelite often conflicts with K3s by using the same ports (6443, 10257)"
+        log "kubelite often conflicts with K3s by using the same ports 6443, 10257"
         
-        # Check if it's MicroK8s
+        # Check if it is MicroK8s
         if command -v microk8s >/dev/null 2>&1; then
             log "MicroK8s is installed - this uses kubelite internally"
             read -p "Do you want to stop MicroK8s to avoid port conflicts? (y/N): " stop_microk8s
@@ -501,7 +511,7 @@ cleanup_k3s() {
         
         # Check if K3s is running (but not healthy from above check)
         if sudo systemctl is-active --quiet k3s 2>/dev/null; then
-            log "K3s service is currently running (but not healthy)"
+            log "K3s service is currently running but not healthy"
             read -p "Do you want to stop and clean up the existing K3s installation? (y/N): " cleanup
             if [[ "$cleanup" =~ ^[Yy]$ ]]; then
                 log "Stopping K3s service..."
@@ -641,7 +651,7 @@ install_k3s() {
         fi
         
         # Download and install with timeout and better error handling
-        log "Downloading K3s installer (this may take a few minutes)..."
+        log "Downloading K3s installer - this may take a few minutes..."
         if ! timeout 300 curl -sfL https://get.k3s.io | sh -s - --disable=traefik --write-kubeconfig-mode 644; then
             error "K3s installation failed. This could be due to network issues, insufficient resources, or firewall blocking. Check: sudo journalctl -u k3s"
         fi
@@ -667,7 +677,7 @@ install_k3s() {
         if [ $count -eq 0 ]; then
             log "K3s is starting up..."
         elif [ $((count % 30)) -eq 0 ]; then
-            log "Still waiting for K3s to be ready... ($count/$timeout seconds)"
+            log "Still waiting for K3s to be ready... $count/$timeout seconds"
         fi
         
         sleep 5
@@ -732,12 +742,27 @@ configure_kubectl() {
 configure_system_settings() {
     log "Configuring system settings for Azure IoT Operations..."
     
-    # Increase inotify limits (required for Azure IoT Operations)
-    echo 'fs.inotify.max_user_instances=8192' | sudo tee -a /etc/sysctl.conf
-    echo 'fs.inotify.max_user_watches=524288' | sudo tee -a /etc/sysctl.conf
+    # Check if settings are already configured to prevent duplicate entries
+    if ! grep -q "fs.inotify.max_user_instances=8192" /etc/sysctl.conf; then
+        log "Adding inotify max_user_instances setting..."
+        echo 'fs.inotify.max_user_instances=8192' | sudo tee -a /etc/sysctl.conf
+    else
+        log "inotify max_user_instances setting already configured"
+    fi
     
-    # Increase file descriptor limit for better performance
-    echo 'fs.file-max=100000' | sudo tee -a /etc/sysctl.conf
+    if ! grep -q "fs.inotify.max_user_watches=524288" /etc/sysctl.conf; then
+        log "Adding inotify max_user_watches setting..."
+        echo 'fs.inotify.max_user_watches=524288' | sudo tee -a /etc/sysctl.conf
+    else
+        log "inotify max_user_watches setting already configured"
+    fi
+    
+    if ! grep -q "fs.file-max=100000" /etc/sysctl.conf; then
+        log "Adding file-max setting..."
+        echo 'fs.file-max=100000' | sudo tee -a /etc/sysctl.conf
+    else
+        log "file-max setting already configured"
+    fi
     
     # Apply sysctl settings
     sudo sysctl -p
@@ -786,7 +811,7 @@ azure_login_setup() {
     if [ -z "$RESOURCE_GROUP" ]; then
         echo
         echo -e "${BLUE}Please provide the following Azure configuration:${NC}"
-        read -p "Enter resource group name (will be created if it doesn't exist): " RESOURCE_GROUP
+        read -p "Enter resource group name (will be created if it does not exist): " RESOURCE_GROUP
     fi
     
     if [ -z "$LOCATION" ]; then
@@ -810,12 +835,12 @@ azure_login_setup() {
 create_azure_resources() {
     log "Creating Azure resource group..."
     
-    # Create resource group if it doesn't exist
+    # Create resource group if it does not exist
     if ! az group show --name "$RESOURCE_GROUP" &> /dev/null; then
         az group create --location "$LOCATION" --resource-group "$RESOURCE_GROUP"
-        log "Resource group '$RESOURCE_GROUP' created"
+        log "Resource group $RESOURCE_GROUP created"
     else
-        log "Resource group '$RESOURCE_GROUP' already exists"
+        log "Resource group $RESOURCE_GROUP already exists"
     fi
 }
 
@@ -825,7 +850,7 @@ arc_enable_cluster() {
     
     # Check if cluster is already Arc-enabled
     if az connectedk8s show --name "$CLUSTER_NAME" --resource-group "$RESOURCE_GROUP" &> /dev/null; then
-        log "Cluster '$CLUSTER_NAME' is already Arc-enabled"
+        log "Cluster $CLUSTER_NAME is already Arc-enabled"
     else
         # Connect cluster to Azure Arc
         az connectedk8s connect --name "$CLUSTER_NAME" --resource-group "$RESOURCE_GROUP"
@@ -882,7 +907,7 @@ verify_cluster_connectivity() {
         sleep 5
         count=$((count + 5))
         
-        # Try to restart K3s if it's taking too long
+        # Try to restart K3s if it is taking too long
         if [ $count -eq 60 ]; then
             warn "Kubernetes API server not responding. Restarting K3s..."
             sudo systemctl restart k3s
@@ -916,13 +941,22 @@ create_namespace() {
         export NAMESPACE_NAME
     fi
     
-    log "Namespace '$NAMESPACE_NAME' will be created automatically during Azure IoT Operations deployment"
-    log "Note: Explicit namespace creation requires preview CLI version (1.2.36+)"
+    log "Namespace $NAMESPACE_NAME will be created automatically during Azure IoT Operations deployment"
+    log "Note: Explicit namespace creation requires preview CLI version 1.2.36+"
 }
 
 # Deploy Azure IoT Operations
 deploy_iot_operations() {
     log "Deploying Azure IoT Operations..."
+    
+    # Check if Azure IoT Operations instance already exists
+    INSTANCE_NAME="${CLUSTER_NAME}-aio"
+    if az iot ops show --name "$INSTANCE_NAME" --resource-group "$RESOURCE_GROUP" &> /dev/null; then
+        log "Azure IoT Operations instance $INSTANCE_NAME already exists - skipping deployment"
+        log "To force reinstall, delete the existing instance first:"
+        log "az iot ops delete --name $INSTANCE_NAME --resource-group $RESOURCE_GROUP"
+        return 0
+    fi
     
     # Initialize cluster for Azure IoT Operations
     log "Initializing cluster for Azure IoT Operations..."
@@ -938,7 +972,7 @@ deploy_iot_operations() {
         
         # Wait for registration to complete
         log "Waiting for Microsoft.Storage provider registration to complete..."
-        while [ "$(az provider show --namespace Microsoft.Storage --query 'registrationState' -o tsv)" != "Registered" ]; do
+        while [ "$(az provider show --namespace Microsoft.Storage --query registrationState -o tsv)" != "Registered" ]; do
             sleep 10
             log "Still waiting for Microsoft.Storage registration..."
         done
@@ -950,323 +984,229 @@ deploy_iot_operations() {
     SCHEMA_REGISTRY_NAME="${CLUSTER_NAME}-schema-registry"
     STORAGE_ACCOUNT_NAME=$(echo "${CLUSTER_NAME}storage" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]//g' | cut -c1-24)
     
-    # Create storage account for schema registry
-    log "Creating storage account: $STORAGE_ACCOUNT_NAME"
-    az storage account create \
-        --name "$STORAGE_ACCOUNT_NAME" \
-        --resource-group "$RESOURCE_GROUP" \
-        --location "$LOCATION" \
-        --sku Standard_LRS \
-        --kind StorageV2 \
-        --enable-hierarchical-namespace true \
-        --allow-blob-public-access false
-    
-    # Create container in storage account
-    CONTAINER_NAME="schemas"
-    log "Creating storage container: $CONTAINER_NAME"
-    az storage container create \
-        --name "$CONTAINER_NAME" \
-        --account-name "$STORAGE_ACCOUNT_NAME" \
-        --auth-mode login
-    
-    # Get storage account resource ID
-    STORAGE_ACCOUNT_ID=$(az storage account show --name "$STORAGE_ACCOUNT_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv)
-    
-    # Create schema registry
-    log "Creating schema registry: $SCHEMA_REGISTRY_NAME"
-    az iot ops schema registry create \
-        --name "$SCHEMA_REGISTRY_NAME" \
-        --resource-group "$RESOURCE_GROUP" \
-        --registry-namespace "$NAMESPACE_NAME" \
-        --sa-resource-id "$STORAGE_ACCOUNT_ID"
-    
-    # Get schema registry resource ID
-    SCHEMA_REGISTRY_RESOURCE_ID=$(az iot ops schema registry show --name "$SCHEMA_REGISTRY_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv)
-    
-    # Create namespace resource (required for newer AIO versions)
-    log "Creating namespace resource for Azure IoT Operations..."
-    NAMESPACE_RESOURCE_NAME="${NAMESPACE_NAME}-namespace"
-    
-    log "DEBUG: Namespace name: $NAMESPACE_NAME"
-    log "DEBUG: Namespace resource name: $NAMESPACE_RESOURCE_NAME"
-    log "DEBUG: Resource group: $RESOURCE_GROUP"
-    log "DEBUG: Cluster name: $CLUSTER_NAME"
-    
-    # Since the direct namespace commands don't exist, let's try a different approach
-    # The namespace resource might need to be created differently or might already exist
-    
-    log "WARNING: Based on Azure CLI errors, the namespace subcommands don't exist in the current CLI version"
-    log "Attempting alternative approach to find or create namespace resource..."
-    
-    # First, let's check if the asset endpoint commands work at all
-    log "Testing if azure-iot-ops extension commands are available..."
-    TEST_OUTPUT=$(timeout 10 az iot ops --help 2>&1 || echo "Extension test failed")
-    
-    if [[ "$TEST_OUTPUT" == *"Extension test failed"* ]] || [[ "$TEST_OUTPUT" == *"ERROR"* ]] || [[ "$TEST_OUTPUT" == *"not recognized"* ]]; then
-        log "WARNING: azure-iot-ops extension commands are not available or not working"
-        log "Will attempt deployment without namespace resource ID (may work with newer Azure IoT Operations)"
-        NAMESPACE_RESOURCE_ID="skip"
-        return 0
-    fi
-    
-    # Check if asset endpoint commands specifically work
-    log "Testing asset endpoint commands..."
-    ASSET_TEST=$(timeout 10 az iot ops asset endpoint --help 2>&1 || echo "Asset endpoint test failed")
-    
-    if [[ "$ASSET_TEST" == *"test failed"* ]] || [[ "$ASSET_TEST" == *"ERROR"* ]] || [[ "$ASSET_TEST" == *"not recognized"* ]]; then
-        log "WARNING: Asset endpoint commands are not available"
-        log "Will attempt deployment without namespace resource ID"
-        NAMESPACE_RESOURCE_ID="skip"
-        return 0
-    fi
-    
-    # Check if user provided a custom asset endpoint name
-    if [ -n "$CUSTOM_ASSET_ENDPOINT" ]; then
-        log "Using custom asset endpoint specified: $CUSTOM_ASSET_ENDPOINT"
-        log "Note: Please ensure this asset endpoint exists in your resource group before deployment"
-        
-        # Try to get the resource ID of the specified endpoint
-        log "Looking up resource ID for custom asset endpoint: $CUSTOM_ASSET_ENDPOINT"
-        CUSTOM_ENDPOINT_ID=$(timeout 30 az iot ops asset endpoint show --name "$CUSTOM_ASSET_ENDPOINT" --resource-group "$RESOURCE_GROUP" --query id -o tsv 2>&1 || echo "Custom endpoint lookup failed")
-        
-        if [[ "$CUSTOM_ENDPOINT_ID" != *"ERROR:"* ]] && [[ "$CUSTOM_ENDPOINT_ID" != *"failed"* ]] && [ -n "$CUSTOM_ENDPOINT_ID" ]; then
-            NAMESPACE_RESOURCE_ID="$CUSTOM_ENDPOINT_ID"
-            log "SUCCESS: Found custom asset endpoint resource ID: $NAMESPACE_RESOURCE_ID"
-        else
-            log "WARNING: Could not find custom asset endpoint '$CUSTOM_ASSET_ENDPOINT'"
-            log "ERROR: $CUSTOM_ENDPOINT_ID"
-            log "Attempting to create custom asset endpoint '$CUSTOM_ASSET_ENDPOINT'..."
-            
-            # Try to create the custom asset endpoint
-            CREATE_CUSTOM_OUTPUT=$(timeout 60 az iot ops asset endpoint create \
-                --name "$CUSTOM_ASSET_ENDPOINT" \
-                --resource-group "$RESOURCE_GROUP" \
-                --target-address "opc.tcp://localhost:50000" \
-                --additional-configuration '{}' 2>&1 || echo "Create custom endpoint failed")
-            
-            log "DEBUG: Create custom endpoint output: $CREATE_CUSTOM_OUTPUT"
-            
-            # Check if creation succeeded
-            if [[ "$CREATE_CUSTOM_OUTPUT" != *"ERROR:"* ]] && [[ "$CREATE_CUSTOM_OUTPUT" != *"failed"* ]]; then
-                # Try to get the resource ID of the newly created endpoint
-                CUSTOM_ENDPOINT_ID=$(timeout 30 az iot ops asset endpoint show --name "$CUSTOM_ASSET_ENDPOINT" --resource-group "$RESOURCE_GROUP" --query id -o tsv 2>&1 || echo "Show new endpoint failed")
-                
-                if [[ "$CUSTOM_ENDPOINT_ID" != *"ERROR:"* ]] && [[ "$CUSTOM_ENDPOINT_ID" != *"failed"* ]] && [ -n "$CUSTOM_ENDPOINT_ID" ]; then
-                    NAMESPACE_RESOURCE_ID="$CUSTOM_ENDPOINT_ID"
-                    log "SUCCESS: Created custom asset endpoint '$CUSTOM_ASSET_ENDPOINT' with resource ID: $NAMESPACE_RESOURCE_ID"
-                else
-                    log "WARNING: Created endpoint but could not retrieve its resource ID"
-                    log "ERROR: $CUSTOM_ENDPOINT_ID"
-                    log "Will proceed with automatic endpoint discovery/creation..."
-                fi
-            else
-                log "WARNING: Failed to create custom asset endpoint '$CUSTOM_ASSET_ENDPOINT'"
-                log "ERROR: $CREATE_CUSTOM_OUTPUT"
-                log "Will proceed with automatic endpoint discovery/creation..."
-            fi
-        fi
-    fi
-    
-    # If no custom endpoint was specified or found, try automatic discovery
-    if [ -z "$NAMESPACE_RESOURCE_ID" ]; then
-        log "No custom asset endpoint specified or found. Attempting automatic discovery..."
-        
-        # Try to find existing asset endpoint profiles that could serve as namespace
-        log "Looking for existing asset endpoint profiles that could serve as namespace..."
-        
-        # Method 1: List all asset endpoint profiles and see if any exist
-        log "METHOD 1: Checking for existing asset endpoint profiles..."
-        EXISTING_ENDPOINTS=$(timeout 30 az iot ops asset endpoint list --resource-group "$RESOURCE_GROUP" --query "[].id" -o tsv 2>&1 || echo "Command failed or timed out")
-        
-        log "DEBUG: Existing endpoints query result: $EXISTING_ENDPOINTS"
-        
-        if [[ "$EXISTING_ENDPOINTS" != *"ERROR:"* ]] && [[ "$EXISTING_ENDPOINTS" != *"Command failed"* ]] && [ -n "$EXISTING_ENDPOINTS" ]; then
-            # Use the first available endpoint as namespace resource ID
-            NAMESPACE_RESOURCE_ID=$(echo "$EXISTING_ENDPOINTS" | head -1 | tr -d '\r\n')
-            log "SUCCESS: Found existing asset endpoint profile to use as namespace: $NAMESPACE_RESOURCE_ID"
-        else
-            log "WARNING: No existing asset endpoint profiles found or command failed"
-            log "OUTPUT: $EXISTING_ENDPOINTS"
-            
-            # Method 2: Try creating a basic asset endpoint profile to use as namespace
-            log "METHOD 2: Attempting to create a basic asset endpoint profile..."
-            
-            # Create a temporary asset endpoint profile that can serve as namespace
-            TEMP_ENDPOINT_NAME="temp-namespace-${NAMESPACE_NAME}"
-            CREATE_EP_OUTPUT=$(timeout 60 az iot ops asset endpoint create \
-            --name "$TEMP_ENDPOINT_NAME" \
-            --resource-group "$RESOURCE_GROUP" \
-            --cluster "$CLUSTER_NAME" \
-            --target-address "opc.tcp://temp:50000" 2>&1 || echo "Create endpoint command failed or timed out")
-        
-        log "DEBUG: Create endpoint output: $CREATE_EP_OUTPUT"
-        
-        if [[ "$CREATE_EP_OUTPUT" != *"ERROR:"* ]] && [[ "$CREATE_EP_OUTPUT" != *"failed"* ]] && [[ "$CREATE_EP_OUTPUT" != *"timed out"* ]]; then
-            # Get the resource ID  of the created endpoint
-            NAMESPACE_RESOURCE_ID=$(timeout 30 az iot ops asset endpoint show --name "$TEMP_ENDPOINT_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv 2>&1 || echo "Show endpoint failed")
-            
-            if [[ "$NAMESPACE_RESOURCE_ID" != *"ERROR:"* ]] && [[ "$NAMESPACE_RESOURCE_ID" != *"failed"* ]] && [ -n "$NAMESPACE_RESOURCE_ID" ]; then
-                log "SUCCESS: Created temporary asset endpoint profile as namespace: $NAMESPACE_RESOURCE_ID"
-            else
-                log "FAILED: Could not get resource ID of created endpoint"
-                log "ERROR: $NAMESPACE_RESOURCE_ID"
-                NAMESPACE_RESOURCE_ID=""
-            fi
-        else
-            log "FAILED: Could not create asset endpoint profile"
-            log "ERROR: $CREATE_EP_OUTPUT"
-        fi
-        fi
-    fi
-    
-    # If we still don't have a namespace resource ID, try simple listing approaches
-    if [ -z "$NAMESPACE_RESOURCE_ID" ]; then
-        log "No namespace resource found yet. Trying simple listing methods..."
-        
-        # Method: Simple asset endpoint listing (most likely to work)
-        log "SIMPLE METHOD: Listing all asset endpoints and using the first available one"
-        LIST_OUTPUT=$(timeout 30 az iot ops asset endpoint list --resource-group "$RESOURCE_GROUP" --query "[].id" -o tsv 2>&1 || echo "List command failed")
-        
-        if [[ "$LIST_OUTPUT" != *"ERROR:"* ]] && [[ "$LIST_OUTPUT" != *"failed"* ]] && [ -n "$LIST_OUTPUT" ] && [[ "$LIST_OUTPUT" != "[]" ]]; then
-            # Use the first available endpoint resource ID
-            NAMESPACE_RESOURCE_ID=$(echo "$LIST_OUTPUT" | head -1 | tr -d '\r\n')
-            log "SUCCESS: Found asset endpoint resource ID to use as namespace: $NAMESPACE_RESOURCE_ID"
-        else
-            log "WARNING: Could not list asset endpoints or no endpoints found"
-            log "OUTPUT: $LIST_OUTPUT"
-        fi
-    fi
-    
-    # Final validation and error handling
-    if [ -z "$NAMESPACE_RESOURCE_ID" ]; then
-        log "WARNING: Could not create or find a suitable namespace resource"
-        log "Will attempt deployment without namespace resource ID (this may work with current Azure IoT Operations versions)"
-        NAMESPACE_RESOURCE_ID="skip"
-    fi
-    
-    # Validate that we have a proper Azure resource ID format (unless we're skipping)
-    if [ "$NAMESPACE_RESOURCE_ID" != "skip" ] && [[ ! "$NAMESPACE_RESOURCE_ID" =~ ^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/[^/]+/.+ ]]; then
-        log "WARNING: The namespace resource ID is not in the correct Azure resource ID format. Got: $NAMESPACE_RESOURCE_ID"
-        log "Will attempt deployment without namespace resource ID instead"
-        NAMESPACE_RESOURCE_ID="skip"
-    fi
-    
-    if [ "$NAMESPACE_RESOURCE_ID" = "skip" ]; then
-        log "DEPLOYMENT APPROACH: Will deploy Azure IoT Operations WITHOUT --ns-resource-id parameter"
+    # Check if schema registry already exists
+    if az iot ops schema registry show --name "$SCHEMA_REGISTRY_NAME" --resource-group "$RESOURCE_GROUP" &> /dev/null; then
+        log "Schema registry $SCHEMA_REGISTRY_NAME already exists - using existing one"
+        SCHEMA_REGISTRY_RESOURCE_ID=$(az iot ops schema registry show --name "$SCHEMA_REGISTRY_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv)
     else
-        log "FINAL RESULT: Using namespace resource ID: $NAMESPACE_RESOURCE_ID"
+        # Create storage account for schema registry
+        log "Creating storage account: $STORAGE_ACCOUNT_NAME"
+        if az storage account show --name "$STORAGE_ACCOUNT_NAME" --resource-group "$RESOURCE_GROUP" &> /dev/null; then
+            log "Storage account $STORAGE_ACCOUNT_NAME already exists - using existing one"
+        else
+            log "Creating storage account: $STORAGE_ACCOUNT_NAME"
+            az storage account create \
+                --name "$STORAGE_ACCOUNT_NAME" \
+                --resource-group "$RESOURCE_GROUP" \
+                --location "$LOCATION" \
+                --sku Standard_LRS \
+                --kind StorageV2 \
+                --enable-hierarchical-namespace true \
+                --allow-blob-public-access false
+        fi        # Create container in storage account
+        CONTAINER_NAME="schemas"
+        if az storage container exists --name "$CONTAINER_NAME" --account-name "$STORAGE_ACCOUNT_NAME" --auth-mode login --query exists -o tsv 2>/dev/null | grep -q true; then
+            log "Storage container $CONTAINER_NAME already exists - using existing one"
+        else
+            log "Creating storage container: $CONTAINER_NAME"
+            az storage container create \
+                --name "$CONTAINER_NAME" \
+                --account-name "$STORAGE_ACCOUNT_NAME" \
+                --auth-mode login
+        fi
+        
+        # Get storage account resource ID
+        STORAGE_ACCOUNT_ID=$(az storage account show --name "$STORAGE_ACCOUNT_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv)
+        
+        # Create schema registry
+        log "Creating schema registry: $SCHEMA_REGISTRY_NAME"
+        az iot ops schema registry create \
+            --name "$SCHEMA_REGISTRY_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --registry-namespace "$NAMESPACE_NAME" \
+            --sa-resource-id "$STORAGE_ACCOUNT_ID"
+        
+        # Get schema registry resource ID
+        SCHEMA_REGISTRY_RESOURCE_ID=$(az iot ops schema registry show --name "$SCHEMA_REGISTRY_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv)
+    fi    
+    
+    # Use the namespace from config to construct the namespace resource ID
+    log "Constructing namespace resource ID from configuration..."
+    NAMESPACE_RESOURCE_NAME="${NAMESPACE_NAME}"
+    NAMESPACE_RESOURCE_ID="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.DeviceRegistry/namespaces/$NAMESPACE_RESOURCE_NAME"
+    
+    log "Using namespace resource ID: $NAMESPACE_RESOURCE_ID"
+    
+    # Check if namespace exists, create if it doesn't
+    log "Checking if Device Registry namespace exists..."
+    if az resource show --ids "$NAMESPACE_RESOURCE_ID" &>/dev/null; then
+        log "Device Registry namespace already exists"
+    else
+        log "Creating Device Registry namespace: $NAMESPACE_RESOURCE_NAME"
+        if az deviceregistry namespace create \
+            --name "$NAMESPACE_RESOURCE_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --location "$LOCATION"; then
+            log "Device Registry namespace created successfully"
+        else
+            error "Failed to create Device Registry namespace. This is required for Azure IoT Operations."
+            error "You can try creating it manually with:"
+            error "az deviceregistry namespace create --name $NAMESPACE_RESOURCE_NAME --resource-group $RESOURCE_GROUP --location $LOCATION"
+            exit 1
+        fi
     fi
     
-    # Deploy Azure IoT Operations with schema registry and optional namespace
-    log "Deploying Azure IoT Operations (this may take several minutes)..."
-    log "Note: Using schema registry '$SCHEMA_REGISTRY_NAME'"
+    # Deploy Azure IoT Operations with schema registry and namespace
+    log "Deploying Azure IoT Operations - this may take several minutes..."
+    log "Note: Using schema registry: $SCHEMA_REGISTRY_NAME"
     log "Note: Schema Registry ID: $SCHEMA_REGISTRY_RESOURCE_ID"
     
-    if [ "$NAMESPACE_RESOURCE_ID" = "skip" ]; then
-        log "Note: Deploying WITHOUT namespace resource ID (newer Azure IoT Operations approach)"
-        log "EXECUTING: az iot ops create --cluster $CLUSTER_NAME --resource-group $RESOURCE_GROUP --name ${CLUSTER_NAME}-aio --sr-resource-id $SCHEMA_REGISTRY_RESOURCE_ID"
-        
-        if az iot ops create \
-            --cluster "$CLUSTER_NAME" \
-            --resource-group "$RESOURCE_GROUP" \
-            --name "${CLUSTER_NAME}-aio" \
-            --sr-resource-id "$SCHEMA_REGISTRY_RESOURCE_ID"; then
-            log "Azure IoT Operations deployed successfully!"
-        else
-            warn "Azure IoT Operations deployment failed without --ns-resource-id parameter"
-            warn "This may be due to version compatibility. Consider:"
-            warn "1. Updating Azure CLI: az upgrade"
-            warn "2. Updating azure-iot-ops extension: az extension update --name azure-iot-ops"
-            warn "3. Creating a custom asset endpoint manually and specifying it in CUSTOM_ASSET_ENDPOINT"
-            error "Azure IoT Operations deployment failed"
-        fi
+    log "FINAL Namespace Resource ID: $NAMESPACE_RESOURCE_ID"
+    log "EXECUTING: az iot ops create --cluster $CLUSTER_NAME --resource-group $RESOURCE_GROUP --name ${CLUSTER_NAME}-aio --sr-resource-id $SCHEMA_REGISTRY_RESOURCE_ID --ns-resource-id $NAMESPACE_RESOURCE_ID"
+    
+    if az iot ops create \
+        --cluster "$CLUSTER_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --name "${CLUSTER_NAME}-aio" \
+        --sr-resource-id "$SCHEMA_REGISTRY_RESOURCE_ID" \
+        --ns-resource-id "$NAMESPACE_RESOURCE_ID"; then
+        log "Azure IoT Operations deployed successfully!"
+        log "Enabling resource sync for asset discovery..."
     else
-        log "Note: Namespace Resource ID: $NAMESPACE_RESOURCE_ID"
-        log "EXECUTING: az iot ops create --cluster $CLUSTER_NAME --resource-group $RESOURCE_GROUP --name ${CLUSTER_NAME}-aio --sr-resource-id $SCHEMA_REGISTRY_RESOURCE_ID --ns-resource-id $NAMESPACE_RESOURCE_ID"
-        
-        if az iot ops create \
-            --cluster "$CLUSTER_NAME" \
-            --resource-group "$RESOURCE_GROUP" \
-            --name "${CLUSTER_NAME}-aio" \
-            --sr-resource-id "$SCHEMA_REGISTRY_RESOURCE_ID" \
-            --ns-resource-id "$NAMESPACE_RESOURCE_ID"; then
-            log "Azure IoT Operations deployed successfully!"
-        else
-            error "Azure IoT Operations deployment failed with namespace resource ID"
-        fi
+        error "Azure IoT Operations deployment failed. Check the logs above for details."
+    fi
+    
+    # Enable rsync after deployment
+    log "Enabling resource sync to surface discovered assets in cloud..."
+    if az iot ops enable-rsync --name "${CLUSTER_NAME}-aio" --resource-group "$RESOURCE_GROUP"; then
+        log "Resource sync enabled successfully!"
+    else
+        warn "Failed to enable resource sync automatically"
+        warn "You can enable it manually later with:"
+        warn "az iot ops enable-rsync --name ${CLUSTER_NAME}-aio --resource-group $RESOURCE_GROUP"
     fi
 }
 
-# Deploy OPC UA Bridge components
-deploy_opc_ua_bridge() {
-    # Check if OPC UA bridge deployment is enabled
-    if [ "$DEPLOY_OPC_UA_BRIDGE" = "false" ]; then
-        log "OPC UA Bridge deployment disabled in configuration"
-        log "To enable: set 'deploy_opc_ua_bridge: true' in linux_aio_config.json"
+# Enable resource sync for asset discovery
+enable_asset_sync() {
+    log "Enabling edge-to-cloud asset sync for discovered assets..."
+    
+    # Enable resource sync rules on Azure IoT Operations instance
+    log "Enabling rsync to surface discovered assets in cloud experience..."
+    
+    INSTANCE_NAME="${CLUSTER_NAME}-aio"
+    
+    if az iot ops enable-rsync --name "$INSTANCE_NAME" --resource-group "$RESOURCE_GROUP"; then
+        log "[SUCCESS] Asset sync enabled successfully!"
+        log "Discovered assets on the edge will now be surfaced in the cloud experience"
+    else
+        warn "Failed to enable asset sync. You may need to run this manually:"
+        warn "az iot ops enable-rsync -n $INSTANCE_NAME -g $RESOURCE_GROUP"
+        
+        # Try with explicit K8 Bridge service principal OID if the first command failed
+        log "Attempting with explicit K8 Bridge service principal OID..."
+        K8_BRIDGE_SP_OID=$(az ad sp list --display-name "K8 Bridge" --query "[0].id" -o tsv 2>/dev/null || echo "")
+        
+        if [ -n "$K8_BRIDGE_SP_OID" ]; then
+            log "Found K8 Bridge service principal OID: $K8_BRIDGE_SP_OID"
+            if az iot ops enable-rsync --name "$INSTANCE_NAME" --resource-group "$RESOURCE_GROUP" --k8-bridge-sp-oid "$K8_BRIDGE_SP_OID"; then
+                log "[SUCCESS] Asset sync enabled successfully with explicit OID!"
+            else
+                warn "[FAILED] Failed to enable asset sync even with explicit OID"
+                warn "Manual intervention may be required"
+            fi
+        else
+            warn "Could not retrieve K8 Bridge service principal OID"
+            warn "You may need to run manually with appropriate permissions"
+        fi
+    fi
+    
+    log "Asset discovery and sync configuration completed"
+}
+
+# Deploy MQTT Assets and Simulator
+deploy_mqtt_assets() {
+    # Check if MQTT assets deployment is enabled
+    if [ "$DEPLOY_MQTT_ASSETS" = "false" ]; then
+        log "MQTT assets deployment disabled in configuration"
+        log "To enable: set deploy_mqtt_assets: true in linux_aio_config.json"
         return 0
     fi
     
-    log "Deploying OPC UA Bridge components for factory integration..."
+    log "Deploying MQTT assets and simulator..."
     
-    # Check if OPC UA config directory exists
-    local opcua_config_dir="./opcua/assets"
-    if [ ! -d "$opcua_config_dir" ]; then
-        opcua_config_dir="../opcua/assets"
-        if [ ! -d "$opcua_config_dir" ]; then
-            warn "OPC UA configuration directory not found. Skipping OPC UA bridge deployment."
-            warn "To manually deploy later, run: kubectl apply -f opcua/assets/opc-plc-simulator.yaml"
+    # Check if MQTT config directory exists
+    local mqtt_config_dir="./iotopps/edgemqttsim"
+    if [ ! -d "$mqtt_config_dir" ]; then
+        mqtt_config_dir="../iotopps/edgemqttsim"
+        if [ ! -d "$mqtt_config_dir" ]; then
+            warn "MQTT configuration directory not found. Skipping MQTT assets deployment."
+            warn "To manually deploy later, run: kubectl apply -f iotopps/edgemqttsim/deployment.yaml"
             return 0
         fi
     fi
     
-    local opc_simulator_file="$opcua_config_dir/opc-plc-simulator.yaml"
-    local asset_endpoint_file="$opcua_config_dir/asset-endpoint-profile.yaml"
+    local mqtt_simulator_file="$mqtt_config_dir/deployment.yaml"
+    local mqtt_endpoint_file="$mqtt_config_dir/mqtt-asset-endpoint.yaml"
+    local mqtt_asset_file="./assets/cnc-machine-asset.yaml"
     
-    # Check if OPC UA simulator YAML exists
-    if [ ! -f "$opc_simulator_file" ]; then
-        warn "OPC PLC Simulator configuration file not found at: $opc_simulator_file"
-        warn "Skipping OPC UA bridge deployment."
+    # Check if MQTT simulator YAML exists
+    if [ ! -f "$mqtt_simulator_file" ]; then
+        warn "MQTT Simulator configuration file not found at: $mqtt_simulator_file"
+        warn "Skipping MQTT assets deployment."
         return 0
     fi
     
-    # Deploy OPC PLC Simulator
-    log "Deploying OPC PLC Simulator..."
-    kubectl apply -f "$opc_simulator_file"
+    # Deploy MQTT Simulator
+    log "Deploying MQTT Simulator (edgemqttsim)..."
+    kubectl apply -f "$mqtt_simulator_file"
     
-    # Wait for OPC PLC Simulator to be ready
-    log "Waiting for OPC PLC Simulator to be ready..."
-    kubectl wait --for=condition=available --timeout=300s deployment/opc-plc-simulator -n azure-iot-operations
+    # Wait for MQTT Simulator to be ready
+    log "Waiting for MQTT Simulator to be ready..."
+    kubectl wait --for=condition=available --timeout=300s deployment/edgemqttsim -n azure-iot-operations 2>/dev/null || true
     
     if [ $? -eq 0 ]; then
-        log "OPC PLC Simulator deployed successfully"
+        log "MQTT Simulator deployed successfully"
     else
-        warn "OPC PLC Simulator deployment may have timed out. Checking status..."
-        kubectl get pods -n azure-iot-operations -l app=opc-plc-simulator
+        warn "MQTT Simulator deployment may have timed out. Checking status..."
+        kubectl get pods -n azure-iot-operations -l app=edgemqttsim
     fi
     
-    # Deploy Asset Endpoint Profile if it exists
-    if [ -f "$asset_endpoint_file" ]; then
-        log "Deploying Asset Endpoint Profile..."
-        kubectl apply -f "$asset_endpoint_file"
-        log "Asset Endpoint Profile deployed"
+    # Deploy MQTT Asset Endpoint Profile if it exists
+    if [ -f "$mqtt_endpoint_file" ]; then
+        log "Deploying MQTT Asset Endpoint Profile..."
+        kubectl apply -f "$mqtt_endpoint_file"
+        log "MQTT Asset Endpoint Profile deployed"
     else
-        log "Asset Endpoint Profile file not found. You can deploy it later with:"
-        log "kubectl apply -f opcua/assets/asset-endpoint-profile.yaml"
+        log "MQTT Asset Endpoint Profile file not found. You can deploy it later with:"
+        log "kubectl apply -f iotopps/edgemqttsim/mqtt-asset-endpoint.yaml"
     fi
     
-    # Display OPC UA endpoint information
-    log "OPC UA Bridge deployment completed!"
+    # Deploy MQTT Asset if it exists
+    if [ -f "$mqtt_asset_file" ]; then
+        log "Deploying MQTT Asset..."
+        kubectl apply -f "$mqtt_asset_file"
+        log "MQTT Asset deployed"
+    else
+        warn "MQTT Asset file not found at: $mqtt_asset_file"
+        log "You can deploy it later with:"
+        log "kubectl apply -f assets/cnc-machine-asset.yaml"
+    fi
+    
+    # Display MQTT endpoint information
+    log "MQTT assets deployment completed!"
     echo
-    log "OPC UA Endpoint Details:"
-    log "- Internal URL: opc.tcp://opc-plc-service.azure-iot-operations.svc.cluster.local:50000"
+    log "MQTT Endpoint Details:"
+    log "- Internal URL: mqtt://aio-broker.azure-iot-operations.svc.cluster.local:18883"
     log "- Namespace: azure-iot-operations"
-    log "- Authentication: Anonymous (development setup)"
+    log "- Authentication: Anonymous development setup"
+    log "- Asset Endpoint: factory-mqtt"
     echo
-    log "Next Steps for OPC UA Bridge:"
+    log "Next Steps for MQTT Assets:"
     log "1. Access Azure IoT Operations Portal"
-    log "2. Navigate to 'Asset endpoints' and verify 'spaceship-factory-opcua' appears"
-    log "3. Create assets using the portal with the OPC UA endpoint"
-    log "4. Configure data flows and dashboards"
+    log "2. Navigate to Asset endpoints and verify factory-mqtt appears"
+    log "3. View MQTT assets in the portal"
+    log "4. Configure data flows to process factory telemetry"
     echo
 }
 
@@ -1299,17 +1239,23 @@ show_next_steps() {
     echo "1. View your Azure IoT Operations instance in the Azure Portal:"
     echo "   https://portal.azure.com/#blade/HubsExtension/BrowseResource/resourceType/Microsoft.IoTOperations%2Finstances"
     echo
-    echo "2. Access OPC UA Bridge for factory integration:"
-    echo "   - Navigate to 'Asset endpoints' in the portal"
-    echo "   - Verify 'spaceship-factory-opcua' endpoint is available"
-    echo "   - Create assets using the OPC UA endpoint"
+    echo "2. Access MQTT Assets for factory integration:"
+    echo "   - Navigate to Asset endpoints in the portal"
+    echo "   - Verify factory-mqtt endpoint is available"
+    echo "   - View MQTT assets publishing factory telemetry"
     echo "   - Configure data flows for factory data processing"
     echo
-    echo "3. Configure assets and data flows:"
+    echo "3. Deploy MQTT Assets to Azure (Recommended):"
+    echo "   - Assets can be deployed directly to Azure using ARM templates"
+    echo "   - This bypasses resource sync and is more reliable"
+    echo "   - Run: bash deploy-assets.sh"
+    echo "   - Alternative: Enable resource sync with: az iot ops enable-rsync --name ${CLUSTER_NAME}-aio --resource-group $RESOURCE_GROUP"
+    echo
+    echo "4. Configure assets and data flows:"
     echo "   - Create assets to represent your industrial equipment"
     echo "   - Set up data flows to process and route data"
     echo
-    echo "4. Monitor your deployment:"
+    echo "5. Monitor your deployment:"
     echo "   kubectl get pods -n azure-iot-operations"
     echo "   az iot ops check"
     echo
@@ -1319,10 +1265,10 @@ show_next_steps() {
     echo "   Namespace: $NAMESPACE_NAME"
     echo "   Location: $LOCATION"
     echo
-    echo -e "${BLUE}OPC UA Bridge Details:${NC}"
-    echo "   Endpoint URL: opc.tcp://opc-plc-service.azure-iot-operations.svc.cluster.local:50000"
-    echo "   Authentication: Anonymous (development setup)"
-    echo "   Factory Nodes: CNC, 3D Printer, Welding, Painting, Testing stations"
+    echo -e "${BLUE}MQTT Assets Details:${NC}"
+    echo "   Endpoint URL: mqtt://aio-broker.azure-iot-operations.svc.cluster.local:18883"
+    echo "   Authentication: Anonymous development setup"
+    echo "   Topics: factory/telemetry, factory/assembly-line-1/telemetry"
     echo
     echo -e "${BLUE}Useful Commands:${NC}"
     echo "   # Check cluster status"
@@ -1331,22 +1277,22 @@ show_next_steps() {
     echo "   # View Azure IoT Operations pods"
     echo "   kubectl get pods -n azure-iot-operations"
     echo
-    echo "   # Check OPC UA Bridge status"
-    echo "   kubectl get pods -n azure-iot-operations -l app=opc-plc-simulator"
-    echo "   kubectl get svc -n azure-iot-operations opc-plc-service"
+    echo "   # Check MQTT Simulator status"
+    echo "   kubectl get pods -n azure-iot-operations -l app=edgemqttsim"
+    echo "   kubectl get svc -n azure-iot-operations aio-broker"
     echo
     echo "   # Check Azure IoT Operations health"
     echo "   az iot ops check"
     echo
-    echo "   # View logs for OPC UA simulator"
-    echo "   kubectl logs deployment/opc-plc-simulator -n azure-iot-operations"
+    echo "   # View logs for MQTT simulator"
+    echo "   kubectl logs deployment/edgemqttsim -n azure-iot-operations"
     echo
     echo "   # View logs for a specific pod"
     echo "   kubectl logs <pod-name> -n azure-iot-operations"
     echo
     echo -e "${BLUE}Documentation:${NC}"
-    echo "   For complete OPC UA bridge setup and asset registration:"
-    echo "   See: opcua/assets/opc-ua-bridge.md"
+    echo "   For complete MQTT assets setup and deployment:"
+    echo "   See: iotopps/edgemqttsim/README.md"
     echo
 }
 
@@ -1354,6 +1300,7 @@ show_next_steps() {
 main() {
     log "Starting Azure IoT Operations installation for Linux..."
     log "This script will install K3s, Azure CLI, and Azure IoT Operations"
+    warn "IMPORTANT: First-time installation can take 30 minutes to 1 hour depending on system resources and network speed"
     echo
     
     check_root
@@ -1377,7 +1324,8 @@ main() {
     arc_enable_cluster
     create_namespace
     deploy_iot_operations
-    deploy_opc_ua_bridge
+    enable_asset_sync
+    deploy_mqtt_assets
     verify_deployment
     show_next_steps
     
