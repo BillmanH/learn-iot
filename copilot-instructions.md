@@ -16,7 +16,7 @@ This repository is focused on learning and implementing Azure IoT Operations (AI
   - `linux_aio_config.json` - Configuration file for customized deployments
   - Diagnostic scripts for K3s troubleshooting (`k3s_troubleshoot.sh`, `diagnose-orchestrator.sh`)
   - Network and port configuration utilities
-- **`operations/`** - Azure operations and integration configurations
+- **`operations/`** - Azure operations and integration configurationsl
 - **`certs/`** - Certificate handling (base64 encoded)
 
 ### Key Applications

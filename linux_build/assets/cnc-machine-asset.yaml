@@ -1,0 +1,23 @@
+apiVersion: deviceregistry.microsoft.com/v1
+kind: Asset
+metadata:
+  name: factory-mqtt-asset
+  namespace: azure-iot-operations
+spec:
+  assetEndpointProfileRef: factory-mqtt
+  uuid: factory-mqtt-asset
+  displayName: "Factory MQTT Assets"
+  description: "Industrial equipment publishing telemetry via MQTT"
+  manufacturer: "Industrial Automation"
+  model: "Factory-v1"
+  productCode: "MQTT-FACTORY-001"
+  hardwareRevision: "1.0"
+  softwareRevision: "2.1.0"
+  documentationUri: "https://github.com/BillmanH/learn-iot"
+  serialNumber: "MQTT-FAC-2024"
+  attributes:
+    temperature: "factory/telemetry"
+    pressure: "factory/telemetry"
+    production_count: "factory/telemetry"
+    status: "factory/telemetry"
+    machine_id: "factory/telemetry"

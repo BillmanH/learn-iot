@@ -287,11 +287,11 @@ load_config() {
         SKIP_SYSTEM_UPDATE=$(jq -r '.deployment.skip_system_update // false' "$config_file")
         FORCE_REINSTALL=$(jq -r '.deployment.force_reinstall // false' "$config_file")
         DEPLOYMENT_MODE=$(jq -r '.deployment.deployment_mode // "test"' "$config_file")
-        DEPLOY_OPC_UA_BRIDGE=$(jq -r '.deployment.deploy_opc_ua_bridge // true' "$config_file")
+        DEPLOY_MQTT_ASSETS=$(jq -r '.deployment.deploy_mqtt_assets // true' "$config_file")
         
         # Export variables
         export SUBSCRIPTION_ID SUBSCRIPTION_NAME RESOURCE_GROUP LOCATION CLUSTER_NAME NAMESPACE_NAME CUSTOM_ASSET_ENDPOINT
-        export SKIP_SYSTEM_UPDATE FORCE_REINSTALL DEPLOYMENT_MODE DEPLOY_OPC_UA_BRIDGE
+        export SKIP_SYSTEM_UPDATE FORCE_REINSTALL DEPLOYMENT_MODE DEPLOY_MQTT_ASSETS
         
         log "Configuration loaded from $config_file"
         log "Resource Group: $RESOURCE_GROUP, Location: $LOCATION, Cluster: $CLUSTER_NAME"
@@ -1106,16 +1106,16 @@ enable_asset_sync() {
     log "Asset discovery and sync configuration completed"
 }
 
-# Deploy OPC UA Bridge components
-deploy_opc_ua_bridge() {
-    # Check if OPC UA bridge deployment is enabled
-    if [ "$DEPLOY_OPC_UA_BRIDGE" = "false" ]; then
-        log "OPC UA Bridge deployment disabled in configuration"
-        log "To enable: set deploy_opc_ua_bridge: true in linux_aio_config.json"
+# Deploy MQTT Assets and Simulator
+deploy_mqtt_assets() {
+    # Check if MQTT assets deployment is enabled
+    if [ "$DEPLOY_MQTT_ASSETS" = "false" ]; then
+        log "MQTT assets deployment disabled in configuration"
+        log "To enable: set deploy_mqtt_assets: true in linux_aio_config.json"
         return 0
     fi
     
-    log "Deploying OPC UA Bridge components for factory integration..."
+    log "Deploying MQTT assets and simulator for factory integration..."
     
     # Check if OPC UA config directory exists
     local opcua_config_dir="./opcua/assets"
@@ -1163,19 +1163,20 @@ deploy_opc_ua_bridge() {
         log "kubectl apply -f opcua/assets/asset-endpoint-profile.yaml"
     fi
     
-    # Display OPC UA endpoint information
-    log "OPC UA Bridge deployment completed!"
+    # Display MQTT endpoint information
+    log "MQTT assets deployment completed!"
     echo
-    log "OPC UA Endpoint Details:"
-    log "- Internal URL: opc.tcp://opc-plc-service.azure-iot-operations.svc.cluster.local:50000"
+    log "MQTT Endpoint Details:"
+    log "- Internal URL: mqtt://aio-broker.azure-iot-operations.svc.cluster.local:18883"
     log "- Namespace: azure-iot-operations"
     log "- Authentication: Anonymous development setup"
+    log "- Asset Endpoint: factory-mqtt"
     echo
-    log "Next Steps for OPC UA Bridge:"
+    log "Next Steps for MQTT Assets:"
     log "1. Access Azure IoT Operations Portal"
-    log "2. Navigate to Asset endpoints and verify spaceship-factory-opcua appears"
-    log "3. Create assets using the portal with the OPC UA endpoint"
-    log "4. Configure data flows and dashboards"
+    log "2. Navigate to Asset endpoints and verify factory-mqtt appears"
+    log "3. View MQTT assets in the portal"
+    log "4. Configure data flows to process factory telemetry"
     echo
 }
 
@@ -1208,10 +1209,10 @@ show_next_steps() {
     echo "1. View your Azure IoT Operations instance in the Azure Portal:"
     echo "   https://portal.azure.com/#blade/HubsExtension/BrowseResource/resourceType/Microsoft.IoTOperations%2Finstances"
     echo
-    echo "2. Access OPC UA Bridge for factory integration:"
+    echo "2. Access MQTT Assets for factory integration:"
     echo "   - Navigate to Asset endpoints in the portal"
-    echo "   - Verify spaceship-factory-opcua endpoint is available"
-    echo "   - Create assets using the OPC UA endpoint"
+    echo "   - Verify factory-mqtt endpoint is available"
+    echo "   - View MQTT assets publishing factory telemetry"
     echo "   - Configure data flows for factory data processing"
     echo
     echo "3. Asset Discovery and Sync:"
@@ -1233,10 +1234,10 @@ show_next_steps() {
     echo "   Namespace: $NAMESPACE_NAME"
     echo "   Location: $LOCATION"
     echo
-    echo -e "${BLUE}OPC UA Bridge Details:${NC}"
-    echo "   Endpoint URL: opc.tcp://opc-plc-service.azure-iot-operations.svc.cluster.local:50000"
+    echo -e "${BLUE}MQTT Assets Details:${NC}"
+    echo "   Endpoint URL: mqtt://aio-broker.azure-iot-operations.svc.cluster.local:18883"
     echo "   Authentication: Anonymous development setup"
-    echo "   Factory Nodes: CNC, 3D Printer, Welding, Painting, Testing stations"
+    echo "   Topics: factory/telemetry, factory/assembly-line-1/telemetry"
     echo
     echo -e "${BLUE}Useful Commands:${NC}"
     echo "   # Check cluster status"
@@ -1245,22 +1246,22 @@ show_next_steps() {
     echo "   # View Azure IoT Operations pods"
     echo "   kubectl get pods -n azure-iot-operations"
     echo
-    echo "   # Check OPC UA Bridge status"
-    echo "   kubectl get pods -n azure-iot-operations -l app=opc-plc-simulator"
-    echo "   kubectl get svc -n azure-iot-operations opc-plc-service"
+    echo "   # Check MQTT Simulator status"
+    echo "   kubectl get pods -n azure-iot-operations -l app=edgemqttsim"
+    echo "   kubectl get svc -n azure-iot-operations aio-broker"
     echo
     echo "   # Check Azure IoT Operations health"
     echo "   az iot ops check"
     echo
-    echo "   # View logs for OPC UA simulator"
-    echo "   kubectl logs deployment/opc-plc-simulator -n azure-iot-operations"
+    echo "   # View logs for MQTT simulator"
+    echo "   kubectl logs deployment/edgemqttsim -n azure-iot-operations"
     echo
     echo "   # View logs for a specific pod"
     echo "   kubectl logs <pod-name> -n azure-iot-operations"
     echo
     echo -e "${BLUE}Documentation:${NC}"
-    echo "   For complete OPC UA bridge setup and asset registration:"
-    echo "   See: opcua/assets/opc-ua-bridge.md"
+    echo "   For complete MQTT assets setup and deployment:"
+    echo "   See: iotopps/edgemqttsim/README.md"
     echo
 }
 
@@ -1293,7 +1294,7 @@ main() {
     create_namespace
     deploy_iot_operations
     enable_asset_sync
-    deploy_opc_ua_bridge
+    deploy_mqtt_assets
     verify_deployment
     show_next_steps
     
