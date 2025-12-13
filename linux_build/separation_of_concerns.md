@@ -116,9 +116,10 @@ The current script performs these functions in order:
     "write_kubeconfig_mode": "644"
   },
   "optional_tools": {
-    "k9s": true,
+    "k9s": false,
     "mqtt-viewer": false,
-    "mqttui": false
+    "mqttui": false,
+    "ssh": false
   },
   "modules": {
     "edgemqttsim": true,

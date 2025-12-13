@@ -74,9 +74,10 @@ linux_installer.sh (~500 lines)              external_configurator.sh (~500 line
     "disable_traefik": true
   },
   "optional_tools": {
-    "k9s": true,
+    "k9s": false,
     "mqtt-viewer": false,
-    "mqttui": false
+    "mqttui": false,
+    "ssh": false
   },
   "modules": {
     "edgemqttsim": true,

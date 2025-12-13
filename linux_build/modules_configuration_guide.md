@@ -13,7 +13,8 @@ Modules and tools are configured in the `edge_config.json` file:
   "optional_tools": {
     "k9s": true,
     "mqtt-viewer": false,
-    "mqttui": false
+    "mqttui": false,
+    "ssh": false
   },
   "modules": {
     "edgemqttsim": true,
@@ -157,6 +158,64 @@ mqttui -h broker -p 8883 --insecure
 
 ---
 
+### ssh
+**Purpose**: Secure remote shell access to the edge device
+
+**What it does**:
+- Installs and configures OpenSSH server
+- Sets up key-based authentication (password auth disabled)
+- Configures firewall rules for SSH port 22
+- Generates unique host keys
+- Creates an SSH key pair for secure access
+- Prints connection details at end of installation
+
+**When to enable**:
+- ✅ Remote management and troubleshooting
+- ✅ Development environments requiring remote access
+- ✅ Multi-operator scenarios
+- ✅ Edge devices in accessible network locations
+- ❌ Air-gapped environments
+- ❌ Strict zero-trust networks
+- ❌ When physical-only access is required
+
+**Resource usage**: Minimal (~10MB disk, <5MB RAM idle, ~20MB per active session)
+
+**Security features**:
+- Key-based authentication only (passwords disabled)
+- Automatic key generation with 4096-bit RSA
+- Host key verification
+- Connection logging
+- Firewall integration
+
+**Installation method**: apt package (openssh-server)
+
+**Post-install output**: Displays SSH connection command with IP address and key location
+
+```bash
+# Example output at end of installation:
+========================================
+SSH Configuration Complete
+========================================
+SSH Server: RUNNING
+Host IP: 192.168.1.100
+SSH Port: 22
+
+Private Key Location: /home/adminuser/.ssh/id_rsa_edge_device
+Public Key: Added to authorized_keys
+
+To connect from another machine:
+1. Copy private key to your machine
+2. Run: ssh -i /path/to/id_rsa_edge_device adminuser@192.168.1.100
+
+Security Notes:
+- Password authentication is DISABLED
+- Only key-based authentication is allowed
+- Keep private key secure and never commit to git
+========================================
+```
+
+---
+
 ## Available Modules
 
 ### edgemqttsim
@@ -255,7 +314,8 @@ mqttui -h broker -p 8883 --insecure
   "optional_tools": {
     "k9s": true,
     "mqtt-viewer": true,
-    "mqttui": false
+    "mqttui": false,
+    "ssh": false
   },
   "modules": {
     "edgemqttsim": true,
@@ -278,7 +338,8 @@ mqttui -h broker -p 8883 --insecure
   "optional_tools": {
     "k9s": true,
     "mqtt-viewer": false,
-    "mqttui": true
+    "mqttui": true,
+    "ssh": false
   },
   "modules": {
     "edgemqttsim": true,
@@ -301,7 +362,8 @@ mqttui -h broker -p 8883 --insecure
   "optional_tools": {
     "k9s": true,
     "mqtt-viewer": true,
-    "mqttui": true
+    "mqttui": true,
+    "ssh": true
   },
   "modules": {
     "edgemqttsim": true,
@@ -324,7 +386,8 @@ mqttui -h broker -p 8883 --insecure
   "optional_tools": {
     "k9s": false,
     "mqtt-viewer": false,
-    "mqttui": false
+    "mqttui": false,
+    "ssh": false
   },
   "modules": {
     "edgemqttsim": false,
@@ -347,7 +410,8 @@ mqttui -h broker -p 8883 --insecure
   "optional_tools": {
     "k9s": true,
     "mqtt-viewer": false,
-    "mqttui": false
+    "mqttui": false,
+    "ssh": false
   },
   "modules": {
     "edgemqttsim": false,
@@ -370,7 +434,8 @@ mqttui -h broker -p 8883 --insecure
   "optional_tools": {
     "k9s": false,
     "mqtt-viewer": false,
-    "mqttui": false
+    "mqttui": false,
+    "ssh": false
   },
   "modules": {}
 }
@@ -381,10 +446,8 @@ or
   "optional_tools": {
     "k9s": false,
     "mqtt-viewer": false,
-    "mqttui": false
-  },
-    "k9s": false,
-    "mqtt-viewer": false
+    "mqttui": false,
+    "ssh": false
   },
   "modules": {
     "edgemqttsim": false,

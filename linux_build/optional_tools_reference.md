@@ -400,6 +400,199 @@ auto_subscribe = ["factory/#", "devices/#"]
 
 ---
 
+## ssh - Secure Remote Shell Access
+
+### Installation
+Set `"ssh": true` in edge_config.json and run `linux_installer.sh`
+
+The installer will:
+1. Install openssh-server
+2. Generate 4096-bit RSA key pair
+3. Configure key-based authentication only
+4. Disable password authentication
+5. Configure firewall rules
+6. Start and enable SSH service
+7. Display connection information
+
+### Post-Install Output
+
+After installation completes, you'll see:
+
+```
+========================================
+SSH Configuration Complete
+========================================
+SSH Server: RUNNING
+Host IP: 192.168.1.100
+SSH Port: 22
+
+Private Key Location: /home/adminuser/.ssh/id_rsa_edge_device
+Public Key: Added to authorized_keys
+
+To connect from another machine:
+1. Copy private key to your machine
+2. Run: ssh -i /path/to/id_rsa_edge_device adminuser@192.168.1.100
+
+Security Notes:
+- Password authentication is DISABLED
+- Only key-based authentication is allowed
+- Keep private key secure and never commit to git
+========================================
+```
+
+### Connecting from Remote Machine
+
+#### Step 1: Copy Private Key
+```bash
+# From edge device, copy the private key
+scp adminuser@192.168.1.100:/home/adminuser/.ssh/id_rsa_edge_device ~/edge_key
+
+# Or use USB drive, secure file transfer, etc.
+```
+
+#### Step 2: Set Key Permissions
+```bash
+chmod 600 ~/edge_key
+```
+
+#### Step 3: Connect
+```bash
+ssh -i ~/edge_key adminuser@192.168.1.100
+```
+
+#### Step 4: Add to SSH Config (Optional)
+```bash
+# Add to ~/.ssh/config
+cat >> ~/.ssh/config << EOF
+Host edge-device
+    HostName 192.168.1.100
+    User adminuser
+    IdentityFile ~/edge_key
+    StrictHostKeyChecking accept-new
+EOF
+
+# Now connect with:
+ssh edge-device
+```
+
+### Common Tasks
+
+#### Check SSH Service Status
+```bash
+# On edge device
+systemctl status sshd
+
+# Check if SSH port is listening
+sudo netstat -tlnp | grep :22
+```
+
+#### View SSH Logs
+```bash
+# Real-time log monitoring
+sudo journalctl -u sshd -f
+
+# Recent connection attempts
+sudo journalctl -u sshd -n 50
+```
+
+#### Manage Authorized Keys
+```bash
+# View authorized keys
+cat ~/.ssh/authorized_keys
+
+# Add additional keys
+echo "ssh-rsa AAAAB3... user@machine" >> ~/.ssh/authorized_keys
+
+# Remove a key
+nano ~/.ssh/authorized_keys  # Delete the line
+```
+
+#### Test Connection Without Key
+```bash
+# This should FAIL (password auth disabled)
+ssh adminuser@192.168.1.100
+# Expected: Permission denied (publickey)
+```
+
+#### Copy Files via SCP
+```bash
+# Copy file to edge device
+scp -i ~/edge_key local_file.txt adminuser@192.168.1.100:/tmp/
+
+# Copy from edge device
+scp -i ~/edge_key adminuser@192.168.1.100:/tmp/remote_file.txt ./
+
+# Copy directory recursively
+scp -i ~/edge_key -r local_dir adminuser@192.168.1.100:/tmp/
+```
+
+#### Run Remote Commands
+```bash
+# Execute single command
+ssh -i ~/edge_key adminuser@192.168.1.100 'kubectl get pods -A'
+
+# Run multiple commands
+ssh -i ~/edge_key adminuser@192.168.1.100 'cd /tmp && ls -la && df -h'
+
+# Interactive commands
+ssh -i ~/edge_key adminuser@192.168.1.100 -t 'sudo systemctl restart k3s'
+```
+
+### Security Features
+
+#### Key-Based Authentication Only
+- Password login completely disabled
+- Protects against brute-force attacks
+- Requires physical access to private key
+
+#### Strong Encryption
+- 4096-bit RSA keys (industry standard)
+- Secure key exchange protocols
+- Forward secrecy
+
+#### Firewall Integration
+- UFW automatically configured
+- Only port 22 exposed
+- Rate limiting available
+
+#### Connection Logging
+- All connections logged via systemd journal
+- Failed authentication attempts tracked
+- Audit trail for compliance
+
+### Configuration
+
+SSH config location: `/etc/ssh/sshd_config`
+
+Key settings applied by installer:
+```bash
+PasswordAuthentication no
+PubkeyAuthentication yes
+PermitRootLogin no
+X11Forwarding no
+MaxAuthTries 3
+```
+
+### Use Cases
+
+#### 1. Remote Troubleshooting
+**Problem**: Need to debug edge device from office  
+**Solution**: SSH in and run kubectl/diagnostic commands
+
+#### 2. Log Collection
+**Problem**: Need to retrieve logs for analysis  
+**Solution**: Use scp to copy log files to development machine
+
+#### 3. Remote Updates
+**Problem**: Need to update edge configuration  
+**Solution**: SSH in, edit files, restart services
+
+#### 4. Multi-Site Management
+**Problem**: Managing multiple edge devices  
+**Solution**: SSH with inventory scripts or Ansible
+
+---
+
 ## Troubleshooting
 
 ### k9s Won't Start
@@ -510,6 +703,61 @@ export TERM=xterm-256color
 mqttui -h broker -p 18883
 ```
 
+### SSH Issues
+
+#### Cannot connect to edge device
+```bash
+# Check SSH service on edge device
+ssh adminuser@edge-device 'systemctl status sshd'
+
+# Check network connectivity
+ping 192.168.1.100
+
+# Check firewall
+ssh adminuser@edge-device 'sudo ufw status'
+```
+
+#### Permission denied (publickey)
+```bash
+# Verify key permissions
+ls -la ~/edge_key
+# Should show: -rw------- (600)
+
+chmod 600 ~/edge_key
+
+# Verify key is correct
+ssh-keygen -lf ~/edge_key
+```
+
+#### Host key verification failed
+```bash
+# Remove old host key
+ssh-keygen -R 192.168.1.100
+
+# Or use StrictHostKeyChecking=accept-new
+ssh -o StrictHostKeyChecking=accept-new -i ~/edge_key adminuser@192.168.1.100
+```
+
+#### Connection timeout
+```bash
+# Check if SSH port is open
+nc -zv 192.168.1.100 22
+
+# Check if device is on same network
+ip route get 192.168.1.100
+
+# Try with verbose output
+ssh -vvv -i ~/edge_key adminuser@192.168.1.100
+```
+
+#### Key was regenerated
+```bash
+# If edge device was rebuilt, you'll see host key mismatch
+# Remove old key and accept new one
+ssh-keygen -R 192.168.1.100
+ssh -o StrictHostKeyChecking=accept-new -i ~/edge_key adminuser@192.168.1.100
+```
+
 ---
 
 ## When to Use Each Tool
@@ -520,6 +768,45 @@ mqttui -h broker -p 18883
 - ✅ Real-time monitoring during testing
 - ✅ Quick resource inspection
 - ✅ Pod log viewing
+- ❌ Production environments (use monitoring systems)
+- ❌ CI/CD pipelines (use kubectl)
+- ❌ Automated scripts
+
+### mqtt-viewer
+- ✅ Debugging MQTT connectivity issues
+- ✅ Validating telemetry data format
+- ✅ Testing message flows
+- ✅ Development and integration testing
+- ✅ Message rate analysis
+- ✅ Simple logging to file
+- ❌ Production monitoring (use proper telemetry systems)
+- ❌ Long-term message storage
+- ❌ High-volume message analysis
+- ❌ Interactive topic exploration (use mqttui)
+
+### mqttui
+- ✅ Interactive MQTT topic discovery
+- ✅ Multi-topic monitoring in one view
+- ✅ Real-time message inspection
+- ✅ Learning MQTT topic structure
+- ✅ Ad-hoc testing and experimentation
+- ✅ Message pattern searching
+- ❌ Automated testing (use mqtt-viewer)
+- ❌ Message logging to file (use mqtt-viewer)
+- ❌ Production monitoring (use proper telemetry systems)
+- ❌ CI/CD pipelines
+
+### ssh
+- ✅ Remote troubleshooting and debugging
+- ✅ Multi-site edge device management
+- ✅ Remote log collection
+- ✅ Configuration updates
+- ✅ Emergency access
+- ✅ Development and testing environments
+- ❌ Air-gapped or isolated networks
+- ❌ Strict zero-trust environments
+- ❌ When physical-only access is mandated
+- ❌ High-security production without remote access policy
 - ❌ Production environments (use monitoring systems)
 - ❌ CI/CD pipelines (use kubectl)
 - ❌ Automated scripts
@@ -593,11 +880,12 @@ mqttui -h broker -p 18883
   "optional_tools": {
     "k9s": true,
     "mqtt-viewer": true,
-    "mqttui": true
+    "mqttui": true,
+    "ssh": true
   }
 }
 ```
-**Why**: All tools accelerate development and debugging. Use mqttui for exploration, mqtt-viewer for logging.
+**Why**: All tools accelerate development and debugging. SSH enables remote work.
 
 ### Production Environment
 ```json
@@ -605,11 +893,25 @@ mqttui -h broker -p 18883
   "optional_tools": {
     "k9s": false,
     "mqtt-viewer": false,
-    "mqttui": false
+    "mqttui": false,
+    "ssh": false
   }
 }
 ```
 **Why**: Minimize attack surface, use centralized monitoring instead
+
+### Production with Remote Management
+```json
+{
+  "optional_tools": {
+    "k9s": false,
+    "mqtt-viewer": false,
+    "mqttui": false,
+    "ssh": true
+  }
+}
+```
+**Why**: SSH for remote access, but no dev tools to minimize footprint
 
 ### CI/CD Pipeline
 ```json
@@ -617,7 +919,8 @@ mqttui -h broker -p 18883
   "optional_tools": {
     "k9s": false,
     "mqtt-viewer": false,
-    "mqttui": false
+    "mqttui": false,
+    "ssh": false
   }
 }
 ```
@@ -629,11 +932,12 @@ mqttui -h broker -p 18883
   "optional_tools": {
     "k9s": true,
     "mqtt-viewer": false,
-    "mqttui": false
+    "mqttui": false,
+    "ssh": true
   }
 }
 ```
-**Why**: k9s useful for operators, mqtt-viewer not needed in production
+**Why**: k9s for interactive debugging, SSH for remote access, no MQTT tools in production
 
 ---
 
@@ -689,6 +993,27 @@ p                                # Publish message
 /                                # Search messages
 ?                                # Help
 q                                # Quit
+```
+
+### ssh
+```bash
+# Connect with key
+ssh -i ~/edge_key adminuser@192.168.1.100
+
+# Copy file to edge
+scp -i ~/edge_key file.txt adminuser@192.168.1.100:/tmp/
+
+# Copy from edge
+scp -i ~/edge_key adminuser@192.168.1.100:/tmp/file.txt ./
+
+# Run remote command
+ssh -i ~/edge_key adminuser@192.168.1.100 'kubectl get pods -A'
+
+# Add to SSH config (~/.ssh/config)
+Host edge-device
+    HostName 192.168.1.100
+    User adminuser
+    IdentityFile ~/edge_key
 ```
 
 ### mosquitto_sub (alternative)
