@@ -41,7 +41,7 @@ Create a configuration file to customize your deployment:
 cp linux_aio_config.template.json linux_aio_config.json
 
 # Edit the configuration file
-nano linux_aio_config.json
+vi (or nano) linux_aio_config.json
 ```
 
 **Minimal configuration** - Update these values:

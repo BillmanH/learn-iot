@@ -33,7 +33,11 @@ The repository demonstrates real-world patterns for industrial IoT deployments, 
 
 ## Quick Start
 
-### 1. Deploy Azure IoT Operations Infrastructure
+> **📢 New Architecture Available**: We're transitioning to a two-script architecture that separates edge installation from cloud configuration. See [Separation of Concerns Plan](./linux_build/separation_of_concerns.md) for details. Current `linuxAIO.sh` script remains fully supported during transition.
+
+### Current Deployment Process (linuxAIO.sh)
+
+#### 1. Deploy Azure IoT Operations Infrastructure
 
 ```bash
 # On your Ubuntu edge device (24.04+, 16GB RAM, 4 CPU cores minimum)
@@ -46,6 +50,34 @@ This script will:
 - Deploy Azure IoT Operations v1.2+
 - Configure MQTT broker and authentication
 - Set up Arc-enabled Kubernetes connection to Azure
+
+### Future Architecture (In Development)
+
+The deployment process is being split into two distinct phases for better security and flexibility:
+
+#### Phase 1: Edge Device Setup (`linux_installer.sh`)
+Run on the edge device to prepare local infrastructure:
+```bash
+# On Ubuntu edge device
+cd linux_build
+bash linux_installer.sh
+```
+
+**Installs**: K3s cluster, kubectl, Helm, system configurations  
+**Output**: `cluster_info.json` for remote configuration
+
+#### Phase 2: Azure Configuration (`external_configurator.sh`)
+Run from any machine with Azure CLI to connect and deploy AIO:
+```bash
+# On DevOps machine, developer workstation, or CI/CD pipeline
+cd linux_build
+bash external_configurator.sh --cluster-info cluster_info.json
+```
+
+**Configures**: Azure Arc, resource groups, AIO deployment, asset sync  
+**Benefits**: No Azure credentials needed on edge device, supports multi-cluster management
+
+See [Separation of Concerns Documentation](./linux_build/separation_of_concerns.md) for complete implementation details and timeline.
 
 ### 2. Deploy Assets to Azure
 
@@ -86,10 +118,13 @@ kubectl exec -it -n azure-iot-operations deploy/aio-broker-frontend -- \
 
 ### Infrastructure & Setup
 
+- **[Separation of Concerns Plan](./linux_build/separation_of_concerns.md)** - ⭐ NEW: Architecture plan for splitting installation into edge and cloud components
 - **[Linux Build Steps](./linux_build/linux_build_steps.md)** - Complete step-by-step guide for installing AIO on a fresh Linux system
 - **[K3s Troubleshooting Guide](./linux_build/K3S_TROUBLESHOOTING_GUIDE.md)** - Comprehensive troubleshooting reference for K3s cluster issues
 - **[Azure Portal Setup](./aio_portal_setup.md)** - Guide for discovering and managing devices in Azure Portal
-- **`linuxAIO.sh`** - Automated installation script for Azure IoT Operations
+- **`linuxAIO.sh`** - Current automated installation script for Azure IoT Operations (monolithic)
+- **`linux_installer.sh`** - 🚧 In Development: Edge device installer (local infrastructure only)
+- **`external_configurator.sh`** - 🚧 In Development: Remote Azure configurator (cloud resources only)
 - **`deploy-assets.sh`** - ARM template deployment script for Azure assets
 
 ### Applications & Samples
@@ -106,7 +141,9 @@ uv sync
 
 ## Architecture
 
-This repository demonstrates a modern edge-to-cloud architecture:
+This repository demonstrates a modern edge-to-cloud architecture. We're evolving toward a **separated architecture** that distinguishes between edge infrastructure and cloud orchestration.
+
+### Current Architecture (Monolithic)
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -133,6 +170,64 @@ This repository demonstrates a modern edge-to-cloud architecture:
 │   - Real-Time Intelligence                  │
 └─────────────────────────────────────────────┘
 ```
+
+### Future Architecture (Separated - In Development)
+
+The new architecture separates concerns into two distinct processes:
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│  Phase 1: Edge Device Setup (linux_installer.sh)              │
+│  Runs ON the edge device                                       │
+│                                                                 │
+│  ┌──────────────────────────────────────────────────────────┐ │
+│  │  Edge Device (Ubuntu + K3s)                              │ │
+│  │  • System preparation & validation                       │ │
+│  │  • K3s cluster installation                              │ │
+│  │  • kubectl & Helm installation                           │ │
+│  │  • Local system configuration                            │ │
+│  │  Output: cluster_info.json                               │ │
+│  └──────────────────────────────────────────────────────────┘ │
+└────────────────────────────────────────────────────────────────┘
+                              │
+                              │ Transfer cluster_info.json
+                              │ (Secure copy to management machine)
+                              ▼
+┌────────────────────────────────────────────────────────────────┐
+│  Phase 2: Azure Configuration (external_configurator.sh)      │
+│  Runs FROM any machine with Azure CLI                         │
+│                                                                 │
+│  ┌──────────────────────────────────────────────────────────┐ │
+│  │  Remote Configuration Machine                            │ │
+│  │  • Azure Arc enablement                                  │ │
+│  │  • Resource group & namespace creation                   │ │
+│  │  • AIO instance deployment                               │ │
+│  │  • Asset synchronization                                 │ │
+│  │  • Multi-cluster management                              │ │
+│  │  Output: deployment_summary.json                         │ │
+│  └──────────────────────────────────────────────────────────┘ │
+└────────────────────────────────────────────────────────────────┘
+                              │
+                              │ Azure Arc Connection
+                              ▼
+┌────────────────────────────────────────────────────────────────┐
+│  Azure Cloud Resources                                         │
+│  • Arc-enabled Kubernetes (connected edge cluster)            │
+│  • Azure IoT Operations instance                              │
+│  • Device Registry (Assets)                                   │
+│  • Schema Registry & Storage                                  │
+│  • Microsoft Fabric integration                               │
+└────────────────────────────────────────────────────────────────┘
+```
+
+**Benefits of Separated Architecture**:
+- 🔒 **Security**: No Azure credentials needed on edge devices
+- 📡 **Remote Management**: Configure multiple edge devices from central location
+- 🔄 **CI/CD Friendly**: Easy pipeline integration
+- 🐛 **Easier Debugging**: Clear separation of local vs. cloud issues
+- 🏢 **Production Ready**: Follows best practices for enterprise deployments
+
+For complete implementation details, timeline, and testing strategy, see [Separation of Concerns Documentation](./linux_build/separation_of_concerns.md).
 
 ## Prerequisites
 

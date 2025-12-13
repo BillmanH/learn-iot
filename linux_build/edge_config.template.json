@@ -1,0 +1,22 @@
+{
+  "edge_device": {
+    "cluster_name": "edge-device-001",
+    "skip_system_update": false,
+    "force_reinstall": false
+  },
+  "k3s": {
+    "disable_traefik": true,
+    "write_kubeconfig_mode": "644"
+  },
+  "optional_tools": {
+    "k9s": true,
+    "mqtt-viewer": false,
+    "mqttui": false
+  },
+  "modules": {
+    "edgemqttsim": true,
+    "hello-flask": false,
+    "sputnik": false,
+    "wasm-quality-filter-python": false
+  }
+}
