@@ -38,13 +38,13 @@ The error indicates **ServiceAccountToken (K8S-SAT) authentication failure**. Th
 kubectl get pods -n default | grep edgemqttsim
 
 # Get detailed pod information
-kubectl describe pod -l app=spaceshipfactorysim -n default
+kubectl describe pod -l app=edgemqttsim -n default
 
 # Check application logs
-kubectl logs -l app=spaceshipfactorysim -n default --tail=50
+kubectl logs -l app=edgemqttsim -n default --tail=50
 
 # Follow logs in real-time
-kubectl logs -l app=spaceshipfactorysim -n default -f
+kubectl logs -l app=edgemqttsim -n default -f
 ```
 
 ### 2. Verify ServiceAccountToken Mount
@@ -211,7 +211,7 @@ env:
 **Apply the change**:
 ```bash
 kubectl apply -f deployment.yaml
-kubectl rollout status deployment/spaceshipfactorysim -n default
+kubectl rollout status deployment/edgemqttsim -n default
 ```
 
 ### Solution 4: Verify Broker Authentication Configuration
@@ -265,7 +265,7 @@ kubectl get networkpolicy -n azure-iot-operations
 
 # Check service mesh/proxy configuration
 kubectl get pods -n default -o wide
-kubectl describe pod -l app=spaceshipfactorysim -n default | grep -A 10 -B 10 "proxy\|mesh\|sidecar"
+kubectl describe pod -l app=edgemqttsim -n default | grep -A 10 -B 10 "proxy\|mesh\|sidecar"
 ```
 
 ## Validation Steps
@@ -274,13 +274,13 @@ After applying fixes, validate the connection:
 
 ```bash
 # Check if connection is successful
-kubectl logs -l app=spaceshipfactorysim -n default --tail=20 | grep -E "(Connected|✓|Failed|✗)"
+kubectl logs -l app=edgemqttsim -n default --tail=20 | grep -E "(Connected|✓|Failed|✗)"
 
 # Monitor message flow
-kubectl logs -l app=spaceshipfactorysim -n default -f | grep -E "(Batch|messages|sent|failed)"
+kubectl logs -l app=edgemqttsim -n default -f | grep -E "(Batch|messages|sent|failed)"
 
 # Check application statistics
-kubectl logs -l app=spaceshipfactorysim -n default --tail=50 | grep -E "(Messages|Rate|Queue)"
+kubectl logs -l app=edgemqttsim -n default --tail=50 | grep -E "(Messages|Rate|Queue)"
 ```
 
 ## Prevention Measures
@@ -342,7 +342,7 @@ mqtt_logger.addHandler(logging.StreamHandler())
 
 ```bash
 # Install tcpdump in the pod (if needed for deep debugging)
-kubectl exec -it deployment/spaceshipfactorysim -n default -- sh -c "
+kubectl exec -it deployment/edgemqttsim -n default -- sh -c "
   # Note: This requires privilege escalation and may not work in restricted environments
   apt-get update && apt-get install -y tcpdump
   tcpdump -i eth0 -n port 18883
