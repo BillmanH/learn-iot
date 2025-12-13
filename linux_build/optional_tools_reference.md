@@ -2,17 +2,24 @@
 
 ## Overview
 
-The `optional_tools` section in `edge_config.json` controls installation of helpful utilities for debugging and managing your edge deployment.
+The `optional_tools` section in `edge_config.json` controls installation of helpful utilities for debugging, managing, and accessing your edge deployment.
 
 ```json
 {
   "optional_tools": {
     "k9s": true,
     "mqtt-viewer": false,
-    "mqttui": false
+    "mqttui": false,
+    "ssh": false
   }
 }
 ```
+
+**Available Tools:**
+- **k9s**: Terminal UI for Kubernetes cluster management
+- **mqtt-viewer**: Command-line MQTT message viewer
+- **mqttui**: Interactive TUI for MQTT topic exploration
+- **ssh**: Secure remote shell access to edge device
 
 ---
 

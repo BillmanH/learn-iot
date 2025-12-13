@@ -30,7 +30,7 @@ The current script performs these functions in order:
 5. `update_system()` - Update Ubuntu packages
 6. `install_kubectl()` - Install kubectl binary
 7. `install_helm()` - Install Helm package manager
-8. `install_optional_tools()` - Install k9s, mqtt-viewer, and mqttui based on configuration
+8. `install_optional_tools()` - Install k9s, mqtt-viewer, mqttui, and ssh based on configuration
 9. `check_kubelite_conflicts()` - Check for MicroK8s/kubelite conflicts
 9. `cleanup_k3s()` - Remove existing K3s installations
 10. `check_k3s_resources()` - Pre-flight resource check
