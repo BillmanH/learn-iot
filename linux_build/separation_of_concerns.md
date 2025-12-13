@@ -75,7 +75,7 @@ The current script performs these functions in order:
 5. `update_system()` - Optional, configurable
 6. `install_kubectl()`
 7. `install_helm()`
-8. `install_optional_tools()` - Install k9s, mqtt-viewer based on optional_tools config
+8. `install_optional_tools()` - Install k9s, mqtt-viewer, mqttui, and ssh based on optional_tools config
 9. `check_kubelite_conflicts()`
 10. `cleanup_k3s()`
 11. `check_k3s_resources()`
@@ -248,7 +248,9 @@ Set values to `true` to install/deploy, `false` to skip.
    - Copy and adapt: install_k3s, configure_kubectl
    - Copy and adapt: configure_system_settings
 3. ⬜ Implement new functions:
-   - `install_optional_tools()` - Install k9s (terminal K8s UI), mqtt-viewer (MQTT debugging), and mqttui (MQTT TUI)
+   - `install_optional_tools()` - Install k9s (terminal K8s UI), mqtt-viewer (MQTT debugging), mqttui (MQTT TUI), and ssh (secure remote access)
+   - `configure_ssh()` - Set up OpenSSH with key-based auth, disable passwords, generate keys, configure firewall
+   - `display_ssh_info()` - Print SSH connection details with IP, port, and key location
    - `load_local_config()` - Parse edge_config.json
    - `deploy_modules()` - Iterate through modules config and deploy enabled applications
    - `verify_local_cluster()` - Comprehensive K3s health check
