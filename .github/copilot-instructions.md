@@ -1,5 +1,8 @@
 # Copilot Instructions for Azure IoT Operations Learning Repository
 
+## Important Constraints
+⚠️ **Cannot Run Bash Scripts Directly**: The edge server (Linux) has no AI access. All bash scripts must be provided as code for the user to manually pull changes to the edge server and execute. Only PowerShell scripts can be run directly on the Windows development machine.
+
 ## Project Overview
 This repository is focused on learning and implementing Azure IoT Operations (AIO) on edge devices using Kubernetes (K3s). It contains containerized IoT applications, deployment automation, and simulation tools for industrial IoT scenarios.
 
