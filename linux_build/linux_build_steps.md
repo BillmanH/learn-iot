@@ -36,12 +36,22 @@ cd learn-iothub/linux_build
 
 Create a configuration file to customize your deployment:
 
-```bash
-# Copy the template configuration
-cp linux_aio_config.template.json linux_aio_config.json
+**On your development machine (with repository access):**
 
-# Edit the configuration file
-vi (or nano) linux_aio_config.json
+```bash
+# Step 1: Copy the template to a thumb drive
+cp linux_aio_config.template.json /media/usb/linux_aio_config.template.json
+# (Adjust /media/usb to your actual USB mount point)
+```
+
+**Step 2: Edit the template on your development machine or edge device**
+
+Update the configuration file with your Azure settings:
+
+```bash
+# Edit the template file
+nano /media/usb/linux_aio_config.template.json
+# or on Windows: notepad E:\linux_aio_config.template.json
 ```
 
 **Minimal configuration** - Update these values:
@@ -64,8 +74,29 @@ vi (or nano) linux_aio_config.json
     "skip_system_update": false,
     "force_reinstall": false,
     "deployment_mode": "test"
+  },
+  "optional_tools": {
+    "k9s": true,
+    "mqtt-viewer": true,
+    "mqttui": false,
+    "ssh": false
+  },
+  "modules": {
+    "edgemqttsim": false,
+    "hello-flask": false,
+    "sputnik": false,
+    "wasm-quality-filter-python": false
   }
 }
+```
+
+**On your edge device (Linux target machine):**
+
+```bash
+# Step 3: Copy the configured template from thumb drive to your home directory
+cp /media/usb/linux_aio_config.template.json ~/linux_aio_config.json
+# or if you're in the linux_build directory:
+cp /media/usb/linux_aio_config.template.json ./linux_aio_config.json
 ```
 
 ### 4. Make the Script Executable

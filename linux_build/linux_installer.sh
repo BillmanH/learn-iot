@@ -523,19 +523,22 @@ install_mqtt_viewer() {
     fi
     
     if [ "$DRY_RUN" = "true" ]; then
-        info "[DRY-RUN] Would install mqtt-viewer"
+        info "[DRY-RUN] Would install mqtt-viewer via pipx"
         return 0
     fi
     
-    # Install via pip (requires Python)
-    if ! command -v pip3 &> /dev/null; then
-        sudo apt install -y python3-pip
+    # Install via pipx (recommended for Ubuntu 24.04+ CLI tools)
+    if ! command -v pipx &> /dev/null; then
+        log "Installing pipx for Python application management..."
+        sudo apt install -y pipx
+        pipx ensurepath
     fi
     
-    pip3 install mqtt-viewer --user
+    # Install mqtt-viewer using pipx
+    pipx install mqtt-viewer || warn "mqtt-viewer installation failed"
     
     INSTALLED_TOOLS+=("mqtt-viewer")
-    success "mqtt-viewer installed"
+    success "mqtt-viewer installed via pipx"
 }
 
 install_mqttui() {
