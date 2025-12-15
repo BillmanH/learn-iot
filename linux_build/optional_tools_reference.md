@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `optional_tools` section in `edge_config.json` controls installation of helpful utilities for debugging, managing, and accessing your edge deployment.
+The `optional_tools` section in `linux_aio_config.json` controls installation of helpful utilities for debugging, managing, and accessing your edge deployment.
 
 ```json
 {
@@ -26,7 +26,7 @@ The `optional_tools` section in `edge_config.json` controls installation of help
 ## k9s - Kubernetes Terminal UI
 
 ### Installation
-Set `"k9s": true` in edge_config.json and run `linux_installer.sh`
+Set `"k9s": true` in linux_aio_config.json and run `linux_installer.sh`
 
 Or install manually:
 ```bash
@@ -132,7 +132,7 @@ k9s:
 ## mqtt-viewer - MQTT Message Viewer
 
 ### Installation
-Set `"mqtt-viewer": true` in edge_config.json and run `linux_installer.sh`
+Set `"mqtt-viewer": true` in linux_aio_config.json and run `linux_installer.sh`
 
 Or install manually:
 ```bash
@@ -223,7 +223,7 @@ kubectl exec -it -n azure-iot-operations deploy/aio-broker-frontend -- \
 ## mqttui - Interactive MQTT Terminal UI
 
 ### Installation
-Set `"mqttui": true` in edge_config.json and run `linux_installer.sh`
+Set `"mqttui": true` in linux_aio_config.json and run `linux_installer.sh`
 
 Or install manually:
 ```bash
@@ -410,7 +410,7 @@ auto_subscribe = ["factory/#", "devices/#"]
 ## ssh - Secure Remote Shell Access
 
 ### Installation
-Set `"ssh": true` in edge_config.json and run `linux_installer.sh`
+Set `"ssh": true` in linux_aio_config.json and run `linux_installer.sh`
 
 The installer will:
 1. Install openssh-server

@@ -20,6 +20,18 @@
     "deployment_mode": "test",
     "deploy_opc_ua_bridge": false
   },
+  "optional_tools": {
+    "k9s": false,
+    "mqtt-viewer": false,
+    "mqttui": false,
+    "ssh": false
+  },
+  "modules": {
+    "edgemqttsim": false,
+    "hello-flask": false,
+    "sputnik": false,
+    "wasm-quality-filter-python": false
+  },
   "comments": {
     "subscription_id": "Leave empty to use current logged-in subscription, or provide your Azure subscription GUID",
     "subscription_name": "Leave empty to use current logged-in subscription, or provide subscription display name",
@@ -35,7 +47,19 @@
     "deployment_mode": "Options: 'test' for development, 'secure' for production (future)",
     "deploy_opc_ua_bridge": "Set to true to automatically deploy OPC UA bridge for factory integration, set to false as I'm not using it",
     "skip_system_update": "Set to true to skip apt update/upgrade for faster runs",
-    "force_reinstall": "Set to true to reinstall components even if they already exist"
+    "force_reinstall": "Set to true to reinstall components even if they already exist",
+    "optional_tools": {
+      "k9s": "Terminal UI for Kubernetes cluster management. Enable for development/debugging.",
+      "mqtt-viewer": "Command-line MQTT message viewer. Enable for MQTT debugging and testing.",
+      "mqttui": "Interactive TUI for MQTT topic exploration. Enable for interactive MQTT development.",
+      "ssh": "Secure remote shell access with key-based authentication. Enable for remote management."
+    },
+    "modules": {
+      "edgemqttsim": "Factory telemetry simulator. Enable for testing MQTT connectivity and data pipelines.",
+      "hello-flask": "Simple Flask web app. Enable for basic cluster validation.",
+      "sputnik": "Advanced application. Enable for comprehensive testing.",
+      "wasm-quality-filter-python": "WebAssembly edge filter. Enable for production edge processing."
+    }
   },
   "examples": {
     "development": {

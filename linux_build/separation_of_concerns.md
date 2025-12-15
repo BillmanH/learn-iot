@@ -7,6 +7,8 @@ This document outlines the separation of the current monolithic `linuxAIO.sh` sc
 1. **`linux_installer.sh`** - Local edge device configuration (runs on the target edge machine)
 2. **`external_configurator.sh`** - Remote Azure resource management (runs from any machine with Azure CLI)
 
+**Configuration**: Uses existing `linux_aio_config.json` (with new optional_tools and modules sections added)
+
 This separation enables:
 - Better security practices (no Azure credentials needed on edge devices in production)
 - Simplified edge device preparation and maintenance
@@ -103,7 +105,7 @@ The current script performs these functions in order:
   }
   ```
 
-**Configuration File**: `edge_config.json`
+**Configuration File**: `linux_aio_config.json` (enhanced with optional_tools and modules sections)
 ```json
 {
   "edge_device": {
@@ -251,7 +253,7 @@ Set values to `true` to install/deploy, `false` to skip.
    - `install_optional_tools()` - Install k9s (terminal K8s UI), mqtt-viewer (MQTT debugging), mqttui (MQTT TUI), and ssh (secure remote access)
    - `configure_ssh()` - Set up OpenSSH with key-based auth, disable passwords, generate keys, configure firewall
    - `display_ssh_info()` - Print SSH connection details with IP, port, and key location
-   - `load_local_config()` - Parse edge_config.json
+   - `load_local_config()` - Parse linux_aio_config.json
    - `deploy_modules()` - Iterate through modules config and deploy enabled applications
    - `verify_local_cluster()` - Comprehensive K3s health check
    - `generate_cluster_info()` - Export cluster metadata (include deployed modules and installed tools)
@@ -261,7 +263,7 @@ Set values to `true` to install/deploy, `false` to skip.
 
 **Deliverables**:
 - Working `linux_installer.sh`
-- `edge_config.template.json`
+- `linux_aio_config.template.json` (updated with new sections)
 - Unit tests for each function
 
 **Testing**:
@@ -577,7 +579,7 @@ linux_build/
 ├── linux_installer.sh              # NEW: Edge device installer
 ├── external_configurator.sh        # NEW: Remote Azure configurator
 ├── linuxAIO.sh                     # DEPRECATED: Original monolithic script
-├── edge_config.template.json       # NEW: Edge configuration template
+├── linux_aio_config.template.json  # UPDATED: Added optional_tools and modules sections
 ├── azure_config.template.json      # NEW: Azure configuration template
 ├── cluster_info.schema.json        # NEW: Cluster info output schema
 ├── deployment_summary.schema.json  # NEW: Deployment output schema

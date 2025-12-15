@@ -63,7 +63,7 @@ linux_installer.sh (~500 lines)              external_configurator.sh (~500 line
 
 ## Configuration Files
 
-### edge_config.json (for linux_installer.sh)
+### linux_aio_config.json (for linux_installer.sh)
 ```json
 {
   "edge_device": {
@@ -145,7 +145,7 @@ Set to `true` to deploy, `false` to skip.
 ```bash
 # Terminal 1: Edge setup with custom modules
 cd linux_build
-# Edit edge_config.json to enable desired modules
+# Edit linux_aio_config.json to enable desired modules
 bash linux_installer.sh
 
 # Terminal 2: Azure config (same machine)
@@ -161,7 +161,7 @@ ssh edge-device-001
 cd linux_build
 
 # Configure which modules to deploy
-cat > edge_config.json <<EOF
+cat > linux_aio_config.json <<EOF
 {
   "edge_device": {"cluster_name": "edge-001"},
   "modules": {
@@ -187,7 +187,7 @@ bash external_configurator.sh --cluster-info ./cluster_info.json
 
 ```bash
 # On edge device 1 (telemetry only)
-cat > edge_config.json <<EOF
+cat > linux_aio_config.json <<EOF
 {
   "modules": {"edgemqttsim": true}
 }
@@ -195,7 +195,7 @@ EOF
 bash linux_installer.sh
 
 # On edge device 2 (processing + telemetry)
-cat > edge_config.json <<EOF
+cat > linux_aio_config.json <<EOF
 {
   "modules": {
     "edgemqttsim": true,
@@ -226,10 +226,10 @@ jobs:
         run: |
           if [ "${{ env.ENVIRONMENT }}" == "production" ]; then
             jq '.modules.edgemqttsim = true | .modules."wasm-quality-filter-python" = true' \
-              edge_config.template.json > edge_config.json
+              linux_aio_config.template.json > linux_aio_config.json
           else
             jq '.modules.edgemqttsim = true | .modules."hello-flask" = true' \
-              edge_config.template.json > edge_config.json
+              linux_aio_config.template.json > linux_aio_config.json
           fi
       - run: bash linux_installer.sh
       - upload: cluster_info.json
@@ -387,7 +387,7 @@ A: Yes! The modules section is extensible. Add custom module names and implement
 A: Default behavior: deploy edgemqttsim only (backward compatible).
 
 **Q: Can I add modules after initial deployment?**  
-A: Yes! Edit edge_config.json, set new modules to true, and re-run linux_installer.sh (idempotent).
+A: Yes! Edit linux_aio_config.json, set new modules to true, and re-run linux_installer.sh (idempotent).
 
 **Q: Do I need two machines?**  
 A: No, both scripts can run on same machine. Separation is logical, not physical.
@@ -413,11 +413,11 @@ A: Each module adds ~30-60 seconds. Deploy only what you need for faster install
 - ✅ `linux_build/separation_quick_reference.md` - This file
 - 🚧 `linux_build/linux_installer.sh` - Edge installer (in development)
 - 🚧 `linux_build/external_configurator.sh` - Azure configurator (in development)
-- 🚧 `linux_build/edge_config.template.json` - Edge config with modules section
 - 🚧 `linux_build/azure_config.template.json` - Azure config template
 
 ### Updated Files
 - ✅ `readme.md` - Added new architecture section and notices
+- ✅ `linux_build/linux_aio_config.template.json` - Added optional_tools and modules sections
 - 🚧 `linux_build/linux_build_steps.md` - Will update in Phase 6
 - 🚧 `linux_build/deploy-assets.sh` - Will update in Phase 4
 
