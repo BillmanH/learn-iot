@@ -1,0 +1,157 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wasm-quality-filter-python
+  namespace: default
+  labels:
+    app: wasm-quality-filter-python
+    component: quality-control
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wasm-quality-filter-python
+  template:
+    metadata:
+      labels:
+        app: wasm-quality-filter-python
+        component: quality-control
+        version: v1
+    spec:
+      serviceAccountName: mqtt-client  # Use existing service account for MQTT access
+      containers:
+      - name: wasm-quality-filter-python
+        image: <YOUR_REGISTRY>/wasm-quality-filter-python:latest
+        imagePullPolicy: Always
+        
+        # Environment variables
+        env:
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: MQTT_BROKER
+          value: "aio-broker.azure-iot-operations.svc.cluster.local"
+        - name: MQTT_PORT
+          value: "18883"  # MQTTS port for encrypted connection
+        - name: INPUT_TOPIC
+          value: "azure-iot-operations/data/welding-stations"
+        - name: OUTPUT_TOPIC
+          value: "azure-iot-operations/alerts/quality-control"
+        - name: MQTT_CLIENT_ID
+          value: "wasm-quality-filter-python-$(POD_NAME)"
+        # ServiceAccountToken authentication settings
+        - name: MQTT_AUTH_METHOD
+          value: "K8S-SAT"  # Use Kubernetes ServiceAccountToken
+        - name: SAT_TOKEN_PATH
+          value: "/var/run/secrets/tokens/broker-sat"  # Token will be mounted here
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: HEALTH_PORT
+          value: "8080"
+        - name: QUALITY_THRESHOLD
+          value: "scrap"
+        - name: CYCLE_TIME_THRESHOLD
+          value: "7.0"
+
+        # Resource limits
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+
+        # Health checks
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 2
+
+        # Expose metrics and health endpoints
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+
+        # Security context
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+
+        # Volume mounts for temporary files and authentication
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: broker-sat
+          mountPath: /var/run/secrets/tokens
+          readOnly: true
+
+      # Volumes
+      volumes:
+      - name: tmp
+        emptyDir:
+          sizeLimit: 50Mi
+      - name: broker-sat
+        projected:
+          sources:
+          - serviceAccountToken:
+              path: broker-sat
+              expirationSeconds: 86400  # 24 hours
+              audience: aio-internal  # Must match broker's audience configuration
+
+      # Pod security
+      securityContext:
+        fsGroup: 1000
+
+      # Restart policy
+      restartPolicy: Always
+
+      # Node selection (optional - for edge deployment)
+      # nodeSelector:
+      #   kubernetes.io/arch: amd64
+
+---
+# Service for accessing metrics and health endpoints
+apiVersion: v1
+kind: Service
+metadata:
+  name: wasm-quality-filter-python-service
+  namespace: default
+  labels:
+    app: wasm-quality-filter-python
+    component: quality-control
+spec:
+  selector:
+    app: wasm-quality-filter-python
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  type: ClusterIP

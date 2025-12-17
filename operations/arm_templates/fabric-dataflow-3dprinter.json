@@ -1,0 +1,58 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "customLocationName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the custom location"
+      }
+    },
+    "aioInstanceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the Azure IoT Operations instance"
+      }
+    },
+    "fabricTopicId": {
+      "type": "string",
+      "metadata": {
+        "description": "Fabric Eventstream topic ID"
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.IoTOperations/instances/dataflowProfiles/dataflows",
+      "apiVersion": "2024-11-01",
+      "name": "[concat(parameters('aioInstanceName'), '/default/', 'factory-3dprinter-to-fabric')]",
+      "extendedLocation": {
+        "name": "[resourceId('Microsoft.ExtendedLocation/customLocations', parameters('customLocationName'))]",
+        "type": "CustomLocation"
+      },
+      "properties": {
+        "mode": "Enabled",
+        "operations": [
+          {
+            "operationType": "Source",
+            "name": "printer-source",
+            "sourceSettings": {
+              "endpointRef": "default",
+              "dataSources": [
+                "factory/3dprinter/#"
+              ]
+            }
+          },
+          {
+            "operationType": "Destination",
+            "name": "fabric-destination",
+            "destinationSettings": {
+              "endpointRef": "fabric-realtime",
+              "dataDestination": "[parameters('fabricTopicId')]"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

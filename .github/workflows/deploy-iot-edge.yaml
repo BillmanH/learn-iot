@@ -4,12 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       app_folder:
-        description: 'Application folder name (e.g., hello-flask, sputnik)'
+        description: 'Application folder name (e.g., hello-flask, sputnik, wasm-quality-filter-python)'
         required: true
         type: choice
         options:
           - hello-flask
           - sputnik
+          - wasm-quality-filter-python
       image_tag:
         description: 'Image tag (default: github.sha)'
         required: false
@@ -144,6 +145,27 @@ jobs:
         if: ${{ !inputs.skip_build }}
         uses: docker/setup-buildx-action@v3
 
+      - name: Install Rust for WASM builds
+        if: ${{ !inputs.skip_build && matrix.app == 'legacy-wasm-removed' }}
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.83"
+          targets: wasm32-wasip1
+
+      - name: Cache Rust dependencies
+        if: ${{ !inputs.skip_build && matrix.app == 'legacy-wasm-removed' }}
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-wasm-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-wasm-
+
       - name: Log in to Docker Hub
         if: ${{ !inputs.skip_build && env.REGISTRY_TYPE == 'dockerhub' }}
         uses: docker/login-action@v3
@@ -165,10 +187,10 @@ jobs:
           REG_TYPE="$REGISTRY_TYPE"
           REG_NAME="$REGISTRY_NAME"
           APP_RAW="${{ matrix.app }}"
-          # Trim whitespace and newlines from app name
-          APP=$(printf '%s' "$APP_RAW" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+          # Trim whitespace and newlines from app name, then convert to lowercase for Docker compatibility
+          APP=$(printf '%s' "$APP_RAW" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')
           echo "App raw: [$APP_RAW]"
-          echo "App trimmed: [$APP]"
+          echo "App trimmed and lowercase: [$APP]"
 
           # Demo: always use latest
           if [ "$REG_TYPE" = "acr" ]; then

@@ -85,7 +85,7 @@ print_status "subheader" "Step 2: Verifying deployment configuration..."
 print_status "subheader" "----------------------------------------------"
 
 # Check if deployment exists and uses correct service account
-if deployment_sa=$(kubectl get deployment spaceshipfactorysim -n default -o jsonpath='{.spec.template.spec.serviceAccountName}' 2>/dev/null); then
+if deployment_sa=$(kubectl get deployment edgemqttsim -n default -o jsonpath='{.spec.template.spec.serviceAccountName}' 2>/dev/null); then
     if [ "$deployment_sa" = "mqtt-client" ]; then
         print_status "success" "Deployment is correctly configured with service account 'mqtt-client'"
     else
@@ -94,7 +94,7 @@ if deployment_sa=$(kubectl get deployment spaceshipfactorysim -n default -o json
         print_status "warning" "   Please update deployment.yaml to use serviceAccountName: mqtt-client"
     fi
 else
-    print_status "error" "Deployment 'spaceshipfactorysim' not found"
+    print_status "error" "Deployment 'edgemqttsim' not found"
     print_status "error" "   Please deploy the application first"
 fi
 echo ""
@@ -102,14 +102,14 @@ echo ""
 print_status "subheader" "Step 3: Restarting deployment to refresh token..."
 print_status "subheader" "--------------------------------------------------"
 
-if run_kubectl "rollout restart deployment/spaceshipfactorysim -n default" \
+if run_kubectl "rollout restart deployment/edgemqttsim -n default" \
     "Deployment restart initiated" \
     "Failed to restart deployment"; then
     
     print_status "gray" "Waiting for rollout to complete..."
     sleep 5
     
-    if run_kubectl "rollout status deployment/spaceshipfactorysim -n default --timeout=60s" \
+    if run_kubectl "rollout status deployment/edgemqttsim -n default --timeout=60s" \
         "Rollout completed successfully" \
         "Rollout did not complete in time"; then
         :
@@ -144,7 +144,7 @@ print_status "subheader" "--------------------------------"
 sleep 10
 
 # Get the new pod name
-if pod_name=$(kubectl get pods -n default -l app=spaceshipfactorysim -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) && [ -n "$pod_name" ]; then
+if pod_name=$(kubectl get pods -n default -l app=edgemqttsim -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) && [ -n "$pod_name" ]; then
     print_status "gray" "Testing from pod: $pod_name"
     
     # Test DNS resolution
@@ -303,7 +303,7 @@ print_status "subheader" "------------------------------------"
 
 # Get recent logs
 print_status "gray" "Recent application logs:"
-if logs=$(kubectl logs -l app=spaceshipfactorysim -n default --tail=5 2>/dev/null); then
+if logs=$(kubectl logs -l app=edgemqttsim -n default --tail=5 2>/dev/null); then
     echo "$logs"
     
     # Check for successful connection
@@ -330,10 +330,10 @@ print_status "gray" "✓ Tested network connectivity"
 echo ""
 
 print_status "info" "Next Steps:"
-echo -e "${CYAN}1. Monitor logs: kubectl logs -l app=spaceshipfactorysim -n default -f${NC}"
+echo -e "${CYAN}1. Monitor logs: kubectl logs -l app=edgemqttsim -n default -f${NC}"
 echo -e "${CYAN}2. If issues persist, run: ./diagnose-mqtt.sh${NC}"
 echo -e "${CYAN}3. For detailed troubleshooting: See IOT_TROUBLESHOOTING.md${NC}"
 echo ""
 
 print_status "success" "🔍 To continue monitoring connection status:"
-echo -e "${CYAN}kubectl logs -l app=spaceshipfactorysim -n default -f | grep -E '(Connected|Failed|✓|✗)'${NC}"
+echo -e "${CYAN}kubectl logs -l app=edgemqttsim -n default -f | grep -E '(Connected|Failed|✓|✗)'${NC}"
