@@ -514,58 +514,49 @@ install_k9s() {
 }
 
 install_mqtt_viewer() {
-    log "Installing mqtt-viewer..."
+    log "Installing MQTT CLI tools (mosquitto-clients)..."
     
-    if command -v mqtt-viewer &> /dev/null && [ "$FORCE_REINSTALL" != "true" ]; then
-        info "mqtt-viewer already installed"
-        INSTALLED_TOOLS+=("mqtt-viewer")
+    if command -v mosquitto_sub &> /dev/null && [ "$FORCE_REINSTALL" != "true" ]; then
+        info "MQTT CLI tools already installed"
+        INSTALLED_TOOLS+=("mosquitto-clients")
         return 0
     fi
     
     if [ "$DRY_RUN" = "true" ]; then
-        info "[DRY-RUN] Would install mqtt-viewer via pipx"
+        info "[DRY-RUN] Would install mosquitto-clients"
         return 0
     fi
     
-    # Install via pipx (recommended for Ubuntu 24.04+ CLI tools)
-    if ! command -v pipx &> /dev/null; then
-        log "Installing pipx for Python application management..."
-        sudo apt install -y pipx
-        pipx ensurepath
-    fi
+    # Install mosquitto-clients (provides mosquitto_sub and mosquitto_pub)
+    sudo apt install -y mosquitto-clients
     
-    # Install mqtt-viewer using pipx
-    pipx install mqtt-viewer || warn "mqtt-viewer installation failed"
-    
-    INSTALLED_TOOLS+=("mqtt-viewer")
-    success "mqtt-viewer installed via pipx"
+    INSTALLED_TOOLS+=("mosquitto-clients")
+    success "MQTT CLI tools installed (mosquitto_sub, mosquitto_pub)"
 }
 
 install_mqttui() {
-    log "Installing mqttui (MQTT terminal UI)..."
-    
-    if command -v mqttui &> /dev/null && [ "$FORCE_REINSTALL" != "true" ]; then
-        info "mqttui already installed"
-        INSTALLED_TOOLS+=("mqttui")
-        return 0
-    fi
+    log "Installing MQTT TUI tool..."
     
     if [ "$DRY_RUN" = "true" ]; then
-        info "[DRY-RUN] Would install mqttui"
+        info "[DRY-RUN] Would attempt to install MQTT TUI via cargo"
         return 0
     fi
     
-    # Install via cargo (Rust package manager)
+    # Install Rust toolchain if not present
     if ! command -v cargo &> /dev/null; then
-        log "Installing Rust toolchain for mqttui..."
+        log "Installing Rust toolchain..."
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
         source "$HOME/.cargo/env"
     fi
     
-    cargo install mqttui
+    # Try to install MQTT Explorer as alternative (it's a more common package)
+    # Note: mqttui may not be available in crates.io
+    warn "mqttui package not found in crates.io"
+    info "Alternative: Use mosquitto_sub for CLI MQTT viewing"
+    info "  Example: mosquitto_sub -h localhost -p 1883 -t '#' -v"
     
-    INSTALLED_TOOLS+=("mqttui")
-    success "mqttui installed"
+    # Don't mark as installed since it failed
+    return 1
 }
 
 configure_ssh() {
@@ -1096,6 +1087,28 @@ display_next_steps() {
     echo "   Installation log: $LOG_FILE"
     echo "   K3s logs: sudo journalctl -u k3s -f"
     echo ""
+    
+    # Show validation commands for installed tools
+    if [ ${#INSTALLED_TOOLS[@]} -gt 0 ]; then
+        echo "5. Verify installed tools:"
+        
+        if [[ " ${INSTALLED_TOOLS[@]} " =~ " k9s " ]]; then
+            echo "   k9s version          # Check k9s installation"
+        fi
+        
+        if [[ " ${INSTALLED_TOOLS[@]} " =~ " mosquitto-clients " ]]; then
+            echo "   mosquitto_sub --help # Verify MQTT tools"
+            echo "   mosquitto_pub --help"
+        fi
+        
+        if [[ " ${INSTALLED_TOOLS[@]} " =~ " ssh " ]]; then
+            echo "   ssh -V               # Verify SSH version"
+            echo "   cat ~/.ssh/id_rsa.pub # View your public key"
+        fi
+        
+        echo ""
+    fi
+    
     echo -e "${CYAN}============================================================================${NC}"
     echo ""
     

@@ -50,8 +50,8 @@
     "force_reinstall": "Set to true to reinstall components even if they already exist",
     "optional_tools": {
       "k9s": "Terminal UI for Kubernetes cluster management. Enable for development/debugging.",
-      "mqtt-viewer": "Command-line MQTT message viewer. Enable for MQTT debugging and testing.",
-      "mqttui": "Interactive TUI for MQTT topic exploration. Enable for interactive MQTT development.",
+      "mqtt-viewer": "Installs mosquitto-clients (mosquitto_sub, mosquitto_pub). Enable for MQTT debugging and testing.",
+      "mqttui": "NOTE: Currently unavailable in crates.io. Use mosquitto-clients instead for MQTT CLI tools.",
       "ssh": "Secure remote shell access with key-based authentication. Enable for remote management."
     },
     "modules": {
