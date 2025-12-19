@@ -1,6 +1,6 @@
 """
-SpaceShip Factory Simulator - Azure IoT Operations MQTT Client
-Simulates a spaceship manufacturing facility with multiple machine types.
+Edge MQTT Simulator - Azure IoT Operations MQTT Client
+Simulates an industrial facility with multiple machine types.
 Sends realistic telemetry to Azure IoT Operations MQTT Broker using K8S-SAT authentication.
 """
 
@@ -261,7 +261,7 @@ def print_statistics():
 
 def main():
     print("=" * 70)
-    print("🚀 SpaceShip Factory Simulator - Azure IoT Operations")
+    print("🏭 Edge MQTT Simulator - Azure IoT Operations")
     print(f"   Authentication Method: {AUTH_METHOD}")
     print("=" * 70)
     
