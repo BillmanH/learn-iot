@@ -1024,6 +1024,249 @@ EOF
 }
 
 # ============================================================================
+# AZURE ARC ENABLEMENT (OPTIONAL)
+# ============================================================================
+
+setup_azure_arc() {
+    local enable_arc=$(jq -r '.azure.enable_arc_on_install // false' "$CONFIG_FILE")
+    
+    if [ "$enable_arc" != "true" ]; then
+        info "Azure Arc enablement disabled in configuration (azure.enable_arc_on_install=false)"
+        return 0
+    fi
+    
+    log "Setting up Azure Arc and Azure IoT Operations..."
+    
+    # Check if Azure CLI is installed
+    if ! command -v az &> /dev/null; then
+        warn "Azure CLI is not installed. Skipping Arc enablement."
+        echo ""
+        echo "To enable Arc later, install Azure CLI:"
+        echo "  curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash"
+        echo "  Then run: ./arc-enable-from-edge.sh"
+        return 0
+    fi
+    
+    success "Azure CLI is available"
+    
+    # Load Azure configuration
+    local subscription_id=$(jq -r '.azure.subscription_id // empty' "$CONFIG_FILE")
+    local resource_group=$(jq -r '.azure.resource_group // empty' "$CONFIG_FILE")
+    local location=$(jq -r '.azure.location // empty' "$CONFIG_FILE")
+    local namespace_name=$(jq -r '.azure.namespace_name // empty' "$CONFIG_FILE")
+    
+    if [ -z "$subscription_id" ] || [ -z "$resource_group" ] || [ -z "$location" ]; then
+        warn "Azure configuration incomplete in $CONFIG_FILE"
+        echo "Required fields: azure.subscription_id, azure.resource_group, azure.location"
+        return 0
+    fi
+    
+    if [ "$DRY_RUN" = "true" ]; then
+        info "[DRY-RUN] Would Arc-enable cluster with:"
+        info "[DRY-RUN]   Subscription: $subscription_id"
+        info "[DRY-RUN]   Resource Group: $resource_group"
+        info "[DRY-RUN]   Location: $location"
+        info "[DRY-RUN]   Cluster: $CLUSTER_NAME"
+        return 0
+    fi
+    
+    echo ""
+    echo -e "${CYAN}Azure Arc Configuration:${NC}"
+    echo "  Subscription ID: $subscription_id"
+    echo "  Resource Group: $resource_group"
+    echo "  Location: $location"
+    echo "  Cluster Name: $CLUSTER_NAME"
+    echo "  Namespace: $namespace_name"
+    echo ""
+    
+    # Check if already logged in
+    if ! az account show &>/dev/null; then
+        echo "Logging into Azure..."
+        az login || {
+            error "Azure login failed. Skipping Arc enablement."
+            return 1
+        }
+    fi
+    
+    # Set subscription
+    info "Setting Azure subscription..."
+    az account set --subscription "$subscription_id"
+    
+    # Create resource group if not exists
+    info "Checking resource group..."
+    if az group exists --name "$resource_group" | grep -q "true"; then
+        success "Resource group exists: $resource_group"
+    else
+        log "Creating resource group: $resource_group"
+        az group create --location "$location" --resource-group "$resource_group"
+        success "Resource group created"
+    fi
+    
+    # Arc-enable cluster
+    info "Arc-enabling cluster..."
+    if az connectedk8s show --name "$CLUSTER_NAME" --resource-group "$resource_group" &>/dev/null; then
+        success "Cluster is already Arc-enabled: $CLUSTER_NAME"
+    else
+        log "Connecting cluster to Azure Arc (this may take a few minutes)..."
+        az connectedk8s connect \
+            --name "$CLUSTER_NAME" \
+            --resource-group "$resource_group" || {
+            error "Failed to Arc-enable cluster"
+            return 1
+        }
+        success "Cluster Arc-enabled successfully!"
+    fi
+    
+    # Enable custom locations
+    info "Enabling custom locations and cluster connect..."
+    local object_id=$(az ad sp show --id bc313c14-388c-4e7d-a58e-70017303ee3b --query id -o tsv 2>/dev/null)
+    
+    if [ -n "$object_id" ]; then
+        az connectedk8s enable-features \
+            --name "$CLUSTER_NAME" \
+            --resource-group "$resource_group" \
+            --custom-locations-oid "$object_id" \
+            --features cluster-connect custom-locations || warn "Failed to enable some features"
+        success "Features enabled"
+    else
+        warn "Could not retrieve custom locations OID. Skipping feature enablement."
+    fi
+    
+    # Deploy Azure IoT Operations
+    local deploy_aio=$(jq -r '.azure.deploy_iot_operations // true' "$CONFIG_FILE")
+    
+    if [ "$deploy_aio" = "true" ]; then
+        deploy_azure_iot_operations "$subscription_id" "$resource_group" "$location" "$namespace_name"
+    else
+        info "Azure IoT Operations deployment disabled in configuration"
+    fi
+    
+    success "Azure Arc setup completed!"
+}
+
+deploy_azure_iot_operations() {
+    local subscription_id=$1
+    local resource_group=$2
+    local location=$3
+    local namespace_name=$4
+    
+    log "Deploying Azure IoT Operations..."
+    
+    # Initialize cluster
+    info "Initializing cluster for Azure IoT Operations..."
+    az iot ops init \
+        --cluster "$CLUSTER_NAME" \
+        --resource-group "$resource_group" || {
+        warn "Failed to initialize IoT Operations"
+        return 1
+    }
+    
+    # Register providers
+    info "Registering Azure resource providers..."
+    az provider register --namespace Microsoft.Storage
+    az provider register --namespace Microsoft.IoTOperations
+    az provider register --namespace Microsoft.DeviceRegistry
+    
+    # Create schema registry
+    local schema_registry_name="${CLUSTER_NAME}-schema-registry"
+    local storage_account_name=$(echo "${CLUSTER_NAME}storage" | tr '[:upper:]' '[:lower:]' | tr -d '-' | cut -c1-24)
+    
+    info "Setting up schema registry..."
+    
+    # Create storage account
+    if az storage account show --name "$storage_account_name" --resource-group "$resource_group" &>/dev/null; then
+        success "Storage account exists: $storage_account_name"
+    else
+        log "Creating storage account: $storage_account_name"
+        az storage account create \
+            --name "$storage_account_name" \
+            --resource-group "$resource_group" \
+            --location "$location" \
+            --sku Standard_LRS \
+            --kind StorageV2 \
+            --enable-hierarchical-namespace true \
+            --allow-blob-public-access false
+        success "Storage account created"
+    fi
+    
+    # Create container
+    az storage container create \
+        --name schemas \
+        --account-name "$storage_account_name" \
+        --auth-mode login \
+        --only-show-errors &>/dev/null || true
+    
+    # Get storage account resource ID
+    local storage_account_id=$(az storage account show \
+        --name "$storage_account_name" \
+        --resource-group "$resource_group" \
+        --query id -o tsv)
+    
+    # Create schema registry
+    if az iot ops schema registry show --name "$schema_registry_name" --resource-group "$resource_group" &>/dev/null; then
+        success "Schema registry exists: $schema_registry_name"
+    else
+        log "Creating schema registry: $schema_registry_name"
+        az iot ops schema registry create \
+            --name "$schema_registry_name" \
+            --resource-group "$resource_group" \
+            --registry-namespace "$namespace_name" \
+            --sa-resource-id "$storage_account_id"
+        success "Schema registry created"
+    fi
+    
+    # Get schema registry ID
+    local schema_registry_id=$(az iot ops schema registry show \
+        --name "$schema_registry_name" \
+        --resource-group "$resource_group" \
+        --query id -o tsv)
+    
+    # Create Device Registry namespace
+    info "Setting up Device Registry namespace..."
+    if az deviceregistry namespace show --name "$namespace_name" --resource-group "$resource_group" &>/dev/null; then
+        success "Device Registry namespace exists: $namespace_name"
+    else
+        log "Creating Device Registry namespace: $namespace_name"
+        az deviceregistry namespace create \
+            --name "$namespace_name" \
+            --resource-group "$resource_group" \
+            --location "$location"
+        success "Device Registry namespace created"
+    fi
+    
+    # Construct namespace resource ID
+    local namespace_resource_id="/subscriptions/$subscription_id/resourceGroups/$resource_group/providers/Microsoft.DeviceRegistry/namespaces/$namespace_name"
+    
+    # Deploy Azure IoT Operations instance
+    local instance_name="${CLUSTER_NAME}-aio"
+    
+    info "Deploying Azure IoT Operations instance..."
+    if az iot ops show --name "$instance_name" --resource-group "$resource_group" &>/dev/null; then
+        success "Azure IoT Operations instance exists: $instance_name"
+    else
+        log "Creating IoT Operations instance (this may take several minutes)..."
+        az iot ops create \
+            --cluster "$CLUSTER_NAME" \
+            --resource-group "$resource_group" \
+            --name "$instance_name" \
+            --sr-resource-id "$schema_registry_id" \
+            --ns-resource-id "$namespace_resource_id" || {
+            error "Failed to deploy Azure IoT Operations"
+            return 1
+        }
+        success "Azure IoT Operations deployed!"
+    fi
+    
+    # Enable resource sync
+    info "Enabling edge-to-cloud asset sync..."
+    az iot ops enable-rsync \
+        --name "$instance_name" \
+        --resource-group "$resource_group" &>/dev/null || warn "Failed to enable asset sync"
+    
+    success "Azure IoT Operations setup completed!"
+}
+
+# ============================================================================
 # NEXT STEPS DISPLAY
 # ============================================================================
 
@@ -1151,6 +1394,9 @@ main() {
     
     # Generate output
     generate_cluster_info
+    
+    # Azure Arc enablement (optional)
+    setup_azure_arc
     
     # Display next steps
     display_next_steps

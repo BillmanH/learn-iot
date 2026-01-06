@@ -527,11 +527,32 @@ function Initialize-KubeConfig {
             Write-ErrorLog "Cannot connect to cluster. Please ensure network connectivity to edge device."
             Write-ErrorLog "Error: $nodes"
             Write-Host ""
-            Write-Host "Troubleshooting tips:" -ForegroundColor Yellow
-            Write-Host "  1. Verify the edge device IP/hostname is correct" -ForegroundColor Gray
-            Write-Host "  2. Ensure port 6443 is accessible (check firewall on edge device)" -ForegroundColor Gray
-            Write-Host "  3. Test connectivity: Test-NetConnection -ComputerName <edge-ip> -Port 6443" -ForegroundColor Gray
-            Write-Host "  4. On edge device, allow port: sudo ufw allow 6443/tcp" -ForegroundColor Gray
+            Write-Host "NETWORK CONNECTIVITY ISSUE DETECTED" -ForegroundColor Red
+            Write-Host ""
+            Write-Host "Arc-enabling a Kubernetes cluster requires kubectl access to deploy Arc agents." -ForegroundColor Yellow
+            Write-Host "Since your Windows machine and edge device are on different networks," -ForegroundColor Yellow
+            Write-Host "you have these options:" -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "OPTION 1 - Run from Edge Device (RECOMMENDED):" -ForegroundColor Cyan
+            Write-Host "  SSH to your edge device and run Azure CLI commands directly there:" -ForegroundColor Gray
+            Write-Host "  1. SSH to edge device: ssh user@$($script:ClusterData.node_ip)" -ForegroundColor White
+            Write-Host "  2. Install Azure CLI: curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash" -ForegroundColor White
+            Write-Host "  3. Login: az login" -ForegroundColor White
+            Write-Host "  4. Set subscription: az account set --subscription $script:SubscriptionId" -ForegroundColor White
+            Write-Host "  5. Arc-enable cluster:" -ForegroundColor White
+            Write-Host "     az connectedk8s connect --name $script:ClusterName --resource-group $script:ResourceGroup" -ForegroundColor White
+            Write-Host "  6. Deploy Azure IoT Operations:" -ForegroundColor White
+            Write-Host "     az iot ops init --cluster $script:ClusterName --resource-group $script:ResourceGroup" -ForegroundColor White
+            Write-Host ""
+            Write-Host "OPTION 2 - VPN/Network Access:" -ForegroundColor Cyan
+            Write-Host "  Set up VPN or network tunnel to access the edge device's network" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "OPTION 3 - Same Network:" -ForegroundColor Cyan
+            Write-Host "  Run this script from a machine on the same network as the edge device" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "After Arc-enabling, you can use Azure Arc's cluster-connect feature:" -ForegroundColor Green
+            Write-Host "  az connectedk8s proxy --name $script:ClusterName --resource-group $script:ResourceGroup" -ForegroundColor White
+            Write-Host "  This creates a secure tunnel through Azure without exposing port 6443" -ForegroundColor Gray
             Write-Host ""
             Write-ErrorLog "Cannot establish connection to cluster" -Fatal
         }

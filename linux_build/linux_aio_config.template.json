@@ -8,7 +8,9 @@
     "namespace_name": "iot-operations-ns",
     "custom_location_name": "",
     "aio_instance_name": "",
-    "custom_asset_endpoint": ""
+    "custom_asset_endpoint": "",
+    "enable_arc_on_install": false,
+    "deploy_iot_operations": true
   },
   "fabric": {
     "eventstream_topic_id": "es_YOUR_FABRIC_TOPIC_ID",
@@ -41,6 +43,8 @@
     "custom_location_name": "Custom location name created during AIO installation (usually auto-generated like 'location-xxxxx'). Find with: az customlocation list -g <resource-group> -o table",
     "aio_instance_name": "Azure IoT Operations instance name (usually '<cluster-name>-aio'). Find with: az iot ops list -g <resource-group> -o table",
     "custom_asset_endpoint": "OPTIONAL: Name of existing asset endpoint to use as namespace resource (create this manually first)",
+    "enable_arc_on_install": "Set to true to Arc-enable cluster and deploy Azure IoT Operations during installation (requires Azure CLI and login)",
+    "deploy_iot_operations": "Set to true to deploy Azure IoT Operations (only applies if enable_arc_on_install=true)",
     "eventstream_topic_id": "Get from Fabric portal: https://app.fabric.microsoft.com → Eventstream → Copy topic ID (format: es_aaaaaaaa-0000-1111-2222-bbbbbbbbbbbb)",
     "eventstream_alerts_topic_id": "OPTIONAL: Separate Eventstream topic for critical alerts. Use same as eventstream_topic_id if not needed",
     "deployment_mode": "Options: 'test' for development, 'secure' for production (future)",
