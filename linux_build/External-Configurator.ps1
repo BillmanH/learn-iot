@@ -145,7 +145,7 @@ function Write-ErrorLog {
 function Write-Success {
     param([string]$Message)
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    Write-Host "[${timestamp}] ✓ $Message" -ForegroundColor Green
+    Write-Host "[${timestamp}] SUCCESS: $Message" -ForegroundColor Green
 }
 
 # ============================================================================
@@ -346,7 +346,7 @@ function Import-AzureConfig {
             Write-Host "     - $($searchPaths[1])" -ForegroundColor Gray
             Write-Host ""
             Write-Host "Alternatively, you can:" -ForegroundColor Yellow
-            Write-Host "  - Specify a custom config file: -ConfigFile <path>" -ForegroundColor Gray
+            Write-Host "  - Specify a custom config file: -ConfigFile 'path\to\config.json'" -ForegroundColor Gray
             Write-Host "  - Continue in interactive mode (you will be prompted for values)" -ForegroundColor Gray
             Write-Host ""
             
@@ -377,9 +377,9 @@ function Import-AzureConfig {
         
         # Load deployment settings
         if ($script:AzureConfig.deployment) {
-            $script:DeploymentMode = $script:AzureConfig.deployment.deployment_mode ?? "production"
-            $script:DeployMqttAssets = $script:AzureConfig.deployment.deploy_mqtt_assets ?? $true
-            $script:EnableResourceSync = $script:AzureConfig.deployment.enable_resource_sync ?? $true
+            $script:DeploymentMode = if ($script:AzureConfig.deployment.deployment_mode) { $script:AzureConfig.deployment.deployment_mode } else { "production" }
+            $script:DeployMqttAssets = if ($null -ne $script:AzureConfig.deployment.deploy_mqtt_assets) { $script:AzureConfig.deployment.deploy_mqtt_assets } else { $true }
+            $script:EnableResourceSync = if ($null -ne $script:AzureConfig.deployment.enable_resource_sync) { $script:AzureConfig.deployment.enable_resource_sync } else { $true }
         }
         
         Write-Success "Azure configuration loaded successfully"
@@ -450,7 +450,7 @@ function Connect-ToAzure {
     }
     
     if (-not $script:Location) {
-        $script:Location = Read-Host "Enter Azure region (e.g., eastus, westus2, westeurope)"
+        $script:Location = Read-Host "Enter Azure region (e.g. eastus or westus2 or westeurope)"
     }
     
     if (-not $script:NamespaceName) {
@@ -486,6 +486,31 @@ function Initialize-KubeConfig {
         $kubeconfigBytes = [System.Convert]::FromBase64String($script:ClusterData.kubeconfig_base64)
         $kubeconfigContent = [System.Text.Encoding]::UTF8.GetString($kubeconfigBytes)
         
+        # Check if kubeconfig uses localhost and needs to be updated
+        if ($kubeconfigContent -match 'server:\s*https?://127\.0\.0\.1:') {
+            Write-WarnLog "Kubeconfig uses localhost (127.0.0.1) which won't work from a remote machine"
+            
+            # Try to get IP from cluster_info.json first
+            $edgeDeviceAddress = $null
+            if ($script:ClusterData.node_ip) {
+                $edgeDeviceAddress = $script:ClusterData.node_ip
+                Write-InfoLog "Using node IP from cluster_info.json: $edgeDeviceAddress"
+            } else {
+                # Prompt user for IP address
+                Write-Host ""
+                Write-Host "Please enter the IP address or hostname of your edge device ($($script:ClusterData.node_name)):" -ForegroundColor Yellow
+                $edgeDeviceAddress = Read-Host "Edge device IP/hostname"
+            }
+            
+            if (-not $edgeDeviceAddress) {
+                Write-ErrorLog "Edge device address is required for remote cluster access" -Fatal
+            }
+            
+            # Replace localhost with actual edge device address
+            $kubeconfigContent = $kubeconfigContent -replace 'server:\s*https?://127\.0\.0\.1:', "server: https://${edgeDeviceAddress}:"
+            Write-Success "Updated kubeconfig server address to: https://${edgeDeviceAddress}:6443"
+        }
+        
         # Save to temporary location
         $tempKubeConfig = Join-Path $env:TEMP "kubeconfig_$($script:ClusterName).yaml"
         Set-Content -Path $tempKubeConfig -Value $kubeconfigContent -NoNewline
@@ -501,14 +526,44 @@ function Initialize-KubeConfig {
         if ($LASTEXITCODE -ne 0) {
             Write-ErrorLog "Cannot connect to cluster. Please ensure network connectivity to edge device."
             Write-ErrorLog "Error: $nodes"
-            Write-ErrorLog "The edge device may need to expose port 6443 or you may need VPN/network access." -Fatal
+            Write-Host ""
+            Write-Host "Troubleshooting tips:" -ForegroundColor Yellow
+            Write-Host "  1. Verify the edge device IP/hostname is correct" -ForegroundColor Gray
+            Write-Host "  2. Ensure port 6443 is accessible (check firewall on edge device)" -ForegroundColor Gray
+            Write-Host "  3. Test connectivity: Test-NetConnection -ComputerName <edge-ip> -Port 6443" -ForegroundColor Gray
+            Write-Host "  4. On edge device, allow port: sudo ufw allow 6443/tcp" -ForegroundColor Gray
+            Write-Host ""
+            Write-ErrorLog "Cannot establish connection to cluster" -Fatal
         }
         
         Write-Success "Successfully connected to cluster"
         kubectl get nodes
         
     } catch {
-        Write-ErrorLog "Failed to configure kubeconfig: $_" -Fatal
+        Write-ErrorLog "Failed to configure kubeconfig: $_"
+        
+        # Check if kubectl is the issue
+        if ($_.Exception.Message -like "*'kubectl' is not recognized*") {
+            Write-Host ""
+            Write-Host "kubectl is required but not found in PATH." -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "OPTION 1 - Using Azure CLI:" -ForegroundColor Cyan
+            Write-Host "  Run: az aks install-cli" -ForegroundColor White
+            Write-Host "  Then add to PATH:" -ForegroundColor Gray
+            Write-Host "    `$env:Path += `";`$HOME\.azure-kubectl`"" -ForegroundColor White
+            Write-Host "    [Environment]::SetEnvironmentVariable('Path', `$env:Path, 'User')" -ForegroundColor White
+            Write-Host ""
+            Write-Host "OPTION 2 - Using winget (handles PATH automatically):" -ForegroundColor Cyan
+            Write-Host "  winget install -e --id Kubernetes.kubectl" -ForegroundColor White
+            Write-Host ""
+            Write-Host "OPTION 3 - Using Chocolatey (handles PATH automatically):" -ForegroundColor Cyan
+            Write-Host "  choco install kubernetes-cli" -ForegroundColor White
+            Write-Host ""
+            Write-Host "After installation, close and reopen PowerShell, then run this script again." -ForegroundColor Yellow
+            Write-Host ""
+        }
+        
+        Write-ErrorLog "kubectl configuration failed" -Fatal
     }
 }
 
@@ -545,11 +600,11 @@ function New-AzureResources {
 
 function Enable-ArcForCluster {
     if ($SkipArcEnable) {
-        Write-InfoLog "Skipping Arc enablement (--SkipArcEnable flag)"
+        Write-InfoLog "Skipping Arc enablement (-SkipArcEnable flag)"
         return
     }
     
-    Write-Log "Arc-enabling the Kubernetes cluster..."
+    Write-Log "Connecting cluster to Azure Arc..."
     
     if ($DryRun) {
         Write-InfoLog "[DRY-RUN] Would Arc-enable cluster: $script:ClusterName"
@@ -857,7 +912,7 @@ function Enable-ResourceSync {
 
 function Test-Deployment {
     if ($SkipVerification) {
-        Write-InfoLog "Skipping deployment verification (--SkipVerification flag)"
+        Write-InfoLog "Skipping deployment verification (-SkipVerification flag)"
         return
     }
     
@@ -960,26 +1015,30 @@ function Show-CompletionSummary {
     
     Write-Host "Deployed Resources:" -ForegroundColor Green
     foreach ($resource in $script:DeployedResources) {
-        Write-Host "  ✓ $resource" -ForegroundColor Gray
+        Write-Host "  + $resource" -ForegroundColor Gray
     }
     Write-Host ""
     
     if ($script:Errors.Count -gt 0) {
         Write-Host "Errors Encountered:" -ForegroundColor Red
-        foreach ($error in $script:Errors) {
-            Write-Host "  ✗ $error" -ForegroundColor Gray
+        foreach ($errors in $script:Errors) {
+            Write-Host "  - $errors" -ForegroundColor Gray
         }
         Write-Host ""
     }
     
-    Write-Host "Azure Portal Links:" -ForegroundColor Cyan
-    Write-Host "  Resource Group: https://portal.azure.com/#@/resource/subscriptions/$script:SubscriptionId/resourceGroups/$script:ResourceGroup" -ForegroundColor Gray
-    Write-Host "  Azure IoT Operations: https://portal.azure.com/#@/resource/subscriptions/$script:SubscriptionId/resourceGroups/$script:ResourceGroup/providers/Microsoft.IoTOperations/instances/$script:ClusterName-aio" -ForegroundColor Gray
+    Write-Host "Azure Resources:" -ForegroundColor Cyan
+    Write-Host "  Subscription: $script:SubscriptionName ($script:SubscriptionId)" -ForegroundColor Gray
+    Write-Host "  Resource Group: $script:ResourceGroup" -ForegroundColor Gray
+    Write-Host "  Location: $script:Location" -ForegroundColor Gray
+    Write-Host "  IoT Operations Instance: $($script:ClusterName)-aio" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "View in Azure Portal: https://portal.azure.com" -ForegroundColor Cyan
     Write-Host ""
     
     Write-Host "Next Steps:" -ForegroundColor Green
-    Write-Host "  1. View deployment summary: cat $script:DeploymentSummaryFile" -ForegroundColor Gray
-    Write-Host "  2. Monitor cluster: kubectl get pods --all-namespaces" -ForegroundColor Gray
+    Write-Host "  1. View deployment summary: cat `$script:DeploymentSummaryFile" -ForegroundColor Gray
+    Write-Host "  2. Monitor cluster: kubectl get pods -A" -ForegroundColor Gray
     Write-Host "  3. Check Azure portal for resource status" -ForegroundColor Gray
     Write-Host "  4. Deploy MQTT assets (if applicable)" -ForegroundColor Gray
     Write-Host ""

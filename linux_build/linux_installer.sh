@@ -987,6 +987,19 @@ generate_cluster_info() {
     local node_version=$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.kubeletVersion}')
     local node_os=$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.osImage}')
     
+    # Get node IP address (internal IP)
+    local node_ip=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+    
+    # If InternalIP not found, try ExternalIP
+    if [ -z "$node_ip" ]; then
+        node_ip=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}')
+    fi
+    
+    # If still not found, try hostname command
+    if [ -z "$node_ip" ]; then
+        node_ip=$(hostname -I | awk '{print $1}')
+    fi
+    
     # Encode kubeconfig as base64
     local kubeconfig_b64=$(cat ~/.kube/config | base64 -w 0)
     
@@ -995,6 +1008,7 @@ generate_cluster_info() {
 {
   "cluster_name": "$CLUSTER_NAME",
   "node_name": "$node_name",
+  "node_ip": "$node_ip",
   "kubernetes_version": "$node_version",
   "node_os": "$node_os",
   "kubeconfig_base64": "$kubeconfig_b64",
