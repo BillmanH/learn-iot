@@ -1221,21 +1221,12 @@ deploy_azure_iot_operations() {
         --resource-group "$resource_group" \
         --query id -o tsv)
     
-    # Create Device Registry namespace
-    info "Setting up Device Registry namespace..."
-    if az deviceregistry namespace show --name "$namespace_name" --resource-group "$resource_group" &>/dev/null; then
-        success "Device Registry namespace exists: $namespace_name"
-    else
-        log "Creating Device Registry namespace: $namespace_name"
-        az deviceregistry namespace create \
-            --name "$namespace_name" \
-            --resource-group "$resource_group" \
-            --location "$location"
-        success "Device Registry namespace created"
-    fi
-    
     # Construct namespace resource ID
+    # Note: The Device Registry namespace will be created automatically during Azure IoT Operations deployment
+    info "Setting up Device Registry namespace..."
     local namespace_resource_id="/subscriptions/$subscription_id/resourceGroups/$resource_group/providers/Microsoft.DeviceRegistry/namespaces/$namespace_name"
+    log "Using namespace resource ID: $namespace_resource_id"
+    log "The namespace will be created automatically during deployment"
     
     # Deploy Azure IoT Operations instance
     local instance_name="${CLUSTER_NAME}-aio"
