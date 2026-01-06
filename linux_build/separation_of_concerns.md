@@ -5,7 +5,7 @@
 This document outlines the separation of the current monolithic `linuxAIO.sh` script into two distinct processes:
 
 1. **`linux_installer.sh`** - Local edge device configuration (runs on the target edge machine)
-2. **`external_configurator.sh`** - Remote Azure resource management (runs from any machine with Azure CLI)
+2. **`External-Configurator.ps1`** - Remote Azure resource management (PowerShell script, runs on Windows machine with Azure CLI)
 
 **Configuration**: Uses existing `linux_aio_config.json` (with new optional_tools and modules sections added)
 
@@ -87,12 +87,12 @@ The current script performs these functions in order:
 15. `deploy_modules()` - Deploy selected edge applications based on modules config
 16. `verify_local_cluster()` - Local K3s health check
 17. `generate_cluster_info()` - Export cluster details for remote configuration
-18. `display_next_steps()` - Guide user to run external_configurator.sh
+18. `display_next_steps()` - Guide user to run External-Configurator.ps1
 
 **Output**:
 - Fully functional K3s cluster
 - kubectl configured for local access
-- Cluster information file: `cluster_info.json`
+- Cluster information file: `cluster_info.json` (for use with External-Configurator.ps1)
   ```json
   {
     "cluster_name": "edge-device-001",
@@ -149,11 +149,11 @@ Set values to `true` to install/deploy, `false` to skip.
 
 ---
 
-### Process 2: `external_configurator.sh` (Remote Management)
+### Process 2: `External-Configurator.ps1` (Remote Management)
 
 **Purpose**: Connect edge clusters to Azure and deploy AIO resources
 
-**Runs On**: Any machine with Azure CLI (DevOps machine, developer workstation, CI/CD pipeline)
+**Runs On**: Windows machine with Azure CLI and PowerShell (DevOps machine, developer workstation, CI/CD pipeline)
 
 **Prerequisites**:
 - Azure CLI installed
@@ -213,22 +213,22 @@ Set values to `true` to install/deploy, `false` to skip.
 
 **Tasks**:
 1. ✅ Create this separation_of_concerns.md document
-2. ⬜ Review and validate function separation with stakeholders
-3. ⬜ Create new configuration file schemas
+2. ✅ Review and validate function separation with stakeholders
+3. ✅ Create new configuration file schemas
    - `edge_config.template.json`
    - `azure_config.template.json`
    - `cluster_info.schema.json` (output from linux_installer)
-4. ⬜ Document new workflows and use cases
-5. ⬜ Create test plan for both scripts
-6. ⬜ Set up test environments:
+4. ✅ Document new workflows and use cases
+5. ✅ Create test plan for both scripts
+6. ✅ Set up test environments:
    - Fresh Ubuntu VM for edge testing
    - Azure subscription for integration testing
    - DevOps machine for external configurator testing
 
 **Success Criteria**:
-- [ ] All configuration templates created and validated
-- [ ] Test environments provisioned
-- [ ] Stakeholder approval on architecture
+- [x] All configuration templates created and validated
+- [x] Test environments provisioned
+- [x] Stakeholder approval on architecture
 
 ---
 
@@ -238,18 +238,18 @@ Set values to `true` to install/deploy, `false` to skip.
 **Objective**: Create standalone edge device installer
 
 **Tasks**:
-1. ⬜ Create `linux_installer.sh` base structure
+1. ✅ Create `linux_installer.sh` base structure
    - Copy logging functions (log, warn, error)
    - Copy utility functions
    - Create main() function skeleton
-2. ⬜ Implement LOCAL functions from linuxAIO.sh
+2. ✅ Implement LOCAL functions from linuxAIO.sh
    - Copy and adapt: check_root, check_system_requirements
    - Copy and adapt: check_port_conflicts, update_system
    - Copy and adapt: install_kubectl, install_helm
    - Copy and adapt: check_kubelite_conflicts, cleanup_k3s
    - Copy and adapt: install_k3s, configure_kubectl
    - Copy and adapt: configure_system_settings
-3. ⬜ Implement new functions:
+3. ✅ Implement new functions:
    - `install_optional_tools()` - Install k9s (terminal K8s UI), mqtt-viewer (MQTT debugging), mqttui (MQTT TUI), and ssh (secure remote access)
    - `configure_ssh()` - Set up OpenSSH with key-based auth, disable passwords, generate keys, configure firewall
    - `display_ssh_info()` - Print SSH connection details with IP, port, and key location
@@ -257,54 +257,55 @@ Set values to `true` to install/deploy, `false` to skip.
    - `deploy_modules()` - Iterate through modules config and deploy enabled applications
    - `verify_local_cluster()` - Comprehensive K3s health check
    - `generate_cluster_info()` - Export cluster metadata (include deployed modules and installed tools)
-   - `display_next_steps()` - Guide to external_configurator
-4. ⬜ Add error handling and rollback capabilities
-5. ⬜ Implement dry-run mode for testing
+   - `display_next_steps()` - Guide to External-Configurator.ps1
+4. ✅ Add error handling and rollback capabilities
+5. ✅ Implement dry-run mode for testing
 
 **Deliverables**:
-- Working `linux_installer.sh`
-- `linux_aio_config.template.json` (updated with new sections)
-- Unit tests for each function
+- ✅ Working `linux_installer.sh`
+- ✅ `linux_aio_config.template.json` (updated with new sections)
+- ⬜ Unit tests for each function
 
 **Testing**:
-- [ ] Clean Ubuntu VM installation (full install)
-- [ ] Existing K3s cluster (detect and skip)
-- [ ] Insufficient resources (graceful failure)
-- [ ] Port conflicts (detection and resolution)
+- [x] Clean Ubuntu VM installation (full install)
+- [x] Existing K3s cluster (detect and skip)
+- [x] Insufficient resources (graceful failure)
+- [x] Port conflicts (detection and resolution)
 - [ ] Interrupted installation (resume capability)
 
 ---
 
-#### Phase 2b: external_configurator.sh
-**Objective**: Create remote Azure configuration tool
+#### Phase 2b: External-Configurator.ps1
+**Objective**: Create remote Azure configuration tool (PowerShell)
 
 **Tasks**:
-1. ⬜ Create `external_configurator.sh` base structure
-   - Copy logging functions
-   - Create main() function skeleton
-   - Add remote execution helpers
-2. ⬜ Implement REMOTE functions from linuxAIO.sh
-   - Copy and adapt: azure_login_setup
-   - Copy and adapt: create_azure_resources
-   - Copy and adapt: arc_enable_cluster
-   - Copy and adapt: create_namespace
-   - Copy and adapt: deploy_iot_operations
-   - Copy and adapt: enable_asset_sync
-3. ⬜ Implement new functions:
-   - `check_prerequisites()` - Verify Azure CLI, cluster_info
-   - `load_azure_config()` - Parse azure_config.json
-   - `load_cluster_info()` - Import edge cluster metadata
-   - `validate_cluster_connectivity()` - Remote kubectl test
-   - `deploy_assets_to_azure()` - ARM template deployment
-   - `generate_deployment_summary()` - Export deployment results
+1. ⬜ Create `External-Configurator.ps1` base structure
+   - Implement PowerShell logging functions (Write-Log, Write-Warning, Write-Error)
+   - Create main workflow with proper error handling
+   - Add remote execution helpers for kubectl/Azure CLI
+2. ⬜ Implement REMOTE functions from linuxAIO.sh (convert to PowerShell)
+   - Port bash functions to PowerShell cmdlets
+   - azure_login_setup → Azure authentication with Connect-AzAccount
+   - create_azure_resources → Azure resource creation
+   - arc_enable_cluster → Arc-enable cluster connection
+   - create_namespace → Device Registry namespace creation
+   - deploy_iot_operations → AIO instance deployment
+   - enable_asset_sync → Resource sync configuration
+3. ⬜ Implement new PowerShell functions:
+   - `Test-Prerequisites` - Verify Azure CLI, PowerShell modules, cluster_info.json
+   - `Import-AzureConfig` - Parse azure_config.json
+   - `Import-ClusterInfo` - Import edge cluster metadata
+   - `Test-ClusterConnectivity` - Remote kubectl connectivity test
+   - `Deploy-AssetsToAzure` - ARM template deployment
+   - `Export-DeploymentSummary` - Generate deployment results
 4. ⬜ Add support for managing multiple clusters
 5. ⬜ Implement idempotent operations (safe to re-run)
 
 **Deliverables**:
-- Working `external_configurator.sh`
+- Working `External-Configurator.ps1`
 - `azure_config.template.json`
 - `deployment_summary.schema.json`
-- Unit tests for each function
+- Pester tests for PowerShell functions
 
 **Testing**:
 - [ ] Connect to edge cluster from remote machine
@@ -323,14 +324,14 @@ Set values to `true` to install/deploy, `false` to skip.
 1. ⬜ End-to-end integration testing
    - Clean installation on fresh Ubuntu VM
    - Run linux_installer.sh
-   - Transfer cluster_info.json to remote machine
-   - Run external_configurator.sh
+   - Transfer cluster_info.json to Windows machine
+   - Run External-Configurator.ps1
    - Verify AIO deployment in Azure portal
 2. ⬜ Scenario testing:
    - **Scenario A**: Developer local setup (both scripts on same machine)
    - **Scenario B**: Production deployment (scripts on different machines)
    - **Scenario C**: CI/CD pipeline integration
-   - **Scenario D**: Multiple edge devices (one external_configurator, many installers)
+   - **Scenario D**: Multiple edge devices (one External-Configurator.ps1, many installers)
    - **Scenario E**: Disaster recovery (re-run linux_installer after cluster failure)
 3. ⬜ Performance benchmarking
    - Time each phase
@@ -354,7 +355,7 @@ Set values to `true` to install/deploy, `false` to skip.
 
 **Tasks**:
 1. ⬜ Update `deploy-assets.sh`
-   - Make compatible with external_configurator output
+   - Make compatible with External-Configurator.ps1 output
    - Support cluster_info.json as input
    - Add validation checks
 2. ⬜ Update `deploy-fabric-dataflows.sh`
@@ -490,14 +491,16 @@ bash test_functions.sh install_k3s --dry-run
 Test complete workflows:
 
 ```bash
-# Test full edge installation
+# Test full edge installation (Linux)
 bash test_integration.sh --test-suite edge_install
+```
 
-# Test full Azure configuration
-bash test_integration.sh --test-suite azure_config
+```powershell
+# Test full Azure configuration (Windows)
+.\Test-Integration.ps1 -TestSuite azure_config
 
-# Test end-to-end
-bash test_integration.sh --test-suite e2e
+# Test end-to-end (requires both Linux edge and Windows management machine)
+.\Test-Integration.ps1 -TestSuite e2e
 ```
 
 ### Compatibility Testing
@@ -562,7 +565,7 @@ Compare new scripts with original linuxAIO.sh:
 - [ ] 90% of functions have unit tests
 - [ ] 100% of integration scenarios pass
 - [ ] Zero critical bugs in production first month
-- [ ] Support for 10+ concurrent edge devices from one external_configurator
+- [ ] Support for 10+ concurrent edge devices from one External-Configurator.ps1 instance
 
 ### Qualitative
 - [ ] Positive user feedback (>80% satisfaction)
@@ -576,8 +579,8 @@ Compare new scripts with original linuxAIO.sh:
 
 ```
 linux_build/
-├── linux_installer.sh              # NEW: Edge device installer
-├── external_configurator.sh        # NEW: Remote Azure configurator
+├── linux_installer.sh              # NEW: Edge device installer (bash/Linux)
+├── External-Configurator.ps1       # NEW: Remote Azure configurator (PowerShell/Windows)
 ├── linuxAIO.sh                     # DEPRECATED: Original monolithic script
 ├── linux_aio_config.template.json  # UPDATED: Added optional_tools and modules sections
 ├── azure_config.template.json      # NEW: Azure configuration template
@@ -627,7 +630,7 @@ linux_build/
 
 ## Questions for Review
 
-1. **Naming**: Are `linux_installer.sh` and `external_configurator.sh` good names? Alternatives?
+1. **Naming**: Are `linux_installer.sh` and `External-Configurator.ps1` good names? Alternatives?
 2. **Backward Compatibility**: Should we maintain linuxAIO.sh indefinitely or set firm deprecation date?
 3. **Security**: Do we need encryption for cluster_info.json? Or is secure transfer documentation sufficient?
 4. **Testing**: What level of test automation is expected?
@@ -638,7 +641,7 @@ linux_build/
 
 ## Conclusion
 
-This separation of concerns will significantly improve the maintainability, security, and usability of the Azure IoT Operations deployment process. By clearly separating edge infrastructure (linux_installer) from cloud orchestration (external_configurator), we enable:
+This separation of concerns will significantly improve the maintainability, security, and usability of the Azure IoT Operations deployment process. By clearly separating edge infrastructure (linux_installer.sh on Linux) from cloud orchestration (External-Configurator.ps1 on Windows), we enable:
 
 - **Production-ready deployments** with proper security boundaries
 - **Multi-cluster management** from a single control point

@@ -6,7 +6,7 @@
 # This script prepares an Ubuntu edge device with local infrastructure:
 # - K3s Kubernetes cluster
 # - kubectl and Helm
-# - Optional development tools (k9s, mqtt-viewer, mqttui)
+# - Optional development tools (k9s, mqtt-viewer)
 # - Optional edge modules (edgemqttsim, hello-flask, sputnik, wasm-quality-filter-python)
 #
 # Requirements: 
@@ -27,7 +27,7 @@
 #
 # Output:
 #   - Functional K3s cluster
-#   - cluster_info.json with cluster details for external_configurator.sh
+#   - cluster_info.json with cluster details for External-Configurator.ps1
 #   - Installation log: linux_installer_YYYYMMDD_HHMMSS.log
 #
 # Author: Azure IoT Operations Team
@@ -66,7 +66,6 @@ SKIP_SYSTEM_UPDATE=false
 FORCE_REINSTALL=false
 K9S_ENABLED=false
 MQTT_VIEWER_ENABLED=false
-MQTTUI_ENABLED=false
 SSH_ENABLED=false
 EDGEMQTTSIM_ENABLED=false
 HELLO_FLASK_ENABLED=false
@@ -138,7 +137,7 @@ Azure IoT Operations - Edge Device Installer
 Usage: $0 [OPTIONS]
 
 This script prepares an Ubuntu edge device with K3s and optional modules.
-It does NOT configure Azure resources - use external_configurator.sh for that.
+It does NOT configure Azure resources - use External-Configurator.ps1 for that.
 
 Options:
     --dry-run               Validate configuration without making changes
@@ -149,12 +148,12 @@ Options:
 Configuration:
     Edit linux_aio_config.json to customize:
     - Edge device settings (cluster name, K3s options)
-    - Optional tools (k9s, mqtt-viewer, mqttui, ssh)
+    - Optional tools (k9s, mqtt-viewer, ssh)
     - Modules to deploy (edgemqttsim, hello-flask, sputnik, wasm-quality-filter-python)
 
 Output:
     - Functional K3s cluster on this device
-    - cluster_info.json for use with external_configurator.sh
+    - cluster_info.json for use with External-Configurator.ps1 (PowerShell)
     - Installation log file
 
 Examples:
@@ -354,7 +353,6 @@ load_local_config() {
     # Load optional tools configuration
     K9S_ENABLED=$(jq -r '.optional_tools.k9s // false' "$CONFIG_FILE")
     MQTT_VIEWER_ENABLED=$(jq -r '.optional_tools."mqtt-viewer" // false' "$CONFIG_FILE")
-    MQTTUI_ENABLED=$(jq -r '.optional_tools.mqttui // false' "$CONFIG_FILE")
     SSH_ENABLED=$(jq -r '.optional_tools.ssh // false' "$CONFIG_FILE")
     
     # Load modules configuration
@@ -373,7 +371,6 @@ load_local_config() {
     echo "Optional tools:"
     echo "  k9s: $K9S_ENABLED"
     echo "  mqtt-viewer: $MQTT_VIEWER_ENABLED"
-    echo "  mqttui: $MQTTUI_ENABLED"
     echo "  ssh: $SSH_ENABLED"
     echo ""
     echo "Modules to deploy:"
@@ -472,12 +469,6 @@ install_optional_tools() {
         tools_installed=true
     fi
     
-    # Install mqttui
-    if [ "$MQTTUI_ENABLED" = "true" ]; then
-        install_mqttui
-        tools_installed=true
-    fi
-    
     # Configure SSH
     if [ "$SSH_ENABLED" = "true" ]; then
         configure_ssh
@@ -532,31 +523,6 @@ install_mqtt_viewer() {
     
     INSTALLED_TOOLS+=("mosquitto-clients")
     success "MQTT CLI tools installed (mosquitto_sub, mosquitto_pub)"
-}
-
-install_mqttui() {
-    log "Installing MQTT TUI tool..."
-    
-    if [ "$DRY_RUN" = "true" ]; then
-        info "[DRY-RUN] Would attempt to install MQTT TUI via cargo"
-        return 0
-    fi
-    
-    # Install Rust toolchain if not present
-    if ! command -v cargo &> /dev/null; then
-        log "Installing Rust toolchain..."
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-        source "$HOME/.cargo/env"
-    fi
-    
-    # Try to install MQTT Explorer as alternative (it's a more common package)
-    # Note: mqttui may not be available in crates.io
-    warn "mqttui package not found in crates.io"
-    info "Alternative: Use mosquitto_sub for CLI MQTT viewing"
-    info "  Example: mosquitto_sub -h localhost -p 1883 -t '#' -v"
-    
-    # Don't mark as installed since it failed
-    return 1
 }
 
 configure_ssh() {
@@ -1072,8 +1038,8 @@ display_next_steps() {
     echo "   cat $CLUSTER_INFO_FILE"
     echo ""
     echo "2. Connect this cluster to Azure Arc and deploy Azure IoT Operations:"
-    echo "   - Transfer $CLUSTER_INFO_FILE to your management machine"
-    echo "   - Run: ./external_configurator.sh --cluster-info cluster_info.json"
+    echo "   - Transfer $CLUSTER_INFO_FILE to your Windows management machine"
+    echo "   - Run: .\External-Configurator.ps1 -ClusterInfo cluster_info.json"
     echo ""
     echo "3. Monitor your cluster:"
     echo "   kubectl get pods --all-namespaces"
