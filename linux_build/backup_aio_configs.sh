@@ -366,12 +366,19 @@ echo "=========================================="
 echo "Backup Complete!"
 echo "=========================================="
 echo ""
-echo "You can now safely unmount the USB drive."
-echo ""
-echo "To unmount manually:"
-echo "  sudo umount $SELECTED_DRIVE"
-echo ""
-echo "Or safely eject the drive from your file manager."
+
+# Unmount the drive
+echo "Unmounting drive..."
+if sudo umount "$SELECTED_DRIVE"; then
+    echo -e "${GREEN}✓ Drive unmounted successfully${NC}"
+    echo ""
+    echo "It is now safe to remove the USB/SD drive."
+else
+    echo -e "${YELLOW}WARNING: Failed to unmount drive${NC}"
+    echo "The drive may be in use. Please manually unmount before removing:"
+    echo "  sudo umount $SELECTED_DRIVE"
+fi
+
 echo ""
 
 exit 0
