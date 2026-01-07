@@ -2,6 +2,7 @@
 linux_build/*.json
 linux_build/edge_configs/*.json
 
+
 # VS Code
 .vscode/settings.json
 .vscode/launch.json
