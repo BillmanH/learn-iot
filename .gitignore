@@ -1,6 +1,7 @@
 # Launch configs: 
 linux_build/*.json
 linux_build/edge_configs/*.json
+linux_build/edge_configs/README.txt
 
 
 # VS Code
