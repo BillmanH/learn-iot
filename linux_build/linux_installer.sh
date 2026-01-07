@@ -1135,6 +1135,8 @@ setup_azure_arc() {
     # Deploy Azure IoT Operations
     local deploy_aio=$(jq -r '.azure.deploy_iot_operations // true' "$CONFIG_FILE")
     
+    info "Azure IoT Operations deployment setting: '$deploy_aio' (from config)"
+    
     if [ "$deploy_aio" = "true" ]; then
         deploy_azure_iot_operations "$subscription_id" "$resource_group" "$location" "$namespace_name"
     else

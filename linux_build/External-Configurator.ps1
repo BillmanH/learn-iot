@@ -28,6 +28,10 @@
     
 .PARAMETER SkipVerification
     Skip post-deployment verification
+
+.PARAMETER UseArcProxy
+    Use Azure Arc proxy for kubectl connectivity (for remote networks)
+    Requires cluster to already be Arc-enabled
     
 .EXAMPLE
     .\External-Configurator.ps1 -ClusterInfo cluster_info.json
@@ -56,7 +60,10 @@ param(
     [switch]$SkipArcEnable,
     
     [Parameter(Mandatory=$false)]
-    [switch]$SkipVerification
+    [switch]$SkipVerification,
+    
+    [Parameter(Mandatory=$false)]
+    [switch]$UseArcProxy
 )
 
 # ============================================================================
@@ -477,6 +484,73 @@ function Connect-ToAzure {
 function Initialize-KubeConfig {
     Write-Log "Configuring kubectl for remote cluster access..."
     
+    # If using Arc proxy, skip kubeconfig setup and start proxy instead
+    if ($UseArcProxy) {
+        Write-InfoLog "Using Azure Arc proxy for cluster connectivity"
+        
+        if (-not $script:ClusterName -or -not $script:ResourceGroup) {
+            Write-ErrorLog "ClusterName and ResourceGroup must be configured to use Arc proxy" -Fatal
+        }
+        
+        Write-Log "Starting Azure Arc proxy tunnel..."
+        Write-InfoLog "Command: az connectedk8s proxy --name $script:ClusterName --resource-group $script:ResourceGroup"
+        
+        # Check if cluster is Arc-enabled
+        $arcCluster = az connectedk8s show --name $script:ClusterName --resource-group $script:ResourceGroup 2>$null
+        if (-not $arcCluster) {
+            Write-ErrorLog "Cluster $script:ClusterName is not Arc-enabled in resource group $script:ResourceGroup"
+            Write-Host ""
+            Write-Host "To use Arc proxy, the cluster must first be Arc-enabled." -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "Arc-enable the cluster from the edge device:" -ForegroundColor Cyan
+            Write-Host "  1. SSH to edge device: ssh billmanh@10.186.247.76" -ForegroundColor White
+            Write-Host "  2. Install Azure CLI: curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash" -ForegroundColor White
+            Write-Host "  3. Login: az login" -ForegroundColor White
+            Write-Host "  4. Arc-enable: az connectedk8s connect --name $script:ClusterName --resource-group $script:ResourceGroup" -ForegroundColor White
+            Write-Host ""
+            Write-ErrorLog "Cluster must be Arc-enabled first" -Fatal
+        }
+        
+        Write-Success "Cluster is Arc-enabled"
+        
+        # Start the proxy in a background job
+        Write-InfoLog "Starting Arc proxy in background (this may take 15-30 seconds)..."
+        $proxyJob = Start-Job -ScriptBlock {
+            param($clusterName, $resourceGroup)
+            az connectedk8s proxy --name $clusterName --resource-group $resourceGroup
+        } -ArgumentList $script:ClusterName, $script:ResourceGroup
+        
+        # Wait for proxy to be ready
+        Write-InfoLog "Waiting for proxy tunnel to establish..."
+        Start-Sleep -Seconds 20
+        
+        # Test connectivity
+        Write-Log "Testing cluster connectivity through Arc proxy..."
+        $nodes = kubectl get nodes --no-headers 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-WarnLog "Initial connectivity test failed, waiting a bit longer..."
+            Start-Sleep -Seconds 10
+            $nodes = kubectl get nodes --no-headers 2>&1
+        }
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-ErrorLog "Cannot connect through Arc proxy"
+            Write-ErrorLog "Error: $nodes"
+            Stop-Job -Job $proxyJob
+            Remove-Job -Job $proxyJob
+            Write-ErrorLog "Arc proxy connection failed" -Fatal
+        }
+        
+        Write-Success "Successfully connected through Arc proxy"
+        kubectl get nodes
+        
+        # Store proxy job for cleanup
+        $script:ProxyJob = $proxyJob
+        
+        return
+    }
+    
+    # Original kubeconfig setup for direct connectivity
     if (-not $script:ClusterData.kubeconfig_base64) {
         Write-ErrorLog "No kubeconfig data found in cluster_info.json" -Fatal
     }
@@ -854,31 +928,11 @@ function New-DeviceRegistryNamespace {
     
     $namespaceResourceId = "/subscriptions/$script:SubscriptionId/resourceGroups/$script:ResourceGroup/providers/Microsoft.DeviceRegistry/namespaces/$script:NamespaceName"
     
-    # Check if namespace exists
-    $namespaceExists = az resource show --ids $namespaceResourceId 2>$null
+    Write-InfoLog "Using namespace resource ID: $namespaceResourceId"
+    Write-InfoLog "Note: The Device Registry namespace will be created automatically during Azure IoT Operations deployment"
     
-    if ($namespaceExists) {
-        Write-Success "Device Registry namespace already exists: $script:NamespaceName"
-        return
-    }
-    
-    Write-Log "Creating Device Registry namespace: $script:NamespaceName"
-    
-    $createResult = az deviceregistry namespace create `
-        --name $script:NamespaceName `
-        --resource-group $script:ResourceGroup `
-        --location $script:Location 2>&1
-    
-    if ($LASTEXITCODE -ne 0) {
-        Write-ErrorLog "Failed to create Device Registry namespace"
-        Write-ErrorLog "Error: $createResult"
-        Write-InfoLog "You can try creating it manually with:"
-        Write-InfoLog "az deviceregistry namespace create --name $script:NamespaceName --resource-group $script:ResourceGroup --location $script:Location"
-        Write-ErrorLog "Device Registry namespace is required for Azure IoT Operations" -Fatal
-    }
-    
-    Write-Success "Device Registry namespace created: $script:NamespaceName"
-    $script:DeployedResources += "DeviceRegistryNamespace:$script:NamespaceName"
+    # No need to create the namespace explicitly - az iot ops create handles it
+    return
 }
 
 function Enable-ResourceSync {
@@ -1128,6 +1182,13 @@ function Main {
         
         throw
     } finally {
+        # Cleanup Arc proxy job if it was started
+        if ($script:ProxyJob) {
+            Write-InfoLog "Stopping Arc proxy job..."
+            Stop-Job -Job $script:ProxyJob -ErrorAction SilentlyContinue
+            Remove-Job -Job $script:ProxyJob -ErrorAction SilentlyContinue
+        }
+        
         Stop-Transcript
     }
 }

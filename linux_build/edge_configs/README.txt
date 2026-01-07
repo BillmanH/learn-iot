@@ -1,7 +1,7 @@
 Azure IoT Operations - Backup Information
 ==========================================
 
-Backup created: Tue Jan  6 08:32:23 PM UTC 2026
+Backup created: Wed Jan  7 01:50:02 AM UTC 2026
 Hostname: home-nuc-1
 User: billmanh
 
