@@ -1133,8 +1133,8 @@ setup_azure_arc() {
     fi
     
     # Deploy Azure IoT Operations
-    # Note: jq boolean values need explicit string conversion
-    local deploy_aio=$(jq -r '.azure.deploy_iot_operations // true | if . == true then "true" else "false" end' "$CONFIG_FILE")
+    # Note: // operator converts false to true, so check for false explicitly
+    local deploy_aio=$(jq -r 'if .azure.deploy_iot_operations == false then "false" else "true" end' "$CONFIG_FILE")
     
     info "Azure IoT Operations deployment setting: '$deploy_aio' (from config)"
     
