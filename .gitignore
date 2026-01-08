@@ -1,3 +1,9 @@
+# Launch configs: 
+linux_build/*.json
+linux_build/edge_configs/*.json
+linux_build/edge_configs/README.txt
+
+
 # VS Code
 .vscode/settings.json
 .vscode/launch.json
@@ -98,4 +104,3 @@ error.json
 *.swo
 *~
 
-linux_build/linux_aio_config_*.json

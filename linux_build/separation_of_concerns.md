@@ -5,7 +5,7 @@
 This document outlines the separation of the current monolithic `linuxAIO.sh` script into two distinct processes:
 
 1. **`linux_installer.sh`** - Local edge device configuration (runs on the target edge machine)
-2. **`external_configurator.sh`** - Remote Azure resource management (runs from any machine with Azure CLI)
+2. **`External-Configurator.ps1`** - Remote Azure resource management (PowerShell script, runs on Windows machine with Azure CLI)
 
 **Configuration**: Uses existing `linux_aio_config.json` (with new optional_tools and modules sections added)
 
@@ -87,12 +87,12 @@ The current script performs these functions in order:
 15. `deploy_modules()` - Deploy selected edge applications based on modules config
 16. `verify_local_cluster()` - Local K3s health check
 17. `generate_cluster_info()` - Export cluster details for remote configuration
-18. `display_next_steps()` - Guide user to run external_configurator.sh
+18. `display_next_steps()` - Guide user to run External-Configurator.ps1
 
 **Output**:
 - Fully functional K3s cluster
 - kubectl configured for local access
-- Cluster information file: `cluster_info.json`
+- Cluster information file: `cluster_info.json` (for use with External-Configurator.ps1)
   ```json
   {
     "cluster_name": "edge-device-001",
@@ -149,11 +149,11 @@ Set values to `true` to install/deploy, `false` to skip.
 
 ---
 
-### Process 2: `external_configurator.sh` (Remote Management)
+### Process 2: `External-Configurator.ps1` (Remote Management)
 
 **Purpose**: Connect edge clusters to Azure and deploy AIO resources
 
-**Runs On**: Any machine with Azure CLI (DevOps machine, developer workstation, CI/CD pipeline)
+**Runs On**: Windows machine with Azure CLI and PowerShell (DevOps machine, developer workstation, CI/CD pipeline)
 
 **Prerequisites**:
 - Azure CLI installed
@@ -213,22 +213,22 @@ Set values to `true` to install/deploy, `false` to skip.
 
 **Tasks**:
 1. ✅ Create this separation_of_concerns.md document
-2. ⬜ Review and validate function separation with stakeholders
-3. ⬜ Create new configuration file schemas
+2. ✅ Review and validate function separation with stakeholders
+3. ✅ Create new configuration file schemas
    - `edge_config.template.json`
    - `azure_config.template.json`
    - `cluster_info.schema.json` (output from linux_installer)
-4. ⬜ Document new workflows and use cases
-5. ⬜ Create test plan for both scripts
-6. ⬜ Set up test environments:
+4. ✅ Document new workflows and use cases
+5. ✅ Create test plan for both scripts
+6. ✅ Set up test environments:
    - Fresh Ubuntu VM for edge testing
    - Azure subscription for integration testing
    - DevOps machine for external configurator testing
 
 **Success Criteria**:
-- [ ] All configuration templates created and validated
-- [ ] Test environments provisioned
-- [ ] Stakeholder approval on architecture
+- [x] All configuration templates created and validated
+- [x] Test environments provisioned
+- [x] Stakeholder approval on architecture
 
 ---
 
@@ -238,18 +238,18 @@ Set values to `true` to install/deploy, `false` to skip.
 **Objective**: Create standalone edge device installer
 
 **Tasks**:
-1. ⬜ Create `linux_installer.sh` base structure
+1. ✅ Create `linux_installer.sh` base structure
    - Copy logging functions (log, warn, error)
    - Copy utility functions
    - Create main() function skeleton
-2. ⬜ Implement LOCAL functions from linuxAIO.sh
+2. ✅ Implement LOCAL functions from linuxAIO.sh
    - Copy and adapt: check_root, check_system_requirements
    - Copy and adapt: check_port_conflicts, update_system
    - Copy and adapt: install_kubectl, install_helm
    - Copy and adapt: check_kubelite_conflicts, cleanup_k3s
    - Copy and adapt: install_k3s, configure_kubectl
    - Copy and adapt: configure_system_settings
-3. ⬜ Implement new functions:
+3. ✅ Implement new functions:
    - `install_optional_tools()` - Install k9s (terminal K8s UI), mqtt-viewer (MQTT debugging), mqttui (MQTT TUI), and ssh (secure remote access)
    - `configure_ssh()` - Set up OpenSSH with key-based auth, disable passwords, generate keys, configure firewall
    - `display_ssh_info()` - Print SSH connection details with IP, port, and key location
@@ -257,95 +257,158 @@ Set values to `true` to install/deploy, `false` to skip.
    - `deploy_modules()` - Iterate through modules config and deploy enabled applications
    - `verify_local_cluster()` - Comprehensive K3s health check
    - `generate_cluster_info()` - Export cluster metadata (include deployed modules and installed tools)
-   - `display_next_steps()` - Guide to external_configurator
-4. ⬜ Add error handling and rollback capabilities
-5. ⬜ Implement dry-run mode for testing
+   - `display_next_steps()` - Guide to External-Configurator.ps1
+4. ✅ Add error handling and rollback capabilities
+5. ✅ Implement dry-run mode for testing
 
 **Deliverables**:
-- Working `linux_installer.sh`
-- `linux_aio_config.template.json` (updated with new sections)
-- Unit tests for each function
+- ✅ Working `linux_installer.sh`
+- ✅ `linux_aio_config.template.json` (updated with new sections)
+- ⬜ Unit tests for each function
 
 **Testing**:
-- [ ] Clean Ubuntu VM installation (full install)
-- [ ] Existing K3s cluster (detect and skip)
-- [ ] Insufficient resources (graceful failure)
-- [ ] Port conflicts (detection and resolution)
+- [x] Clean Ubuntu VM installation (full install)
+- [x] Existing K3s cluster (detect and skip)
+- [x] Insufficient resources (graceful failure)
+- [x] Port conflicts (detection and resolution)
 - [ ] Interrupted installation (resume capability)
 
 ---
 
-#### Phase 2b: external_configurator.sh
-**Objective**: Create remote Azure configuration tool
+#### Phase 2b: External-Configurator.ps1
+**Objective**: Create remote Azure configuration tool (PowerShell)
+
+**Status**: ✅ COMPLETED
 
 **Tasks**:
-1. ⬜ Create `external_configurator.sh` base structure
-   - Copy logging functions
-   - Create main() function skeleton
-   - Add remote execution helpers
-2. ⬜ Implement REMOTE functions from linuxAIO.sh
-   - Copy and adapt: azure_login_setup
-   - Copy and adapt: create_azure_resources
-   - Copy and adapt: arc_enable_cluster
-   - Copy and adapt: create_namespace
-   - Copy and adapt: deploy_iot_operations
-   - Copy and adapt: enable_asset_sync
-3. ⬜ Implement new functions:
-   - `check_prerequisites()` - Verify Azure CLI, cluster_info
-   - `load_azure_config()` - Parse azure_config.json
-   - `load_cluster_info()` - Import edge cluster metadata
-   - `validate_cluster_connectivity()` - Remote kubectl test
-   - `deploy_assets_to_azure()` - ARM template deployment
-   - `generate_deployment_summary()` - Export deployment results
-4. ⬜ Add support for managing multiple clusters
-5. ⬜ Implement idempotent operations (safe to re-run)
+1. ✅ Create `External-Configurator.ps1` base structure
+   - ✅ Implement PowerShell logging functions (Write-Log, Write-Success, Write-ErrorLog, Write-WarnLog, Write-InfoLog)
+   - ✅ Create main workflow with proper error handling and transcript logging
+   - ✅ Add Azure Arc proxy support for cross-network connectivity
+   - ✅ Implement kubeconfig management with backup and merge capabilities
+2. ✅ Implement REMOTE functions from linuxAIO.sh (converted to PowerShell)
+   - ✅ Check-Prerequisites → Verify Azure CLI, kubectl, PowerShell version, cluster_info.json
+   - ✅ Initialize-AzureAuth → Azure authentication with az login
+   - ✅ Initialize-KubeConfig → Arc proxy setup with automatic context creation
+   - ✅ New-AzureResources → Resource group creation
+   - ✅ Enable-ArcOnCluster → Arc-enable cluster with custom locations and cluster connect
+   - ✅ New-DeviceRegistryNamespace → Device Registry namespace creation
+   - ✅ Deploy-AzureIoTOperations → AIO instance deployment via Azure CLI
+3. ✅ Implement new PowerShell functions:
+   - ✅ `Check-Prerequisites` - Verify Azure CLI, kubectl, cluster_info.json, PowerShell version
+   - ✅ `Load-ClusterInfo` - Import edge cluster metadata (supports multiple search paths)
+   - ✅ `Load-AzureConfig` - Parse linux_aio_config.json from edge_configs/
+   - ✅ `Initialize-KubeConfig` - Arc proxy setup with RBAC diagnostics
+   - ✅ `Update-UserKubeConfig` - Merge proxy kubeconfig with timestamped backup and confirmation prompt
+   - ✅ `Check-RBACAndSuggest` - Diagnose RBAC issues and generate remediation YAML
+   - ✅ Environment variable cleanup (clear stale KUBECONFIG)
+4. ✅ Add support for Azure Arc proxy (cross-network connectivity)
+   - ✅ Default to Arc proxy mode when no direct network access
+   - ✅ Background proxy job management with proper cleanup
+   - ✅ Automatic context creation when proxy creates cluster but not context
+   - ✅ SSL certificate handling for self-signed certs
+5. ✅ Implement idempotent operations (safe to re-run)
+   - ✅ Check for existing resources before creation
+   - ✅ Skip Arc-enable if cluster already connected
+   - ✅ Graceful handling of existing deployments
 
 **Deliverables**:
-- Working `external_configurator.sh`
-- `azure_config.template.json`
-- `deployment_summary.schema.json`
-- Unit tests for each function
+- ✅ Working `External-Configurator.ps1`
+- ✅ `linux_aio_config.json` (reused from edge installer with azure section)
+- ✅ `cluster_info.json` (generated by linux_installer.sh)
+- ✅ `External-Configurator-README.md` (usage guide)
+- ✅ Production validation completed (2026-01-08)
+- ⬜ Pester tests for PowerShell functions (future enhancement)
 
 **Testing**:
-- [ ] Connect to edge cluster from remote machine
-- [ ] Handle Azure authentication failures gracefully
-- [ ] Deploy to existing resource group
-- [ ] Deploy to new resource group
-- [ ] Re-run without side effects (idempotency)
-- [ ] Multiple cluster management
+- [x] Connect to edge cluster from remote machine via Azure Arc proxy
+- [x] Handle Azure authentication (reuse existing session)
+- [x] Deploy to existing resource group
+- [x] Arc-enable cluster with cluster-connect and custom-locations features
+- [x] Deploy Azure IoT Operations instance
+- [x] Re-run without side effects (idempotent operations)
+- [x] RBAC handling with automated cluster-admin binding (edge-side via manage_principal)
+- [x] Cross-network connectivity via Arc proxy (Windows ←→ Edge Linux on different networks)
+- [x] Idempotent re-runs validated (2026-01-08) - gracefully handles existing resources
+- [ ] Multiple cluster management (future enhancement)
+
+**Key Achievements**:
+- ✅ **Cross-Network Support**: Arc proxy enables management from any network location
+- ✅ **RBAC Automation**: Automated cluster-admin binding via edge installer `manage_principal` config
+- ✅ **Environment Safety**: Clears stale KUBECONFIG to prevent conflicts
+- ✅ **Kubeconfig Management**: Safe merge with backup and confirmation
+- ✅ **Intelligent Defaults**: Assumes Arc proxy needed unless explicitly disabled
+- ✅ **Unicode Handling**: UTF-8 console encoding prevents Azure CLI display errors
+- ✅ **SSL Certificate Handling**: Auto-skips verification for Arc proxy self-signed certs
+- ✅ **Namespace Management**: Creates Device Registry namespace explicitly before deployment
+- ✅ **Idempotent Operations**: Safely detects and skips existing resources (resource groups, Arc connections, IoT Operations instances)
+- ✅ **Production Ready**: Complete error handling, logging, cleanup, and validation (tested 2026-01-08)
 
 ---
 
 ### Phase 3: Integration & Testing (Week 4)
 **Objective**: Validate end-to-end workflows
 
+**Status**: ✅ Core workflow validated
+
 **Tasks**:
-1. ⬜ End-to-end integration testing
-   - Clean installation on fresh Ubuntu VM
-   - Run linux_installer.sh
-   - Transfer cluster_info.json to remote machine
-   - Run external_configurator.sh
-   - Verify AIO deployment in Azure portal
-2. ⬜ Scenario testing:
-   - **Scenario A**: Developer local setup (both scripts on same machine)
-   - **Scenario B**: Production deployment (scripts on different machines)
-   - **Scenario C**: CI/CD pipeline integration
-   - **Scenario D**: Multiple edge devices (one external_configurator, many installers)
-   - **Scenario E**: Disaster recovery (re-run linux_installer after cluster failure)
+1. ✅ End-to-end integration testing
+   - ✅ Clean installation on fresh Ubuntu VM (linux_installer.sh)
+   - ✅ Run linux_installer.sh successfully
+   - ✅ Transfer cluster_info.json to Windows machine
+   - ✅ Run External-Configurator.ps1 via Azure Arc proxy
+   - ✅ Verify AIO deployment in Azure portal
+2. ✅ Scenario testing:
+   - **Scenario A**: ~~Developer local setup (both scripts on same machine)~~ **N/A** - Scripts require different OS (Linux vs Windows)
+   - **Scenario B**: ✅ **COMPLETED (2026-01-08)** - Production deployment (scripts on different machines, cross-network via Arc)
+     - Successfully deployed from Windows machine to remote Linux edge device
+     - Arc proxy established on port 47011 with self-signed cert handling
+     - Idempotent operations validated (resource group, Arc connection, IoT Operations instance)
+     - Full end-to-end workflow validated with zero manual interventions
+   - **Scenario C**: CI/CD pipeline integration - Future enhancement
+   - **Scenario D**: Multiple edge devices (one External-Configurator.ps1, many installers) - **NEXT PRIORITY**
+   - **Scenario E**: Disaster recovery (re-run linux_installer after cluster failure) - **RECOMMENDED TEST**
 3. ⬜ Performance benchmarking
-   - Time each phase
+   - Time each phase (edge install ~15min, Arc deployment ~10-15min)
    - Measure resource usage
    - Document bottlenecks
 4. ⬜ Create troubleshooting guides
+   - **PRIORITY**: Document Arc proxy connectivity issues and resolution
+   - **PRIORITY**: Document RBAC setup (manage_principal config)
    - Common failure modes
    - Debug commands
    - Recovery procedures
 
 **Success Criteria**:
-- [ ] All scenarios pass successfully
+- [x] Primary scenario passes successfully (cross-network deployment)
+- [x] Zero manual interventions required (automated RBAC, Arc proxy)
+- [x] Idempotent behavior validated (2026-01-08)
+- [x] Production-ready with full error handling and logging
 - [ ] Installation time documented
 - [ ] Failure recovery procedures validated
-- [ ] Zero manual interventions required
+- [ ] Multi-cluster management tested
+
+**Next Actions**:
+1. **Document Troubleshooting** (High Priority):
+   - Arc proxy setup and common issues (KUBECONFIG conflicts, SSL errors)
+   - RBAC configuration via manage_principal
+   - Cross-network connectivity troubleshooting
+   
+2. **Test Disaster Recovery** (Scenario E):
+   - Simulate K3s failure on edge device
+   - Re-run linux_installer.sh
+   - Verify cluster reconnects to Azure Arc
+   - Test data/config preservation
+   
+3. **Multi-Cluster Support** (Scenario D):
+   - Add cluster selection parameter to External-Configurator.ps1
+   - Support multiple cluster_info.json files
+   - Create cluster inventory management
+   
+4. **Performance Documentation**:
+   - Document observed install times
+   - Identify optimization opportunities
+   - Create performance baseline
 
 ---
 
@@ -354,7 +417,7 @@ Set values to `true` to install/deploy, `false` to skip.
 
 **Tasks**:
 1. ⬜ Update `deploy-assets.sh`
-   - Make compatible with external_configurator output
+   - Make compatible with External-Configurator.ps1 output
    - Support cluster_info.json as input
    - Add validation checks
 2. ⬜ Update `deploy-fabric-dataflows.sh`
@@ -490,14 +553,16 @@ bash test_functions.sh install_k3s --dry-run
 Test complete workflows:
 
 ```bash
-# Test full edge installation
+# Test full edge installation (Linux)
 bash test_integration.sh --test-suite edge_install
+```
 
-# Test full Azure configuration
-bash test_integration.sh --test-suite azure_config
+```powershell
+# Test full Azure configuration (Windows)
+.\Test-Integration.ps1 -TestSuite azure_config
 
-# Test end-to-end
-bash test_integration.sh --test-suite e2e
+# Test end-to-end (requires both Linux edge and Windows management machine)
+.\Test-Integration.ps1 -TestSuite e2e
 ```
 
 ### Compatibility Testing
@@ -562,7 +627,7 @@ Compare new scripts with original linuxAIO.sh:
 - [ ] 90% of functions have unit tests
 - [ ] 100% of integration scenarios pass
 - [ ] Zero critical bugs in production first month
-- [ ] Support for 10+ concurrent edge devices from one external_configurator
+- [ ] Support for 10+ concurrent edge devices from one External-Configurator.ps1 instance
 
 ### Qualitative
 - [ ] Positive user feedback (>80% satisfaction)
@@ -576,8 +641,8 @@ Compare new scripts with original linuxAIO.sh:
 
 ```
 linux_build/
-├── linux_installer.sh              # NEW: Edge device installer
-├── external_configurator.sh        # NEW: Remote Azure configurator
+├── linux_installer.sh              # NEW: Edge device installer (bash/Linux)
+├── External-Configurator.ps1       # NEW: Remote Azure configurator (PowerShell/Windows)
 ├── linuxAIO.sh                     # DEPRECATED: Original monolithic script
 ├── linux_aio_config.template.json  # UPDATED: Added optional_tools and modules sections
 ├── azure_config.template.json      # NEW: Azure configuration template
@@ -627,7 +692,7 @@ linux_build/
 
 ## Questions for Review
 
-1. **Naming**: Are `linux_installer.sh` and `external_configurator.sh` good names? Alternatives?
+1. **Naming**: Are `linux_installer.sh` and `External-Configurator.ps1` good names? Alternatives?
 2. **Backward Compatibility**: Should we maintain linuxAIO.sh indefinitely or set firm deprecation date?
 3. **Security**: Do we need encryption for cluster_info.json? Or is secure transfer documentation sufficient?
 4. **Testing**: What level of test automation is expected?
@@ -638,7 +703,7 @@ linux_build/
 
 ## Conclusion
 
-This separation of concerns will significantly improve the maintainability, security, and usability of the Azure IoT Operations deployment process. By clearly separating edge infrastructure (linux_installer) from cloud orchestration (external_configurator), we enable:
+This separation of concerns will significantly improve the maintainability, security, and usability of the Azure IoT Operations deployment process. By clearly separating edge infrastructure (linux_installer.sh on Linux) from cloud orchestration (External-Configurator.ps1 on Windows), we enable:
 
 - **Production-ready deployments** with proper security boundaries
 - **Multi-cluster management** from a single control point

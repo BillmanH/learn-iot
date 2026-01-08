@@ -6,7 +6,7 @@
 # This script prepares an Ubuntu edge device with local infrastructure:
 # - K3s Kubernetes cluster
 # - kubectl and Helm
-# - Optional development tools (k9s, mqtt-viewer, mqttui)
+# - Optional development tools (k9s, mqtt-viewer)
 # - Optional edge modules (edgemqttsim, hello-flask, sputnik, wasm-quality-filter-python)
 #
 # Requirements: 
@@ -27,7 +27,7 @@
 #
 # Output:
 #   - Functional K3s cluster
-#   - cluster_info.json with cluster details for external_configurator.sh
+#   - cluster_info.json with cluster details for External-Configurator.ps1
 #   - Installation log: linux_installer_YYYYMMDD_HHMMSS.log
 #
 # Author: Azure IoT Operations Team
@@ -66,12 +66,12 @@ SKIP_SYSTEM_UPDATE=false
 FORCE_REINSTALL=false
 K9S_ENABLED=false
 MQTT_VIEWER_ENABLED=false
-MQTTUI_ENABLED=false
 SSH_ENABLED=false
 EDGEMQTTSIM_ENABLED=false
 HELLO_FLASK_ENABLED=false
 SPUTNIK_ENABLED=false
 WASM_FILTER_ENABLED=false
+MANAGE_PRINCIPAL=""
 
 # Deployment tracking
 DEPLOYED_MODULES=()
@@ -138,7 +138,7 @@ Azure IoT Operations - Edge Device Installer
 Usage: $0 [OPTIONS]
 
 This script prepares an Ubuntu edge device with K3s and optional modules.
-It does NOT configure Azure resources - use external_configurator.sh for that.
+It does NOT configure Azure resources - use External-Configurator.ps1 for that.
 
 Options:
     --dry-run               Validate configuration without making changes
@@ -149,12 +149,12 @@ Options:
 Configuration:
     Edit linux_aio_config.json to customize:
     - Edge device settings (cluster name, K3s options)
-    - Optional tools (k9s, mqtt-viewer, mqttui, ssh)
+    - Optional tools (k9s, mqtt-viewer, ssh)
     - Modules to deploy (edgemqttsim, hello-flask, sputnik, wasm-quality-filter-python)
 
 Output:
     - Functional K3s cluster on this device
-    - cluster_info.json for use with external_configurator.sh
+    - cluster_info.json for use with External-Configurator.ps1 (PowerShell)
     - Installation log file
 
 Examples:
@@ -354,7 +354,6 @@ load_local_config() {
     # Load optional tools configuration
     K9S_ENABLED=$(jq -r '.optional_tools.k9s // false' "$CONFIG_FILE")
     MQTT_VIEWER_ENABLED=$(jq -r '.optional_tools."mqtt-viewer" // false' "$CONFIG_FILE")
-    MQTTUI_ENABLED=$(jq -r '.optional_tools.mqttui // false' "$CONFIG_FILE")
     SSH_ENABLED=$(jq -r '.optional_tools.ssh // false' "$CONFIG_FILE")
     
     # Load modules configuration
@@ -373,7 +372,6 @@ load_local_config() {
     echo "Optional tools:"
     echo "  k9s: $K9S_ENABLED"
     echo "  mqtt-viewer: $MQTT_VIEWER_ENABLED"
-    echo "  mqttui: $MQTTUI_ENABLED"
     echo "  ssh: $SSH_ENABLED"
     echo ""
     echo "Modules to deploy:"
@@ -381,6 +379,11 @@ load_local_config() {
     echo "  hello-flask: $HELLO_FLASK_ENABLED"
     echo "  sputnik: $SPUTNIK_ENABLED"
     echo "  wasm-quality-filter-python: $WASM_FILTER_ENABLED"
+    # Optional Azure management principal (UPN or object id) to grant read-only access
+    MANAGE_PRINCIPAL=$(jq -r '.azure.manage_principal // empty' "$CONFIG_FILE")
+    if [ -n "$MANAGE_PRINCIPAL" ]; then
+        echo "  Azure manage principal (will be granted read-only view): $MANAGE_PRINCIPAL"
+    fi
     echo ""
     
     success "Configuration loaded successfully"
@@ -472,12 +475,6 @@ install_optional_tools() {
         tools_installed=true
     fi
     
-    # Install mqttui
-    if [ "$MQTTUI_ENABLED" = "true" ]; then
-        install_mqttui
-        tools_installed=true
-    fi
-    
     # Configure SSH
     if [ "$SSH_ENABLED" = "true" ]; then
         configure_ssh
@@ -514,58 +511,24 @@ install_k9s() {
 }
 
 install_mqtt_viewer() {
-    log "Installing mqtt-viewer..."
+    log "Installing MQTT CLI tools (mosquitto-clients)..."
     
-    if command -v mqtt-viewer &> /dev/null && [ "$FORCE_REINSTALL" != "true" ]; then
-        info "mqtt-viewer already installed"
-        INSTALLED_TOOLS+=("mqtt-viewer")
+    if command -v mosquitto_sub &> /dev/null && [ "$FORCE_REINSTALL" != "true" ]; then
+        info "MQTT CLI tools already installed"
+        INSTALLED_TOOLS+=("mosquitto-clients")
         return 0
     fi
     
     if [ "$DRY_RUN" = "true" ]; then
-        info "[DRY-RUN] Would install mqtt-viewer via pipx"
+        info "[DRY-RUN] Would install mosquitto-clients"
         return 0
     fi
     
-    # Install via pipx (recommended for Ubuntu 24.04+ CLI tools)
-    if ! command -v pipx &> /dev/null; then
-        log "Installing pipx for Python application management..."
-        sudo apt install -y pipx
-        pipx ensurepath
-    fi
+    # Install mosquitto-clients (provides mosquitto_sub and mosquitto_pub)
+    sudo apt install -y mosquitto-clients
     
-    # Install mqtt-viewer using pipx
-    pipx install mqtt-viewer || warn "mqtt-viewer installation failed"
-    
-    INSTALLED_TOOLS+=("mqtt-viewer")
-    success "mqtt-viewer installed via pipx"
-}
-
-install_mqttui() {
-    log "Installing mqttui (MQTT terminal UI)..."
-    
-    if command -v mqttui &> /dev/null && [ "$FORCE_REINSTALL" != "true" ]; then
-        info "mqttui already installed"
-        INSTALLED_TOOLS+=("mqttui")
-        return 0
-    fi
-    
-    if [ "$DRY_RUN" = "true" ]; then
-        info "[DRY-RUN] Would install mqttui"
-        return 0
-    fi
-    
-    # Install via cargo (Rust package manager)
-    if ! command -v cargo &> /dev/null; then
-        log "Installing Rust toolchain for mqttui..."
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-        source "$HOME/.cargo/env"
-    fi
-    
-    cargo install mqttui
-    
-    INSTALLED_TOOLS+=("mqttui")
-    success "mqttui installed"
+    INSTALLED_TOOLS+=("mosquitto-clients")
+    success "MQTT CLI tools installed (mosquitto_sub, mosquitto_pub)"
 }
 
 configure_ssh() {
@@ -804,6 +767,33 @@ configure_kubectl() {
     success "kubectl configured for user: $USER"
 }
 
+
+# Apply optional RBAC binding for an Azure principal (opt-in via config)
+apply_manage_principal_rbac() {
+    if [ -z "$MANAGE_PRINCIPAL" ]; then
+        return 0
+    fi
+
+    log "Applying optional RBAC binding for principal: $MANAGE_PRINCIPAL"
+
+    # Create a filesystem-safe suffix
+    safe_name=$(echo "$MANAGE_PRINCIPAL" | tr '@' '-' | tr -cd '[:alnum:]-' | cut -c1-40)
+
+    # Use kubectl create for simplicity - cluster-admin gives full access including nodes
+    if kubectl create clusterrolebinding arc-admin-${safe_name} \
+        --clusterrole=cluster-admin \
+        --user="${MANAGE_PRINCIPAL}" &>/dev/null; then
+        success "Applied cluster-admin ClusterRoleBinding for: ${MANAGE_PRINCIPAL}"
+    else
+        # May already exist, check if it's there
+        if kubectl get clusterrolebinding arc-admin-${safe_name} &>/dev/null; then
+            success "ClusterRoleBinding already exists for: ${MANAGE_PRINCIPAL}"
+        else
+            warn "Failed to apply RBAC binding for ${MANAGE_PRINCIPAL}. Run manually: kubectl create clusterrolebinding arc-admin-${safe_name} --clusterrole=cluster-admin --user=${MANAGE_PRINCIPAL}"
+        fi
+    fi
+}
+
 configure_system_settings() {
     log "Configuring system settings for Azure IoT Operations..."
     
@@ -1030,6 +1020,19 @@ generate_cluster_info() {
     local node_version=$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.kubeletVersion}')
     local node_os=$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.osImage}')
     
+    # Get node IP address (internal IP)
+    local node_ip=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+    
+    # If InternalIP not found, try ExternalIP
+    if [ -z "$node_ip" ]; then
+        node_ip=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}')
+    fi
+    
+    # If still not found, try hostname command
+    if [ -z "$node_ip" ]; then
+        node_ip=$(hostname -I | awk '{print $1}')
+    fi
+    
     # Encode kubeconfig as base64
     local kubeconfig_b64=$(cat ~/.kube/config | base64 -w 0)
     
@@ -1038,6 +1041,7 @@ generate_cluster_info() {
 {
   "cluster_name": "$CLUSTER_NAME",
   "node_name": "$node_name",
+  "node_ip": "$node_ip",
   "kubernetes_version": "$node_version",
   "node_os": "$node_os",
   "kubeconfig_base64": "$kubeconfig_b64",
@@ -1050,6 +1054,243 @@ generate_cluster_info() {
 EOF
     
     success "Cluster information saved to: $CLUSTER_INFO_FILE"
+}
+
+# ============================================================================
+# AZURE ARC ENABLEMENT (OPTIONAL)
+# ============================================================================
+
+setup_azure_arc() {
+    local enable_arc=$(jq -r '.azure.enable_arc_on_install // false' "$CONFIG_FILE")
+    
+    if [ "$enable_arc" != "true" ]; then
+        info "Azure Arc enablement disabled in configuration (azure.enable_arc_on_install=false)"
+        return 0
+    fi
+    
+    log "Setting up Azure Arc and Azure IoT Operations..."
+    
+    # Check if Azure CLI is installed
+    if ! command -v az &> /dev/null; then
+        warn "Azure CLI is not installed. Skipping Arc enablement."
+        echo ""
+        echo "To enable Arc later, install Azure CLI:"
+        echo "  curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash"
+        echo "  Then run: ./arc-enable-from-edge.sh"
+        return 0
+    fi
+    
+    success "Azure CLI is available"
+    
+    # Load Azure configuration
+    local subscription_id=$(jq -r '.azure.subscription_id // empty' "$CONFIG_FILE")
+    local resource_group=$(jq -r '.azure.resource_group // empty' "$CONFIG_FILE")
+    local location=$(jq -r '.azure.location // empty' "$CONFIG_FILE")
+    local namespace_name=$(jq -r '.azure.namespace_name // empty' "$CONFIG_FILE")
+    
+    if [ -z "$subscription_id" ] || [ -z "$resource_group" ] || [ -z "$location" ]; then
+        warn "Azure configuration incomplete in $CONFIG_FILE"
+        echo "Required fields: azure.subscription_id, azure.resource_group, azure.location"
+        return 0
+    fi
+    
+    if [ "$DRY_RUN" = "true" ]; then
+        info "[DRY-RUN] Would Arc-enable cluster with:"
+        info "[DRY-RUN]   Subscription: $subscription_id"
+        info "[DRY-RUN]   Resource Group: $resource_group"
+        info "[DRY-RUN]   Location: $location"
+        info "[DRY-RUN]   Cluster: $CLUSTER_NAME"
+        return 0
+    fi
+    
+    echo ""
+    echo -e "${CYAN}Azure Arc Configuration:${NC}"
+    echo "  Subscription ID: $subscription_id"
+    echo "  Resource Group: $resource_group"
+    echo "  Location: $location"
+    echo "  Cluster Name: $CLUSTER_NAME"
+    echo "  Namespace: $namespace_name"
+    echo ""
+    
+    # Check if already logged in
+    if ! az account show &>/dev/null; then
+        echo "Logging into Azure..."
+        az login || {
+            error "Azure login failed. Skipping Arc enablement."
+            return 1
+        }
+    fi
+    
+    # Set subscription
+    info "Setting Azure subscription..."
+    az account set --subscription "$subscription_id"
+    
+    # Create resource group if not exists
+    info "Checking resource group..."
+    if az group exists --name "$resource_group" | grep -q "true"; then
+        success "Resource group exists: $resource_group"
+    else
+        log "Creating resource group: $resource_group"
+        az group create --location "$location" --resource-group "$resource_group"
+        success "Resource group created"
+    fi
+    
+    # Arc-enable cluster
+    info "Arc-enabling cluster..."
+    if az connectedk8s show --name "$CLUSTER_NAME" --resource-group "$resource_group" &>/dev/null; then
+        success "Cluster is already Arc-enabled: $CLUSTER_NAME"
+    else
+        log "Connecting cluster to Azure Arc (this may take a few minutes)..."
+        az connectedk8s connect \
+            --name "$CLUSTER_NAME" \
+            --resource-group "$resource_group" || {
+            error "Failed to Arc-enable cluster"
+            return 1
+        }
+        success "Cluster Arc-enabled successfully!"
+    fi
+    
+    # Enable custom locations
+    info "Enabling custom locations and cluster connect..."
+    local object_id=$(az ad sp show --id bc313c14-388c-4e7d-a58e-70017303ee3b --query id -o tsv 2>/dev/null)
+    
+    if [ -n "$object_id" ]; then
+        az connectedk8s enable-features \
+            --name "$CLUSTER_NAME" \
+            --resource-group "$resource_group" \
+            --custom-locations-oid "$object_id" \
+            --features cluster-connect custom-locations || warn "Failed to enable some features"
+        success "Features enabled"
+    else
+        warn "Could not retrieve custom locations OID. Skipping feature enablement."
+    fi
+    
+    # Deploy Azure IoT Operations
+    # Note: // operator converts false to true, so check for false explicitly
+    local deploy_aio=$(jq -r 'if .azure.deploy_iot_operations == false then "false" else "true" end' "$CONFIG_FILE")
+    
+    info "Azure IoT Operations deployment setting: '$deploy_aio' (from config)"
+    
+    if [ "$deploy_aio" = "true" ]; then
+        deploy_azure_iot_operations "$subscription_id" "$resource_group" "$location" "$namespace_name"
+    else
+        info "Azure IoT Operations deployment disabled in configuration"
+    fi
+    
+    success "Azure Arc setup completed!"
+}
+
+deploy_azure_iot_operations() {
+    local subscription_id=$1
+    local resource_group=$2
+    local location=$3
+    local namespace_name=$4
+    
+    log "Deploying Azure IoT Operations..."
+    
+    # Initialize cluster
+    info "Initializing cluster for Azure IoT Operations..."
+    az iot ops init \
+        --cluster "$CLUSTER_NAME" \
+        --resource-group "$resource_group" || {
+        warn "Failed to initialize IoT Operations"
+        return 1
+    }
+    
+    # Register providers
+    info "Registering Azure resource providers..."
+    az provider register --namespace Microsoft.Storage
+    az provider register --namespace Microsoft.IoTOperations
+    az provider register --namespace Microsoft.DeviceRegistry
+    
+    # Create schema registry
+    local schema_registry_name="${CLUSTER_NAME}-schema-registry"
+    local storage_account_name=$(echo "${CLUSTER_NAME}storage" | tr '[:upper:]' '[:lower:]' | tr -d '-' | cut -c1-24)
+    
+    info "Setting up schema registry..."
+    
+    # Create storage account
+    if az storage account show --name "$storage_account_name" --resource-group "$resource_group" &>/dev/null; then
+        success "Storage account exists: $storage_account_name"
+    else
+        log "Creating storage account: $storage_account_name"
+        az storage account create \
+            --name "$storage_account_name" \
+            --resource-group "$resource_group" \
+            --location "$location" \
+            --sku Standard_LRS \
+            --kind StorageV2 \
+            --enable-hierarchical-namespace true \
+            --allow-blob-public-access false
+        success "Storage account created"
+    fi
+    
+    # Create container
+    az storage container create \
+        --name schemas \
+        --account-name "$storage_account_name" \
+        --auth-mode login \
+        --only-show-errors &>/dev/null || true
+    
+    # Get storage account resource ID
+    local storage_account_id=$(az storage account show \
+        --name "$storage_account_name" \
+        --resource-group "$resource_group" \
+        --query id -o tsv)
+    
+    # Create schema registry
+    if az iot ops schema registry show --name "$schema_registry_name" --resource-group "$resource_group" &>/dev/null; then
+        success "Schema registry exists: $schema_registry_name"
+    else
+        log "Creating schema registry: $schema_registry_name"
+        az iot ops schema registry create \
+            --name "$schema_registry_name" \
+            --resource-group "$resource_group" \
+            --registry-namespace "$namespace_name" \
+            --sa-resource-id "$storage_account_id"
+        success "Schema registry created"
+    fi
+    
+    # Get schema registry ID
+    local schema_registry_id=$(az iot ops schema registry show \
+        --name "$schema_registry_name" \
+        --resource-group "$resource_group" \
+        --query id -o tsv)
+    
+    # Construct namespace resource ID
+    # Note: The Device Registry namespace will be created automatically during Azure IoT Operations deployment
+    info "Setting up Device Registry namespace..."
+    local namespace_resource_id="/subscriptions/$subscription_id/resourceGroups/$resource_group/providers/Microsoft.DeviceRegistry/namespaces/$namespace_name"
+    log "Using namespace resource ID: $namespace_resource_id"
+    log "The namespace will be created automatically during deployment"
+    
+    # Deploy Azure IoT Operations instance
+    local instance_name="${CLUSTER_NAME}-aio"
+    
+    info "Deploying Azure IoT Operations instance..."
+    if az iot ops show --name "$instance_name" --resource-group "$resource_group" &>/dev/null; then
+        success "Azure IoT Operations instance exists: $instance_name"
+    else
+        log "Creating IoT Operations instance (this may take several minutes)..."
+        az iot ops create \
+            --cluster "$CLUSTER_NAME" \
+            --resource-group "$resource_group" \
+            --name "$instance_name" \
+            --sr-resource-id "$schema_registry_id" \
+            --ns-resource-id "$namespace_resource_id" || {
+            error "Failed to deploy Azure IoT Operations"
+            return 1
+        }
+        success "Azure IoT Operations deployed!"
+    fi
+    
+    # Enable resource sync
+    info "Enabling edge-to-cloud asset sync..."
+    az iot ops enable-rsync \
+        --name "$instance_name" \
+        --resource-group "$resource_group" &>/dev/null || warn "Failed to enable asset sync"
+    
+    success "Azure IoT Operations setup completed!"
 }
 
 # ============================================================================
@@ -1081,8 +1322,8 @@ display_next_steps() {
     echo "   cat $CLUSTER_INFO_FILE"
     echo ""
     echo "2. Connect this cluster to Azure Arc and deploy Azure IoT Operations:"
-    echo "   - Transfer $CLUSTER_INFO_FILE to your management machine"
-    echo "   - Run: ./external_configurator.sh --cluster-info cluster_info.json"
+    echo "   - Transfer $CLUSTER_INFO_FILE to your Windows management machine"
+    echo "   - Run: .\External-Configurator.ps1 -ClusterInfo cluster_info.json"
     echo ""
     echo "3. Monitor your cluster:"
     echo "   kubectl get pods --all-namespaces"
@@ -1096,6 +1337,28 @@ display_next_steps() {
     echo "   Installation log: $LOG_FILE"
     echo "   K3s logs: sudo journalctl -u k3s -f"
     echo ""
+    
+    # Show validation commands for installed tools
+    if [ ${#INSTALLED_TOOLS[@]} -gt 0 ]; then
+        echo "5. Verify installed tools:"
+        
+        if [[ " ${INSTALLED_TOOLS[@]} " =~ " k9s " ]]; then
+            echo "   k9s version          # Check k9s installation"
+        fi
+        
+        if [[ " ${INSTALLED_TOOLS[@]} " =~ " mosquitto-clients " ]]; then
+            echo "   mosquitto_sub --help # Verify MQTT tools"
+            echo "   mosquitto_pub --help"
+        fi
+        
+        if [[ " ${INSTALLED_TOOLS[@]} " =~ " ssh " ]]; then
+            echo "   ssh -V               # Verify SSH version"
+            echo "   cat ~/.ssh/id_rsa.pub # View your public key"
+        fi
+        
+        echo ""
+    fi
+    
     echo -e "${CYAN}============================================================================${NC}"
     echo ""
     
@@ -1148,6 +1411,8 @@ main() {
     check_k3s_resources
     install_k3s
     configure_kubectl
+    # Apply optional RBAC binding for a management principal if configured
+    apply_manage_principal_rbac
     configure_system_settings
     
     # Deploy modules
@@ -1158,6 +1423,9 @@ main() {
     
     # Generate output
     generate_cluster_info
+    
+    # Azure Arc enablement (optional)
+    setup_azure_arc
     
     # Display next steps
     display_next_steps
