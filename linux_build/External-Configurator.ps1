@@ -679,47 +679,160 @@ function Initialize-KubeConfig {
         
         Write-Success "Cluster is Arc-enabled"
         
-        # Start the proxy in a background job
-        Write-InfoLog "Starting Arc proxy in background (this may take 15-30 seconds)..."
+        # Clear any existing KUBECONFIG environment variable to ensure kubectl uses default location
+        if ($env:KUBECONFIG) {
+            Write-InfoLog "Clearing KUBECONFIG environment variable (was: $env:KUBECONFIG)"
+            Remove-Item env:KUBECONFIG -ErrorAction SilentlyContinue
+        }
+        
+        # The Arc proxy writes context to the default kubeconfig location
+        $defaultKubeConfig = "$env:USERPROFILE\.kube\config"
+        
+        # Start the proxy in a background job - it will modify the default kubeconfig
+        Write-InfoLog "Starting Arc proxy in background (this may take 15-30 seconds)...  "
+        Write-InfoLog "The proxy will add a context to your default kubeconfig"
         $proxyJob = Start-Job -ScriptBlock {
             param($clusterName, $resourceGroup)
-            az connectedk8s proxy --name $clusterName --resource-group $resourceGroup
+            az connectedk8s proxy --name $clusterName --resource-group $resourceGroup 2>&1
         } -ArgumentList $script:ClusterName, $script:ResourceGroup
         
         # Wait for proxy to be ready
         Write-InfoLog "Waiting for proxy tunnel to establish..."
-        Start-Sleep -Seconds 20
+        Start-Sleep -Seconds 25
         
-        # Test connectivity
+        # Store proxy job for cleanup
+        $script:ProxyJob = $proxyJob
+        
+        # Now backup the kubeconfig AFTER the proxy has modified it
+        $backupKubeConfig = "$env:USERPROFILE\.kube\config.backup-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+        if (Test-Path $defaultKubeConfig) {
+            Write-InfoLog "Backing up kubeconfig (after proxy modification) to: $backupKubeConfig"
+            Copy-Item $defaultKubeConfig $backupKubeConfig -Force
+        }
+        
+        # Verify the proxy is running and check for output
+        Write-InfoLog "Checking proxy job status..."
+        $jobState = $proxyJob.State
+        Write-InfoLog "Proxy job state: $jobState"
+        
+        $proxyOutput = Receive-Job -Job $proxyJob -Keep 2>&1
+        if ($proxyOutput) {
+            Write-InfoLog "Proxy output: $proxyOutput"
+        }
+        
+        # Check if kubeconfig was modified
+        if (-not (Test-Path $defaultKubeConfig)) {
+            Write-ErrorLog "Default kubeconfig does not exist at: $defaultKubeConfig"
+            Write-InfoLog "The Arc proxy requires a kubeconfig file to exist"
+            Write-InfoLog "Creating empty kubeconfig..."
+            New-Item -Path "$env:USERPROFILE\.kube" -ItemType Directory -Force | Out-Null
+            @"
+apiVersion: v1
+kind: Config
+clusters: []
+contexts: []
+users: []
+"@ | Out-File -FilePath $defaultKubeConfig -Encoding utf8
+        }
+        
+        # Wait a bit more for proxy to write the context
+        Write-InfoLog "Waiting for proxy to update kubeconfig..."
+        Start-Sleep -Seconds 10
+        
+        # Check if the proxy added a context to the kubeconfig
+        $proxyContextName = $script:ClusterName
+        $contexts = kubectl config get-contexts -o name 2>&1
+        Write-InfoLog "Available contexts: $($contexts -join ', ')"
+        
+        # Check if cluster exists even if context doesn't
+        $clusters = kubectl config get-clusters 2>&1
+        Write-InfoLog "Available clusters: $($clusters -join ', ')"
+        
+        if ($contexts -notcontains $proxyContextName) {
+            Write-WarnLog "Proxy context '$proxyContextName' not found in kubeconfig"
+            
+            # Check if the cluster exists (proxy may have created cluster but not context)
+            if ($clusters -contains $proxyContextName) {
+                Write-InfoLog "Cluster '$proxyContextName' exists but context is missing"
+                Write-InfoLog "Creating context for Arc proxy..."
+                
+                # The Arc proxy uses token-based auth - create a context that points to the cluster
+                # The user will be "clusterUser_<resourcegroup>_<clustername>"
+                $arcUser = "clusterUser_$($script:ResourceGroup)_$proxyContextName"
+                
+                Write-InfoLog "Creating context with cluster=$proxyContextName and user=$arcUser"
+                kubectl config set-context $proxyContextName --cluster=$proxyContextName --user=$arcUser 2>&1 | Out-Null
+                
+                # Verify context was created
+                $contextsAfter = kubectl config get-contexts -o name 2>&1
+                if ($contextsAfter -contains $proxyContextName) {
+                    Write-Success "Successfully created Arc proxy context"
+                } else {
+                    Write-ErrorLog "Failed to create Arc proxy context"
+                    Write-InfoLog "Contexts after creation: $($contextsAfter -join ', ')"
+                }
+            } else {
+                Write-WarnLog "Cluster '$proxyContextName' not found either"
+                Write-InfoLog "Kubeconfig location: $defaultKubeConfig"
+                Write-InfoLog "Checking kubeconfig content..."
+                if (Test-Path $defaultKubeConfig) {
+                    $kubeconfigPreview = Get-Content $defaultKubeConfig | Select-Object -First 30
+                    Write-InfoLog "Kubeconfig preview: $kubeconfigPreview"
+                }
+                
+                # Check if proxy is actually running
+                if ($proxyJob.State -ne 'Running') {
+                    Write-ErrorLog "Proxy job is not running. State: $($proxyJob.State)"
+                    $jobErrors = Receive-Job -Job $proxyJob 2>&1
+                    Write-ErrorLog "Proxy errors: $jobErrors"
+                }
+            }
+        } else {
+            Write-Success "Proxy context '$proxyContextName' found in kubeconfig"
+        }
+        
+        # Set the proxy context as current
+        Write-InfoLog "Setting current context to: $proxyContextName"
+        kubectl config use-context $proxyContextName 2>&1 | Out-Null
+        
+        # Skip SSL verification for Arc proxy (self-signed certs)
+        kubectl config set-cluster $proxyContextName --insecure-skip-tls-verify=true 2>&1 | Out-Null
+        Write-InfoLog "SSL certificate verification disabled for Arc proxy (self-signed certs expected)"
+        
+        # Verify current context
+        $currentContext = kubectl config current-context 2>&1
+        Write-InfoLog "Current context after setting: $currentContext"
+        
+        # Verify the context points to the right place
+        Write-InfoLog "Verifying context configuration..."
+        $contextDetails = kubectl config view --minify 2>&1
+        Write-InfoLog "Active context details: $($contextDetails | Out-String)"
+        
+        # Test connectivity using the proxy context
         Write-Log "Testing cluster connectivity through Arc proxy..."
-        $nodes = kubectl get nodes --no-headers 2>&1
+        $nodes = kubectl --context=$proxyContextName get nodes --no-headers 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-WarnLog "Initial connectivity test failed, waiting a bit longer..."
             Start-Sleep -Seconds 10
-            $nodes = kubectl get nodes --no-headers 2>&1
+            $nodes = kubectl --context=$proxyContextName get nodes --no-headers 2>&1
         }
         
         if ($LASTEXITCODE -ne 0) {
             Write-ErrorLog "Cannot connect through Arc proxy"
             Write-ErrorLog "Error: $nodes"
+            Write-InfoLog "Checking proxy job status..."
+            $jobOutput = Receive-Job -Job $proxyJob -Keep
+            if ($jobOutput) {
+                Write-InfoLog "Proxy output: $jobOutput"
+            }
             Stop-Job -Job $proxyJob
             Remove-Job -Job $proxyJob
             Write-ErrorLog "Arc proxy connection failed" -Fatal
         }
         
         Write-Success "Successfully connected through Arc proxy"
-        kubectl get nodes
+        kubectl --context=$proxyContextName get nodes
         
-        # Store proxy job for cleanup
-        $script:ProxyJob = $proxyJob
-        
-        # Ensure the user's kubeconfig points to the proxy-merged context
-        try {
-            Update-UserKubeConfig -ContextName $script:ClusterName
-        } catch {
-            Write-WarnLog "Failed to update user kubeconfig with proxy context: $_"
-        }
-
         return
     }
     
@@ -943,6 +1056,14 @@ function Enable-ArcForCluster {
 function New-IoTOperationsInstance {
     Write-Log "Deploying Azure IoT Operations..."
     
+    # Enable UTF-8 encoding for Azure CLI IoT Operations commands
+    # This must be done here (not at script start) to avoid corrupting JSON parsing from earlier az commands
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    $env:PYTHONIOENCODING = "utf-8"
+    $env:PYTHONUTF8 = "1"
+    chcp 65001 2>&1 | Out-Null
+    Write-InfoLog "UTF-8 encoding enabled for IoT Operations deployment"
+    
     $instanceName = "$script:ClusterName-aio"
     
     if ($DryRun) {
@@ -951,14 +1072,16 @@ function New-IoTOperationsInstance {
     }
     
     # Check if instance already exists
-    $existingInstance = az iot ops show --name $instanceName --resource-group $script:ResourceGroup 2>$null
+    $existingInstance = az iot ops show --name $instanceName --resource-group $script:ResourceGroup 2>&1
     
-    if ($existingInstance) {
+    if ($LASTEXITCODE -eq 0) {
         Write-Success "Azure IoT Operations instance $instanceName already exists"
         Write-InfoLog "To redeploy, delete the existing instance first:"
         Write-InfoLog "az iot ops delete --name $instanceName --resource-group $script:ResourceGroup"
         return
     }
+    
+    Write-InfoLog "Azure IoT Operations instance not found. Proceeding with deployment..."
     
     # Initialize cluster for Azure IoT Operations
     Write-Log "Initializing cluster for Azure IoT Operations..."
@@ -1006,13 +1129,15 @@ function New-IoTOperationsInstance {
     
     # Deploy Azure IoT Operations
     Write-Log "Deploying Azure IoT Operations instance - this may take several minutes..."
+    Write-InfoLog "Note: Progress display suppressed to avoid unicode rendering issues"
     
     $deployResult = az iot ops create `
         --cluster $script:ClusterName `
         --resource-group $script:ResourceGroup `
         --name $instanceName `
         --sr-resource-id $schemaRegistryId `
-        --ns-resource-id $namespaceResourceId 2>&1
+        --ns-resource-id $namespaceResourceId `
+        --no-progress 2>&1
     
     if ($LASTEXITCODE -ne 0) {
         Write-ErrorLog "Azure IoT Operations deployment failed"
@@ -1115,13 +1240,33 @@ function New-SchemaRegistry {
 function New-DeviceRegistryNamespace {
     Write-Log "Configuring Device Registry namespace..."
     
-    $namespaceResourceId = "/subscriptions/$script:SubscriptionId/resourceGroups/$script:ResourceGroup/providers/Microsoft.DeviceRegistry/namespaces/$script:NamespaceName"
+    # Check if namespace already exists
+    $existingNamespace = az resource show `
+        --ids "/subscriptions/$script:SubscriptionId/resourceGroups/$script:ResourceGroup/providers/Microsoft.DeviceRegistry/namespaces/$script:NamespaceName" 2>&1
     
-    Write-InfoLog "Using namespace resource ID: $namespaceResourceId"
-    Write-InfoLog "Note: The Device Registry namespace will be created automatically during Azure IoT Operations deployment"
+    if ($LASTEXITCODE -eq 0) {
+        Write-Success "Device Registry namespace already exists: $script:NamespaceName"
+        return
+    }
     
-    # No need to create the namespace explicitly - az iot ops create handles it
-    return
+    Write-Log "Creating Device Registry namespace: $script:NamespaceName"
+    
+    # Create the namespace using az resource create
+    $namespaceResult = az resource create `
+        --resource-group $script:ResourceGroup `
+        --namespace Microsoft.DeviceRegistry `
+        --resource-type namespaces `
+        --name $script:NamespaceName `
+        --properties '{}' `
+        --api-version 2025-10-01 2>&1
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-ErrorLog "Failed to create Device Registry namespace: $namespaceResult"
+        Write-ErrorLog "This is required for Azure IoT Operations deployment" -Fatal
+    }
+    
+    Write-Success "Device Registry namespace created: $script:NamespaceName"
+    $script:DeployedResources += "DeviceRegistryNamespace:$script:NamespaceName"
 }
 
 function Enable-ResourceSync {
@@ -1197,8 +1342,8 @@ function Test-Deployment {
     
     # Verify Arc connection
     if (-not $SkipArcEnable) {
-        $arcCluster = az connectedk8s show --name $script:ClusterName --resource-group $script:ResourceGroup 2>$null
-        if ($arcCluster) {
+        $arcCluster = az connectedk8s show --name $script:ClusterName --resource-group $script:ResourceGroup 2>&1
+        if ($LASTEXITCODE -eq 0) {
             $arcData = $arcCluster | ConvertFrom-Json
             Write-Success "Arc-enabled cluster verified: $script:ClusterName (State: $($arcData.connectivityStatus))"
         } else {
@@ -1208,9 +1353,9 @@ function Test-Deployment {
     
     # Verify IoT Operations instance
     $instanceName = "$script:ClusterName-aio"
-    $iotOps = az iot ops show --name $instanceName --resource-group $script:ResourceGroup 2>$null
+    $iotOps = az iot ops show --name $instanceName --resource-group $script:ResourceGroup 2>&1
     
-    if ($iotOps) {
+    if ($LASTEXITCODE -eq 0) {
         $iotOpsData = $iotOps | ConvertFrom-Json
         Write-Success "Azure IoT Operations instance verified: $instanceName (State: $($iotOpsData.provisioningState))"
     } else {
