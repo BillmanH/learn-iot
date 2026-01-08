@@ -770,14 +770,14 @@ configure_kubectl() {
 
 # Apply optional RBAC binding for an Azure principal (opt-in via config)
 apply_manage_principal_rbac() {
-        if [ -z "$MANAGE_PRINCIPAL" ]; then
-                return 0
-        fi
+    if [ -z "$MANAGE_PRINCIPAL" ]; then
+        return 0
+    fi
 
-        log "Applying optional RBAC binding for principal: $MANAGE_PRINCIPAL"
+    log "Applying optional RBAC binding for principal: $MANAGE_PRINCIPAL"
 
-        # Create a filesystem-safe suffix
-        safe_name=$(echo "$MANAGE_PRINCIPAL" | tr '@' '-' | tr -cd '[:alnum:]-' | cut -c1-40)
+    # Create a filesystem-safe suffix
+    safe_name=$(echo "$MANAGE_PRINCIPAL" | tr '@' '-' | tr -cd '[:alnum:]-' | cut -c1-40)
 
     # Use kubectl create for simplicity - cluster-admin gives full access including nodes
     if kubectl create clusterrolebinding arc-admin-${safe_name} \
@@ -791,6 +791,16 @@ apply_manage_principal_rbac() {
         else
             warn "Failed to apply RBAC binding for ${MANAGE_PRINCIPAL}. Run manually: kubectl create clusterrolebinding arc-admin-${safe_name} --clusterrole=cluster-admin --user=${MANAGE_PRINCIPAL}"
         fi
+    fi
+}
+
+configure_system_settings() {
+    log "Configuring system settings for Azure IoT Operations..."
+    
+    if [ "$DRY_RUN" = "true" ]; then
+        info "[DRY-RUN] Would configure system settings (sysctl)"
+        return 0
+    fi
     
     # Set sysctl parameters for AIO
     local sysctl_file="/etc/sysctl.d/99-azure-iot-operations.conf"
