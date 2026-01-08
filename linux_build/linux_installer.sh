@@ -778,37 +778,19 @@ apply_manage_principal_rbac() {
 
         # Create a filesystem-safe suffix
         safe_name=$(echo "$MANAGE_PRINCIPAL" | tr '@' '-' | tr -cd '[:alnum:]-' | cut -c1-40)
-        yaml_file="/tmp/arc_node_read_binding_${safe_name}.yaml"
 
-        cat > "$yaml_file" << EOF
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-    name: arc-nodes-reader-${safe_name}
-subjects:
-- kind: User
-    name: ${MANAGE_PRINCIPAL}
-    apiGroup: rbac.authorization.k8s.io
-roleRef:
-    kind: ClusterRole
-    name: view
-    apiGroup: rbac.authorization.k8s.io
-EOF
-
-        if kubectl apply -f "$yaml_file" &>/dev/null; then
-                success "Applied read-only ClusterRoleBinding for: ${MANAGE_PRINCIPAL} (file: $yaml_file)"
+    # Use kubectl create for simplicity - cluster-admin gives full access including nodes
+    if kubectl create clusterrolebinding arc-admin-${safe_name} \
+        --clusterrole=cluster-admin \
+        --user="${MANAGE_PRINCIPAL}" &>/dev/null; then
+        success "Applied cluster-admin ClusterRoleBinding for: ${MANAGE_PRINCIPAL}"
+    else
+        # May already exist, check if it's there
+        if kubectl get clusterrolebinding arc-admin-${safe_name} &>/dev/null; then
+            success "ClusterRoleBinding already exists for: ${MANAGE_PRINCIPAL}"
         else
-                warn "Failed to apply RBAC binding for ${MANAGE_PRINCIPAL}. You can apply the file manually: kubectl apply -f $yaml_file"
+            warn "Failed to apply RBAC binding for ${MANAGE_PRINCIPAL}. Run manually: kubectl create clusterrolebinding arc-admin-${safe_name} --clusterrole=cluster-admin --user=${MANAGE_PRINCIPAL}"
         fi
-}
-
-configure_system_settings() {
-    log "Configuring system settings for Azure IoT Operations..."
-    
-    if [ "$DRY_RUN" = "true" ]; then
-        info "[DRY-RUN] Would configure system settings (sysctl)"
-        return 0
-    fi
     
     # Set sysctl parameters for AIO
     local sysctl_file="/etc/sysctl.d/99-azure-iot-operations.conf"
