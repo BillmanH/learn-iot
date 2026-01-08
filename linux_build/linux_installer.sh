@@ -71,6 +71,7 @@ EDGEMQTTSIM_ENABLED=false
 HELLO_FLASK_ENABLED=false
 SPUTNIK_ENABLED=false
 WASM_FILTER_ENABLED=false
+MANAGE_PRINCIPAL=""
 
 # Deployment tracking
 DEPLOYED_MODULES=()
@@ -378,6 +379,11 @@ load_local_config() {
     echo "  hello-flask: $HELLO_FLASK_ENABLED"
     echo "  sputnik: $SPUTNIK_ENABLED"
     echo "  wasm-quality-filter-python: $WASM_FILTER_ENABLED"
+    # Optional Azure management principal (UPN or object id) to grant read-only access
+    MANAGE_PRINCIPAL=$(jq -r '.azure.manage_principal // empty' "$CONFIG_FILE")
+    if [ -n "$MANAGE_PRINCIPAL" ]; then
+        echo "  Azure manage principal (will be granted read-only view): $MANAGE_PRINCIPAL"
+    fi
     echo ""
     
     success "Configuration loaded successfully"
@@ -759,6 +765,41 @@ configure_kubectl() {
     fi
     
     success "kubectl configured for user: $USER"
+}
+
+
+# Apply optional RBAC binding for an Azure principal (opt-in via config)
+apply_manage_principal_rbac() {
+        if [ -z "$MANAGE_PRINCIPAL" ]; then
+                return 0
+        fi
+
+        log "Applying optional RBAC binding for principal: $MANAGE_PRINCIPAL"
+
+        # Create a filesystem-safe suffix
+        safe_name=$(echo "$MANAGE_PRINCIPAL" | tr '@' '-' | tr -cd '[:alnum:]-' | cut -c1-40)
+        yaml_file="/tmp/arc_node_read_binding_${safe_name}.yaml"
+
+        cat > "$yaml_file" << EOF
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+    name: arc-nodes-reader-${safe_name}
+subjects:
+- kind: User
+    name: ${MANAGE_PRINCIPAL}
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+    kind: ClusterRole
+    name: view
+    apiGroup: rbac.authorization.k8s.io
+EOF
+
+        if kubectl apply -f "$yaml_file" &>/dev/null; then
+                success "Applied read-only ClusterRoleBinding for: ${MANAGE_PRINCIPAL} (file: $yaml_file)"
+        else
+                warn "Failed to apply RBAC binding for ${MANAGE_PRINCIPAL}. You can apply the file manually: kubectl apply -f $yaml_file"
+        fi
 }
 
 configure_system_settings() {
@@ -1378,6 +1419,8 @@ main() {
     check_k3s_resources
     install_k3s
     configure_kubectl
+    # Apply optional RBAC binding for a management principal if configured
+    apply_manage_principal_rbac
     configure_system_settings
     
     # Deploy modules

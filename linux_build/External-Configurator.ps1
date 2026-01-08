@@ -481,6 +481,172 @@ function Connect-ToAzure {
 # KUBECONFIG SETUP
 # ============================================================================
 
+# Merge or set the user's kubeconfig so `kubectl` uses the desired context.
+function Update-UserKubeConfig {
+    param(
+        [Parameter(Mandatory=$true)][string]$ContextName,
+        [Parameter(Mandatory=$false)][string]$SourceKubeconfig
+    )
+
+    # Determine the user's primary kubeconfig file
+    $userKube = $null
+    if ($env:KUBECONFIG) {
+        $userKube = $env:KUBECONFIG
+    } else {
+        $home = if ($env:USERPROFILE) { $env:USERPROFILE } else { $env:HOME }
+        $userKube = Join-Path $home ".kube\config"
+    }
+
+    Write-InfoLog "Ensuring kubeconfig at: $userKube uses context: $ContextName"
+
+    # If a source kubeconfig was provided, merge it with the user's kubeconfig
+    if ($SourceKubeconfig -and (Test-Path $SourceKubeconfig)) {
+        Write-InfoLog "Merging kubeconfigs: $SourceKubeconfig -> $userKube"
+
+        # Set temporary KUBECONFIG to combine both files and flatten into a single file
+        $originalKubeEnv = $env:KUBECONFIG
+        $env:KUBECONFIG = "$userKube;$SourceKubeconfig"
+
+        # Backup existing kubeconfig if present
+        if (Test-Path $userKube) {
+            $backupPath = "$userKube.bak.$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+            Write-InfoLog "Backing up existing kubeconfig to: $backupPath"
+
+            if (-not $script:DryRun) {
+                Copy-Item -Path $userKube -Destination $backupPath -Force
+                Write-Success "Backup created: $backupPath"
+            } else {
+                Write-InfoLog "[DRY-RUN] Would copy $userKube to $backupPath"
+            }
+
+            # Prompt user for confirmation before overwriting
+            if (-not $script:DryRun) {
+                $confirm = Read-Host "This will overwrite your kubeconfig at $userKube (backup created at $backupPath). Continue? (y/N)"
+                if ($confirm.ToLower() -ne 'y') {
+                    Write-WarnLog "User declined to overwrite kubeconfig. Aborting kubeconfig merge."
+                    # Restore original KUBECONFIG env if needed
+                    if ($originalKubeEnv) { $env:KUBECONFIG = $originalKubeEnv } else { Remove-Item Env:KUBECONFIG -ErrorAction SilentlyContinue }
+                    return
+                }
+            } else {
+                Write-InfoLog "[DRY-RUN] Would prompt user to confirm overwrite of $userKube"
+            }
+        }
+
+        try {
+            & kubectl config view --flatten | Out-File -Encoding ascii -FilePath $userKube
+            Write-Success "Merged kubeconfig written to: $userKube"
+        } finally {
+            if ($originalKubeEnv) { $env:KUBECONFIG = $originalKubeEnv } else { Remove-Item Env:KUBECONFIG -ErrorAction SilentlyContinue }
+        }
+    }
+
+    # Ensure the desired context exists in the user's kubeconfig
+    $contexts = & kubectl config get-contexts --kubeconfig $userKube 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "kubectl cannot read kubeconfig at $userKube"
+    }
+
+    if ($contexts -match [regex]::Escape($ContextName)) {
+        Write-InfoLog "Setting current context to: $ContextName"
+        & kubectl config use-context $ContextName --kubeconfig $userKube
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to set context $ContextName in $userKube"
+        }
+        Write-Success "kubectl now using context: $ContextName"
+    } else {
+        throw "Context '$ContextName' not found in $userKube"
+    }
+}
+
+
+# Check RBAC: detect 403s for listing nodes and generate minimal remediation
+function Check-RBACAndSuggest {
+    param(
+        [Parameter(Mandatory=$true)][string]$KubeconfigPath
+    )
+
+    Write-Log "Checking RBAC permissions for current user/context..."
+
+    # Test whether the current context can list nodes
+    $canList = & kubectl --kubeconfig $KubeconfigPath auth can-i list nodes 2>&1
+    $exit = $LASTEXITCODE
+
+    if ($exit -eq 0 -and $canList -match 'yes') {
+        Write-Success "Current user has permission to list nodes"
+        return
+    }
+
+    Write-WarnLog "Current user lacks permission to list nodes (RBAC issue detected)"
+
+    # Try to get Azure signed-in user (UPN) to use in suggested binding
+    $azureUser = $null
+    try {
+        $azureUser = az account show --query user.name -o tsv 2>$null
+    } catch {
+        $azureUser = $null
+    }
+
+    if (-not $azureUser) {
+        Write-InfoLog "Could not determine Azure signed-in user; admin should inspect kubeconfig user or object id"
+    } else {
+        Write-InfoLog "Detected Azure user: $azureUser"
+    }
+
+    # Generate a minimal ClusterRoleBinding YAML using 'view' role for the user
+    $safeName = if ($azureUser) { $azureUser -replace '[^a-z0-9-]','-' } else { 'arc-user' }
+    $yamlPath = Join-Path $script:ScriptDir "arc_node_read_binding_$((Get-Date).ToString('yyyyMMdd_HHmmss')).yaml"
+
+    $subjectName = if ($azureUser) { $azureUser } else { '<AZURE_USER_UPN_OR_OBJECTID>' }
+
+$yaml = @"
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: arc-nodes-reader-$safeName
+subjects:
+- kind: User
+  name: $subjectName
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: view
+  apiGroup: rbac.authorization.k8s.io
+"@
+
+    try {
+        $yaml | Out-File -FilePath $yamlPath -Encoding utf8 -Force
+        Write-Success "Generated ClusterRoleBinding YAML: $yamlPath"
+    } catch {
+        Write-WarnLog ("Failed to write YAML to {0}: {1}" -f $yamlPath, $_)
+    }
+
+    Write-Host ""
+    Write-Host "RBAC remediation suggestions:" -ForegroundColor Cyan
+    if ($azureUser) {
+        Write-Host "  - (Recommended) On a cluster-admin session on the edge, run:" -ForegroundColor Gray
+        Write-Host "      kubectl apply -f $yamlPath" -ForegroundColor Yellow
+        Write-Host "    This grants the Azure user '$azureUser' read-only view permissions (including nodes)." -ForegroundColor Gray
+    } else {
+        Write-Host "  - On a cluster-admin session on the edge, either apply the generated YAML file or create a binding manually:" -ForegroundColor Gray
+        Write-Host "      kubectl apply -f $yamlPath" -ForegroundColor Yellow
+        Write-Host "    Replace the subject name in the YAML with the correct Azure UPN or object id if needed." -ForegroundColor Gray
+    }
+
+    Write-Host "  - For broader admin access (not recommended for production), an admin can run:" -ForegroundColor Gray
+    Write-Host "      kubectl create clusterrolebinding arc-azure-admin-binding --clusterrole=cluster-admin --user=\"$subjectName\"" -ForegroundColor Yellow
+    Write-Host "" -ForegroundColor Gray
+
+    # Also print quick diagnostic output to help admins
+    Write-Host "Diagnostics to collect for support:" -ForegroundColor Cyan
+    Write-Host "  - kubectl --kubeconfig $KubeconfigPath auth can-i list nodes -v=8" -ForegroundColor Yellow
+    Write-Host "  - kubectl --kubeconfig $KubeconfigPath config view --minify --raw" -ForegroundColor Yellow
+    Write-Host "  - az account show" -ForegroundColor Yellow
+    Write-Host ""
+}
+
+
+
 function Initialize-KubeConfig {
     Write-Log "Configuring kubectl for remote cluster access..."
     
@@ -547,6 +713,13 @@ function Initialize-KubeConfig {
         # Store proxy job for cleanup
         $script:ProxyJob = $proxyJob
         
+        # Ensure the user's kubeconfig points to the proxy-merged context
+        try {
+            Update-UserKubeConfig -ContextName $script:ClusterName
+        } catch {
+            Write-WarnLog "Failed to update user kubeconfig with proxy context: $_"
+        }
+
         return
     }
     
@@ -633,6 +806,22 @@ function Initialize-KubeConfig {
         
         Write-Success "Successfully connected to cluster"
         kubectl get nodes
+
+        # Merge the temporary kubeconfig into the user's kubeconfig and set the context
+        try {
+            Update-UserKubeConfig -ContextName $script:ClusterName -SourceKubeconfig $tempKubeConfig
+        } catch {
+            Write-WarnLog "Failed to update user kubeconfig from temp kubeconfig: $_"
+        }
+        
+        # After updating kubeconfig, check RBAC and suggest remediation if needed
+        try {
+            $home = if ($env:USERPROFILE) { $env:USERPROFILE } else { $env:HOME }
+            $userKube = Join-Path $home ".kube\config"
+            Check-RBACAndSuggest -KubeconfigPath $userKube
+        } catch {
+            Write-WarnLog "RBAC check failed: $_"
+        }
         
     } catch {
         Write-ErrorLog "Failed to configure kubeconfig: $_"
@@ -1137,6 +1326,15 @@ function Main {
         
         Write-Log "Starting Azure IoT Operations External Configurator"
         Write-Log "Version: 1.0.0 (Separation of Concerns)"
+
+        # If the user did not explicitly request direct kubeconfig access,
+        # assume the script is running from a different network than the
+        # edge device and prefer using the Azure Arc proxy via the Azure CLI.
+        if (-not $PSBoundParameters.ContainsKey('UseArcProxy') -and -not $UseArcProxy) {
+            $UseArcProxy = $true
+            Write-Host "Assuming this machine is on a different network than the edge device; enabling Azure Arc proxy mode by default." -ForegroundColor Yellow
+            Write-Host "If you want to force direct kubeconfig usage, run the script with -UseArcProxy:$false or provide the -SkipArcEnable flag." -ForegroundColor Yellow
+        }
         Write-Host ""
         
         # Phase 1: Prerequisites and Configuration
@@ -1188,8 +1386,12 @@ function Main {
             Stop-Job -Job $script:ProxyJob -ErrorAction SilentlyContinue
             Remove-Job -Job $script:ProxyJob -ErrorAction SilentlyContinue
         }
-        
-        Stop-Transcript
+        # Stop transcription if running; ignore error if not transcribing
+        try {
+            Stop-Transcript
+        } catch {
+            # Ignore Stop-Transcript errors when transcription isn't active
+        }
     }
 }
 
