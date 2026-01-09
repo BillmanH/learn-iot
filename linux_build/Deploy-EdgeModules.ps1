@@ -46,7 +46,7 @@ $script:StartTime = Get-Date
 function Write-Log {
     param([string]$Message, [string]$Level = "INFO")
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    $logMessage = "[$timestamp] $Level: $Message"
+    $logMessage = "[$timestamp] ${Level}: $Message"
     
     switch ($Level) {
         "ERROR"   { Write-Host $logMessage -ForegroundColor Red }
