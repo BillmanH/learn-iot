@@ -56,7 +56,7 @@ function Write-Log {
         default   { Write-Host $logMessage }
     }
     
-    Add-Content -Path $script:LogFile -Value $logMessage
+    # Note: Transcript already captures all output, no need for Add-Content
 }
 
 function Write-ErrorLog {
