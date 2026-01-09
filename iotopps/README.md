@@ -2,6 +2,8 @@
 
 This directory contains containerized applications designed to be deployed to Azure IoT Operations (AIO) Kubernetes clusters running on edge devices.
 
+These are for demo purposes mostly but can be used to test and validate your AIO build. 
+
 ## Available Applications
 
 ### � sputnik
