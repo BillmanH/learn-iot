@@ -10,25 +10,25 @@ Write-Host "`nChecking prerequisites..." -ForegroundColor Yellow
 # Check Python
 try {
     $pythonVersion = python --version
-    Write-Host "✓ Python: $pythonVersion" -ForegroundColor Green
+    Write-Host "[OK] Python: $pythonVersion" -ForegroundColor Green
 } catch {
-    Write-Host "✗ Python not found. Install Python 3.11+" -ForegroundColor Red
+    Write-Host "[ERROR] Python not found. Install Python 3.11+" -ForegroundColor Red
     exit 1
 }
 
 # Check Docker
 try {
     $dockerVersion = docker --version
-    Write-Host "✓ Docker: $dockerVersion" -ForegroundColor Green
+    Write-Host "[OK] Docker: $dockerVersion" -ForegroundColor Green
 } catch {
-    Write-Host "✗ Docker not found. Install Docker Desktop" -ForegroundColor Red
+    Write-Host "[ERROR] Docker not found. Install Docker Desktop" -ForegroundColor Red
     exit 1
 }
 
 # Install Python dependencies
 Write-Host "`nInstalling Python dependencies..." -ForegroundColor Yellow
 pip install -q -r requirements.txt
-Write-Host "✓ Dependencies installed" -ForegroundColor Green
+Write-Host "[OK] Dependencies installed" -ForegroundColor Green
 
 # Start PostgreSQL container
 Write-Host "`nStarting PostgreSQL container..." -ForegroundColor Yellow
@@ -46,7 +46,7 @@ docker run --name historian-postgres -d `
   -p 5432:5432 `
   postgres:16-alpine
 
-Write-Host "✓ PostgreSQL started" -ForegroundColor Green
+Write-Host "[OK] PostgreSQL started" -ForegroundColor Green
 Write-Host "  Waiting for database to be ready..." -ForegroundColor Yellow
 Start-Sleep -Seconds 5
 
@@ -57,10 +57,10 @@ $env:POSTGRES_PORT = "5432"
 $env:POSTGRES_DB = "mqtt_historian"
 $env:POSTGRES_USER = "historian"
 $env:POSTGRES_PASSWORD = "changeme"
-$env:MQTT_ENABLED = "false"  # Disable MQTT for simple testing
+$env:MQTT_ENABLED = "false"
 $env:LOG_LEVEL = "INFO"
 
-Write-Host "✓ Environment configured" -ForegroundColor Green
+Write-Host "[OK] Environment configured" -ForegroundColor Green
 
 # Display configuration
 Write-Host "`nConfiguration:" -ForegroundColor Cyan
@@ -82,5 +82,5 @@ try {
     Write-Host "`n`nCleaning up..." -ForegroundColor Yellow
     docker stop historian-postgres 2>$null
     docker rm historian-postgres 2>$null
-    Write-Host "✓ Cleanup complete" -ForegroundColor Green
+    Write-Host "[OK] Cleanup complete" -ForegroundColor Green
 }
