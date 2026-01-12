@@ -19,7 +19,7 @@ The repository demonstrates real-world patterns for industrial IoT deployments, 
 
 | Folder | Purpose | Key Contents |
 |--------|---------|--------------|
-| **`linux_build/`** | AIO infrastructure deployment on Ubuntu/K3s | `linux_installer.sh` (edge setup), `External-Configurator.ps1` (Azure config), `linuxAIO.sh` (legacy monolithic), diagnostic scripts, ARM templates, configuration templates |
+| **`linux_build/`** | AIO infrastructure deployment on Ubuntu/K3s | `linux_installer.sh` (edge setup), `External-Configurator.ps1` (Azure config), diagnostic scripts, ARM templates, configuration templates |
 | **`linux_build/arm_templates/`** | ARM templates for Azure resources | MQTT asset definitions, endpoint profiles for deploying assets to Azure Resource Manager |
 | **`linux_build/assets/`** | Kubernetes asset manifests | YAML definitions for MQTT assets to deploy on the edge cluster |
 | **`iotopps/`** | Edge applications and workloads | Production IoT applications that run on the AIO cluster |
@@ -34,13 +34,9 @@ The repository demonstrates real-world patterns for industrial IoT deployments, 
 
 ## Quick Start
 
-> **✅ Recommended Deployment**: Use the two-script architecture that separates edge installation from cloud configuration for better security and flexibility.
+The deployment process is split into two distinct phases for better security and flexibility.
 
-### Recommended Deployment Process (Separated Architecture)
-
-The deployment process is split into two distinct phases:
-
-#### Phase 1: Edge Device Setup (`linux_installer.sh`)
+### Phase 1: Edge Device Setup (`linux_installer.sh`)
 Run on the edge device to prepare local infrastructure:
 ```bash
 # On Ubuntu edge device (24.04+, 16GB RAM, 4 CPU cores minimum)
@@ -52,7 +48,7 @@ bash linux_installer.sh
 **Output**: `edge_configs/cluster_info.json` for remote configuration  
 **Configuration**: Uses `linux_aio_config.json` for optional_tools and modules settings
 
-#### Phase 2: Azure Configuration (`External-Configurator.ps1`)
+### Phase 2: Azure Configuration (`External-Configurator.ps1`)
 Run from any Windows machine with Azure CLI to connect and deploy AIO:
 ```powershell
 # On DevOps machine, developer workstation, or CI/CD pipeline
@@ -63,40 +59,7 @@ cd linux_build
 **Configures**: Azure Arc, resource groups, AIO deployment, asset sync  
 **Benefits**: No Azure credentials needed on edge device, supports multi-cluster management
 
-### Legacy Deployment Process (linuxAIO.sh)
-
-> **Note**: The monolithic `linuxAIO.sh` script is still available but the separated architecture is recommended for production deployments.
-
-```bash
-# On your Ubuntu edge device
-cd linux_build
-bash linuxAIO.sh
-```
-
-This script performs both local installation and Azure configuration in one run.
-
-### 2. Deploy Assets to Azure
-
-After infrastructure is ready, deploy MQTT assets to Azure Resource Manager:
-
-```bash
-cd linux_build
-bash deploy-assets.sh
-```
-
-This creates:
-- MQTT Asset Endpoint Profile (connection to edge broker)
-- Factory MQTT Asset (telemetry definitions)
-
-### 3. Deploy Sample Applications
-
-```bash
-cd iotopps/edgemqttsim
-# Update <YOUR_REGISTRY> in deployment.yaml
-kubectl apply -f deployment.yaml
-```
-
-### 4. Verify Deployment
+### Verify Deployment
 
 ```bash
 # Check AIO pods are running
@@ -117,10 +80,10 @@ kubectl exec -it -n azure-iot-operations deploy/aio-broker-frontend -- \
 - **[Linux Build Steps](./linux_build/linux_build_steps.md)** - Complete step-by-step guide for installing AIO on a fresh Linux system
 - **[K3s Troubleshooting Guide](./linux_build/K3S_TROUBLESHOOTING_GUIDE.md)** - Comprehensive troubleshooting reference for K3s cluster issues
 - **[Azure Portal Setup](./aio_portal_setup.md)** - Guide for discovering and managing devices in Azure Portal
-- **`linux_installer.sh`** - ✅ Edge device installer (local infrastructure only)
-- **`External-Configurator.ps1`** - ✅ Remote Azure configurator (cloud resources only)
-- **`linuxAIO.sh`** - Legacy monolithic installation script (still supported)
-- **`deploy-assets.sh`** - ARM template deployment script for Azure assets
+- **`linux_installer.sh`** - Edge device installer (local infrastructure only)
+- **`External-Configurator.ps1`** - Remote Azure configurator (cloud resources only)
+- **`Deploy-EdgeModules.ps1`** - Automated deployment script for edge applications
+- **`Deploy-Assets.ps1`** - ARM template deployment script for Azure assets
 
 ### Applications & Samples
 
@@ -137,39 +100,11 @@ uv sync
 
 ## Architecture
 
-This repository demonstrates a modern edge-to-cloud architecture with a **separated architecture** that distinguishes between edge infrastructure and cloud orchestration.
+This repository demonstrates a modern edge-to-cloud architecture with separated edge infrastructure and cloud orchestration.
 
-### Legacy Architecture (Monolithic - linuxAIO.sh)
+### Separated Architecture
 
-```
-┌─────────────────────────────────────────────┐
-│   Edge Device (Ubuntu + K3s)                │
-│   ┌─────────────────────────────────────┐   │
-│   │  Azure IoT Operations               │   │
-│   │  - MQTT Broker (aio-broker)         │   │
-│   │  - Asset Management                 │   │
-│   │  - Authentication (K8S-SAT)         │   │
-│   └─────────────────────────────────────┘   │
-│   ┌─────────────────────────────────────┐   │
-│   │  IoT Applications                   │   │
-│   │  - edgemqttsim (telemetry)          │   │
-│   │  - wasm filters (processing)        │   │
-│   └─────────────────────────────────────┘   │
-└─────────────────────────────────────────────┘
-                    │
-                    │ Arc-enabled K8s
-                    ▼
-┌─────────────────────────────────────────────┐
-│   Azure Cloud                               │
-│   - Device Registry (Assets)                │
-│   - Microsoft Fabric (Data Analytics)       │
-│   - Real-Time Intelligence                  │
-└─────────────────────────────────────────────┘
-```
-
-### Recommended Architecture (Separated)
-
-The separated architecture divides deployment into two distinct processes for better security and maintainability:
+The deployment architecture divides the process into two distinct phases for better security and maintainability:
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
