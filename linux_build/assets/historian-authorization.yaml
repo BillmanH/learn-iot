@@ -1,0 +1,23 @@
+# BrokerAuthorization for Edge Historian
+# CRITICAL: Required for wildcard subscription to all topics
+
+apiVersion: mqttbroker.iotoperations.azure.com/v1beta1
+kind: BrokerAuthorization
+metadata:
+  name: historian-authz
+  namespace: azure-iot-operations
+spec:
+  authorizationPolicies:
+    brokerResources:
+      # Allow historian clients to connect
+      - method: Connect
+        clientIds:
+          - "historian-*"
+      
+      # Allow subscription to ALL topics (wildcard)
+      - method: Subscribe
+        clientIds:
+          - "historian-*"
+        topics:
+          - "#"  # Subscribe to all topics
+          - "factory/#"  # Explicit factory namespace
