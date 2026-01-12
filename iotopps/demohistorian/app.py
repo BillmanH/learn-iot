@@ -611,7 +611,13 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
-    try: (can be disabled for local testing)
+    try:
+        # Initialize database
+        logger.info("\n[1/3] Initializing database...")
+        db_manager = DatabaseManager(app_config)
+        db_manager.initialize()
+        
+        # Initialize MQTT (can be disabled for local testing)
         if app_config['mqtt'].get('enabled', True):
             logger.info("\n[2/3] Initializing MQTT subscriber...")
             mqtt_subscriber = MQTTSubscriber(app_config, db_manager)
@@ -619,13 +625,7 @@ def main():
             mqtt_subscriber.connect()
         else:
             logger.warning("\n[2/3] MQTT subscriber DISABLED (local testing mode)")
-            logger.warning("Set MQTT_ENABLED=true to enable MQTT"
-        
-        # Initialize MQTT
-        logger.info("\n[2/3] Initializing MQTT subscriber...")
-        mqtt_subscriber = MQTTSubscriber(app_config, db_manager)
-        mqtt_subscriber.initialize()
-        mqtt_subscriber.connect()
+            logger.warning("Set MQTT_ENABLED=true to enable MQTT")
         
         # Start cleanup task
         logger.info("\n[3/3] Starting cleanup task...")
