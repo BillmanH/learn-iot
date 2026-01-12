@@ -19,13 +19,14 @@ The repository demonstrates real-world patterns for industrial IoT deployments, 
 
 | Folder | Purpose | Key Contents |
 |--------|---------|--------------|
-| **`linux_build/`** | AIO infrastructure deployment on Ubuntu/K3s | `linuxAIO.sh` (automated installer), diagnostic scripts, ARM templates for asset deployment, configuration templates |
+| **`linux_build/`** | AIO infrastructure deployment on Ubuntu/K3s | `linux_installer.sh` (edge setup), `External-Configurator.ps1` (Azure config), `linuxAIO.sh` (legacy monolithic), diagnostic scripts, ARM templates, configuration templates |
 | **`linux_build/arm_templates/`** | ARM templates for Azure resources | MQTT asset definitions, endpoint profiles for deploying assets to Azure Resource Manager |
 | **`linux_build/assets/`** | Kubernetes asset manifests | YAML definitions for MQTT assets to deploy on the edge cluster |
 | **`iotopps/`** | Edge applications and workloads | Production IoT applications that run on the AIO cluster |
 | **`iotopps/edgemqttsim/`** | MQTT telemetry simulator | Factory equipment simulator publishing realistic telemetry to MQTT broker |
 | **`iotopps/hello-flask/`** | Sample Flask web application | Basic containerized web app for testing deployments |
-| **`iotopps/sputnik/`** | Custom IoT application | Specialized edge processing application |
+| **`iotopps/sputnik/`** | MQTT test publisher | Simple MQTT client sending periodic "beep" messages for testing |
+| **`iotopps/demohistorian/`** | SQL-based MQTT historian | Subscribes to all topics, stores in PostgreSQL, provides HTTP API for queries |
 | **`iotopps/wasm-quality-filter-python/`** | WebAssembly data filter | WASM-based telemetry filtering for edge processing |
 | **`Fabric_setup/`** | Azure Fabric integration | Documentation and queries for connecting AIO to Microsoft Fabric Real-Time Intelligence |
 | **`operations/`** | Operational configurations | Azure resource definitions for data pipelines and endpoints |
@@ -33,51 +34,46 @@ The repository demonstrates real-world patterns for industrial IoT deployments, 
 
 ## Quick Start
 
-> **📢 New Architecture Available**: We're transitioning to a two-script architecture that separates edge installation from cloud configuration. See [Separation of Concerns Plan](./linux_build/separation_of_concerns.md) for details. Current `linuxAIO.sh` script remains fully supported during transition.
+> **✅ Recommended Deployment**: Use the two-script architecture that separates edge installation from cloud configuration for better security and flexibility.
 
-### Current Deployment Process (linuxAIO.sh)
+### Recommended Deployment Process (Separated Architecture)
 
-#### 1. Deploy Azure IoT Operations Infrastructure
-
-```bash
-# On your Ubuntu edge device (24.04+, 16GB RAM, 4 CPU cores minimum)
-cd linux_build
-bash linuxAIO.sh
-```
-
-This script will:
-- Install K3s Kubernetes cluster
-- Deploy Azure IoT Operations v1.2+
-- Configure MQTT broker and authentication
-- Set up Arc-enabled Kubernetes connection to Azure
-
-### Future Architecture (In Development)
-
-The deployment process is being split into two distinct phases for better security and flexibility:
+The deployment process is split into two distinct phases:
 
 #### Phase 1: Edge Device Setup (`linux_installer.sh`)
 Run on the edge device to prepare local infrastructure:
 ```bash
-# On Ubuntu edge device
+# On Ubuntu edge device (24.04+, 16GB RAM, 4 CPU cores minimum)
 cd linux_build
 bash linux_installer.sh
 ```
 
-**Installs**: K3s cluster, kubectl, Helm, system configurations  
-**Output**: `cluster_info.json` for remote configuration
+**Installs**: K3s cluster, kubectl, Helm, optional tools (k9s, mqtt-viewer, mqttui), edge modules  
+**Output**: `edge_configs/cluster_info.json` for remote configuration  
+**Configuration**: Uses `linux_aio_config.json` for optional_tools and modules settings
 
-#### Phase 2: Azure Configuration (`external_configurator.sh`)
-Run from any machine with Azure CLI to connect and deploy AIO:
-```bash
+#### Phase 2: Azure Configuration (`External-Configurator.ps1`)
+Run from any Windows machine with Azure CLI to connect and deploy AIO:
+```powershell
 # On DevOps machine, developer workstation, or CI/CD pipeline
 cd linux_build
-bash external_configurator.sh --cluster-info cluster_info.json
+.\External-Configurator.ps1 -ConfigFile ".\edge_configs\cluster_info.json"
 ```
 
 **Configures**: Azure Arc, resource groups, AIO deployment, asset sync  
 **Benefits**: No Azure credentials needed on edge device, supports multi-cluster management
 
-See [Separation of Concerns Documentation](./linux_build/separation_of_concerns.md) for complete implementation details and timeline.
+### Legacy Deployment Process (linuxAIO.sh)
+
+> **Note**: The monolithic `linuxAIO.sh` script is still available but the separated architecture is recommended for production deployments.
+
+```bash
+# On your Ubuntu edge device
+cd linux_build
+bash linuxAIO.sh
+```
+
+This script performs both local installation and Azure configuration in one run.
 
 ### 2. Deploy Assets to Azure
 
@@ -118,18 +114,18 @@ kubectl exec -it -n azure-iot-operations deploy/aio-broker-frontend -- \
 
 ### Infrastructure & Setup
 
-- **[Separation of Concerns Plan](./linux_build/separation_of_concerns.md)** - ⭐ NEW: Architecture plan for splitting installation into edge and cloud components
 - **[Linux Build Steps](./linux_build/linux_build_steps.md)** - Complete step-by-step guide for installing AIO on a fresh Linux system
 - **[K3s Troubleshooting Guide](./linux_build/K3S_TROUBLESHOOTING_GUIDE.md)** - Comprehensive troubleshooting reference for K3s cluster issues
 - **[Azure Portal Setup](./aio_portal_setup.md)** - Guide for discovering and managing devices in Azure Portal
-- **`linuxAIO.sh`** - Current automated installation script for Azure IoT Operations (monolithic)
-- **`linux_installer.sh`** - 🚧 In Development: Edge device installer (local infrastructure only)
-- **`external_configurator.sh`** - 🚧 In Development: Remote Azure configurator (cloud resources only)
+- **`linux_installer.sh`** - ✅ Edge device installer (local infrastructure only)
+- **`External-Configurator.ps1`** - ✅ Remote Azure configurator (cloud resources only)
+- **`linuxAIO.sh`** - Legacy monolithic installation script (still supported)
 - **`deploy-assets.sh`** - ARM template deployment script for Azure assets
 
 ### Applications & Samples
 
 - **[Edge MQTT Simulator](./iotopps/edgemqttsim/README.md)** - Comprehensive factory telemetry simulator
+- **[Edge Historian](./iotopps/demohistorian/README.md)** - SQL-based historian with HTTP API for querying historical MQTT data
 - **[Fabric Integration](./Fabric_setup/fabric-realtime-intelligence-setup.md)** - Connecting AIO to Microsoft Fabric
 
 ### Development Environment
@@ -141,9 +137,9 @@ uv sync
 
 ## Architecture
 
-This repository demonstrates a modern edge-to-cloud architecture. We're evolving toward a **separated architecture** that distinguishes between edge infrastructure and cloud orchestration.
+This repository demonstrates a modern edge-to-cloud architecture with a **separated architecture** that distinguishes between edge infrastructure and cloud orchestration.
 
-### Current Architecture (Monolithic)
+### Legacy Architecture (Monolithic - linuxAIO.sh)
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -171,9 +167,9 @@ This repository demonstrates a modern edge-to-cloud architecture. We're evolving
 └─────────────────────────────────────────────┘
 ```
 
-### Future Architecture (Separated - In Development)
+### Recommended Architecture (Separated)
 
-The new architecture separates concerns into two distinct processes:
+The separated architecture divides deployment into two distinct processes for better security and maintainability:
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
@@ -194,8 +190,8 @@ The new architecture separates concerns into two distinct processes:
                               │ (Secure copy to management machine)
                               ▼
 ┌────────────────────────────────────────────────────────────────┐
-│  Phase 2: Azure Configuration (external_configurator.sh)      │
-│  Runs FROM any machine with Azure CLI                         │
+│  Phase 2: Azure Configuration (External-Configurator.ps1)     │
+│  Runs FROM any Windows machine with Azure CLI                 │
 │                                                                 │
 │  ┌──────────────────────────────────────────────────────────┐ │
 │  │  Remote Configuration Machine                            │ │
@@ -223,11 +219,10 @@ The new architecture separates concerns into two distinct processes:
 **Benefits of Separated Architecture**:
 - 🔒 **Security**: No Azure credentials needed on edge devices
 - 📡 **Remote Management**: Configure multiple edge devices from central location
-- 🔄 **CI/CD Friendly**: Easy pipeline integration
+- 🔄 **CI/CD Friendly**: Easy pipeline integration for GitOps workflows
 - 🐛 **Easier Debugging**: Clear separation of local vs. cloud issues
 - 🏢 **Production Ready**: Follows best practices for enterprise deployments
-
-For complete implementation details, timeline, and testing strategy, see [Separation of Concerns Documentation](./linux_build/separation_of_concerns.md).
+- 🎯 **Modular Deployment**: Configure edge modules (edgemqttsim, demohistorian, etc.) via config file
 
 ## Prerequisites
 
