@@ -24,7 +24,7 @@ param(
     [string]$ConfigPath,
     
     [Parameter(Mandatory=$false)]
-    [ValidateSet("edgemqttsim", "hello-flask", "sputnik", "wasm-quality-filter-python")]
+    [ValidateSet("edgemqttsim", "hello-flask", "sputnik", "wasm-quality-filter-python", "demohistorian")]
     [string]$ModuleName,
     
     [Parameter(Mandatory=$false)]
