@@ -43,6 +43,7 @@ The Edge Historian is a containerized service that:
 - K8S-SAT authentication for secure AIO broker access
 - Automatic reconnection on connection loss
 - QoS 0 (at-most-once) for minimal broker load
+- **Character sanitization** - Special/unicode characters replaced with underscores to prevent encoding errors
 
 ### Data Storage
 - **PostgreSQL 16-alpine** (lightweight, reliable)
@@ -56,6 +57,7 @@ The Edge Historian is a containerized service that:
   - `status` - Extracted for fast queries (generated column)
 - **Indexes** for fast topic and machine queries
 - **24-hour retention** (automatic cleanup)
+- **Unicode handling** - Special characters automatically sanitized to prevent encoding issues
 
 ### HTTP API
 - `GET /health` - Health check (for K8s probes)
@@ -145,6 +147,19 @@ kubectl apply -f linux_build/assets/historian-authorization.yaml
 ## API Usage
 
 ### Health Check
+
+**Get the service IP address:**
+```bash
+kubectl get svc demohistorian -n default -o jsonpath='{.spec.clusterIP}'
+```
+
+Then use the IP:
+```bash
+# Replace <CLUSTER_IP> with the IP from above
+curl http://<CLUSTER_IP>:8080/health
+```
+
+Or use service name (inside cluster):
 ```bash
 curl http://demohistorian:8080/health
 ```
@@ -161,6 +176,19 @@ Response:
 ```
 
 ### Get Last Value for Topic
+
+**Get the service IP address:**
+```bash
+kubectl get svc demohistorian -n default -o jsonpath='{.spec.clusterIP}'
+```
+
+Then use the IP:
+```bash
+# Replace <CLUSTER_IP> with the IP from above
+curl http://<CLUSTER_IP>:8080/api/v1/last-value/factory/cnc
+```
+
+Or use service name (inside cluster):
 ```bash
 curl http://demohistorian:8080/api/v1/last-value/factory/cnc
 ```
@@ -184,15 +212,42 @@ Response:
 ```
 
 ### Query Messages
+
+**Get the service IP address:**
 ```bash
+# Get the ClusterIP
+kubectl get svc demohistorian -n default -o jsonpath='{.spec.clusterIP}'
+```
+
+Then use the IP address to query:
+```bash
+# Replace <CLUSTER_IP> with the IP from above
 # Get last 10 messages from specific machine
-curl "http://demohistorian:8080/api/v1/query?machine_id=CNC-01&limit=10"
+curl "http://<CLUSTER_IP>:8080/api/v1/query?machine_id=CNC-01&limit=10"
 
 # Get messages from specific topic
-curl "http://demohistorian:8080/api/v1/query?topic=factory/welding&limit=50"
+curl "http://<CLUSTER_IP>:8080/api/v1/query?topic=factory/welding&limit=50"
+```
+
+Or use the service name (DNS works inside cluster):
+```bash
+curl "http://demohistorian:8080/api/v1/query?machine_id=CNC-01&limit=10"
 ```
 
 ### Get Statistics
+
+**Get the service IP address:**
+```bash
+kubectl get svc demohistorian -n default -o jsonpath='{.spec.clusterIP}'
+```
+
+Then use the IP:
+```bash
+# Replace <CLUSTER_IP> with the IP from above
+curl http://<CLUSTER_IP>:8080/api/v1/stats
+```
+
+Or use service name (inside cluster):
 ```bash
 curl http://demohistorian:8080/api/v1/stats
 ```
@@ -286,6 +341,13 @@ kubectl exec -n default <pod> -c postgres -- \
   psql -U historian -d mqtt_historian -c "SELECT COUNT(*) FROM mqtt_history;"
 ```
 
+### Unicode/Encoding Errors
+The historian automatically sanitizes special characters to prevent encoding issues:
+- Special/unicode characters (emojis, fancy symbols) → replaced with `_`
+- Keeps safe ASCII: letters, numbers, spaces, basic punctuation (`. - _ , : / ( ) [ ] { } @`)
+- Applied recursively to all string values in JSON payloads
+- No configuration needed - automatic protection
+
 ### Access API from Outside Cluster
 ```bash
 # Port forward (for testing)
@@ -334,11 +396,15 @@ The historian automatically captures all messages from edgemqttsim:
 
 Query example:
 ```bash
+# Get the service IP
+kubectl get svc demohistorian -n default -o jsonpath='{.spec.clusterIP}'
+
+# Replace <CLUSTER_IP> with the IP from above
 # Get last CNC machine status
-curl http://demohistorian:8080/api/v1/last-value/factory/cnc
+curl http://<CLUSTER_IP>:8080/api/v1/last-value/factory/cnc
 
 # Get last 20 welding events
-curl "http://demohistorian:8080/api/v1/query?topic=factory/welding&limit=20"
+curl "http://<CLUSTER_IP>:8080/api/v1/query?topic=factory/welding&limit=20"
 ```
 
 ## Limitations

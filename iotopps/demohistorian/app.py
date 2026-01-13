@@ -13,6 +13,7 @@ import ssl
 import logging
 import threading
 import signal
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any, List
@@ -110,6 +111,36 @@ def setup_logging(config: Dict[str, Any]):
 logger = logging.getLogger(__name__)
 
 # =============================================================================
+# Utility Functions
+# =============================================================================
+
+def sanitize_string(text: str) -> str:
+    """Replace special/unicode characters with underscores to prevent encoding issues.
+    
+    Keeps only ASCII alphanumeric, spaces, basic punctuation, and common symbols.
+    """
+    # Define allowed characters: alphanumeric, spaces, and basic punctuation
+    # This regex keeps letters, numbers, spaces, and common safe punctuation
+    allowed_pattern = r'[^a-zA-Z0-9\s\.\-_,:/\(\)\[\]{}@]'
+    
+    # Replace any character not in the allowed set with underscore
+    sanitized = re.sub(allowed_pattern, '_', text)
+    
+    return sanitized
+
+def sanitize_json_strings(obj: Any) -> Any:
+    """Recursively sanitize all string values in a JSON-compatible object."""
+    if isinstance(obj, str):
+        return sanitize_string(obj)
+    elif isinstance(obj, dict):
+        return {sanitize_string(k) if isinstance(k, str) else k: 
+                sanitize_json_strings(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [sanitize_json_strings(item) for item in obj]
+    else:
+        return obj
+
+# =============================================================================
 # Database Manager
 # =============================================================================
 
@@ -204,6 +235,9 @@ class DatabaseManager:
                         payload_json = {"raw": payload}
                 else:
                     payload_json = payload
+                
+                # Sanitize all string values to prevent unicode escape issues
+                payload_json = sanitize_json_strings(payload_json)
                 
                 # Extract timestamp from payload if available
                 msg_timestamp = payload_json.get('timestamp', datetime.utcnow().isoformat() + 'Z')
@@ -366,6 +400,7 @@ class MQTTSubscriber:
         self.client: Optional[mqtt.Client] = None
         self.connected = threading.Event()
         self.should_stop = threading.Event()
+        self.connect_properties: Optional[mqtt.Properties] = None
         
     def initialize(self):
         """Initialize MQTT client with K8S-SAT authentication."""
@@ -410,11 +445,9 @@ class MQTTSubscriber:
         logger.info(f"✓ Read SAT token from {token_path} ({len(token)} chars)")
         
         # Set up MQTT v5 enhanced authentication
-        properties = mqtt.Properties(mqtt.PacketTypes.CONNECT)
-        properties.AuthenticationMethod = 'K8S-SAT'
-        properties.AuthenticationData = token.encode('utf-8')
-        
-        self.client.connect_properties = properties
+        self.connect_properties = mqtt.Properties(mqtt.PacketTypes.CONNECT)
+        self.connect_properties.AuthenticationMethod = 'K8S-SAT'
+        self.connect_properties.AuthenticationData = token.encode('utf-8')
     
     def _on_connect(self, client, userdata, flags, reason_code, properties):
         """Callback when connected to broker."""
@@ -435,7 +468,36 @@ class MQTTSubscriber:
             
             self.connected.set()
         else:
-            logger.error(f"✗ Connection failed with code: {rc}")
+            # Decode MQTT v5 reason codes
+            reason_names = {
+                128: "Unspecified error",
+                129: "Malformed Packet",
+                130: "Protocol Error",
+                131: "Implementation specific error",
+                132: "Unsupported Protocol Version",
+                133: "Client Identifier not valid",
+                134: "Bad User Name or Password / Not authorized",
+                135: "Not authorized",
+                136: "Server unavailable",
+                137: "Server busy",
+                138: "Banned",
+                140: "Bad authentication method",
+                144: "Topic Name invalid",
+                149: "Packet too large",
+                151: "Quota exceeded",
+                153: "Payload format invalid",
+                154: "Retain not supported",
+                155: "QoS not supported",
+                156: "Use another server",
+                157: "Server moved",
+                159: "Connection rate exceeded"
+            }
+            reason_msg = reason_names.get(rc, f"Unknown error code {rc}")
+            logger.error(f"✗ Connection failed with code {rc}: {reason_msg}")
+            if rc == 134:
+                logger.error("  → Check: Is mqtt-client service account authorized in BrokerAuthorization?")
+                logger.error("  → Check: Is SAT token mounted at /var/run/secrets/tokens/broker-sat?")
+                logger.error("  → Check: Does audience match 'aio-internal'?")
             self.connected.clear()
     
     def _on_disconnect(self, client, userdata, reason_code, properties=None):
@@ -465,7 +527,8 @@ class MQTTSubscriber:
         self.client.connect(
             mqtt_config['broker'],
             mqtt_config['port'],
-            mqtt_config['keepalive']
+            mqtt_config['keepalive'],
+            properties=self.connect_properties
         )
         
         # Start network loop
