@@ -130,12 +130,36 @@ class DatabaseManager:
         db_config = self.config['database']
         
         logger.info(f"Connecting to PostgreSQL at {db_config['host']}:{db_config['port']}")
+        logger.info(f"Target database: {db_config['name']}")
         
-        # Wait for PostgreSQL to be ready
+        # Wait for PostgreSQL server to be ready and ensure database exists
         max_retries = 30
         for attempt in range(max_retries):
             try:
-                # Create connection pool
+                # First, verify PostgreSQL server is accessible by connecting to postgres database
+                test_conn = psycopg2.connect(
+                    host=db_config['host'],
+                    port=db_config['port'],
+                    database='postgres',  # Connect to default postgres database first
+                    user=db_config['user'],
+                    password=db_config['password'],
+                    connect_timeout=5
+                )
+                test_conn.autocommit = True
+                
+                # Check if target database exists, create if not
+                with test_conn.cursor() as cursor:
+                    cursor.execute("SELECT 1 FROM pg_database WHERE datname = %s", (db_config['name'],))
+                    if not cursor.fetchone():
+                        logger.info(f"Database '{db_config['name']}' does not exist, creating...")
+                        cursor.execute(f"CREATE DATABASE {db_config['name']}")
+                        logger.info(f"✓ Database '{db_config['name']}' created")
+                    else:
+                        logger.info(f"✓ Database '{db_config['name']}' exists")
+                
+                test_conn.close()
+                
+                # Now create connection pool to target database
                 self.pool = pool.SimpleConnectionPool(
                     1,
                     db_config['pool_size'],
@@ -155,10 +179,10 @@ class DatabaseManager:
                 
             except psycopg2.OperationalError as e:
                 if attempt < max_retries - 1:
-                    logger.warning(f"Database not ready (attempt {attempt + 1}/{max_retries}), retrying...")
+                    logger.warning(f"Database not ready (attempt {attempt + 1}/{max_retries}): {e}, retrying...")
                     time.sleep(2)
                 else:
-                    logger.error(f"Failed to connect to database after {max_retries} attempts")
+                    logger.error(f"Failed to connect to database after {max_retries} attempts: {e}")
                     raise
     
     def _initialize_schema(self):
