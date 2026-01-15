@@ -74,6 +74,27 @@ kubectl exec -it -n azure-iot-operations deploy/aio-broker-frontend -- \
   mosquitto_sub -h localhost -p 18883 -t 'factory/#' -v
 ```
 
+### Optional: Kubernetes Bearer Token for Azure Portal
+
+If you want to view Kubernetes resources directly in the Azure Portal (under Arc-enabled Kubernetes → Kubernetes resources), you'll need a service account bearer token:
+
+```bash
+# On the edge device
+cd linux_build
+bash get-k8s-bearer-token.sh
+```
+
+This script:
+- Creates a service account with cluster-admin permissions
+- Generates a bearer token
+- Saves the token to USB/SD drive (or local directory)
+- Provides instructions for using it in Azure Portal
+
+**Note**: This is **not required** for Azure IoT Operations to function. AIO works independently of the Azure Portal Kubernetes viewer. However, the bearer token can be helpful for:
+- Troubleshooting pods and deployments from the Azure Portal
+- Viewing cluster resources without SSH access to the edge device
+- Demonstrating full cluster visibility to stakeholders
+
 ## Key Documentation
 
 ### Infrastructure & Setup
