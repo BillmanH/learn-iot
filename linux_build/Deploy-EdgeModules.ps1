@@ -378,6 +378,29 @@ function Build-AndPushContainer {
     if ($buildExitCode -ne 0) {
         Write-ErrorLog "Docker build failed with exit code: $buildExitCode"
         $buildOutput | ForEach-Object { Write-ErrorLog $_ }
+        
+        # Check for common Docker Desktop issues on Windows
+        if ($buildOutput -match "dockerDesktopLinuxEngine|The system cannot find the file specified|error during connect") {
+            Write-ErrorLog ""
+            Write-ErrorLog "============================================================"
+            Write-ErrorLog "TROUBLESHOOTING: Docker Desktop may not be running"
+            Write-ErrorLog "============================================================"
+            Write-ErrorLog "This error typically occurs when Docker Desktop is not running on Windows."
+            Write-ErrorLog ""
+            Write-ErrorLog "To resolve this issue:"
+            Write-ErrorLog "  1. Start Docker Desktop from the Start menu"
+            Write-ErrorLog "  2. Wait for Docker to fully initialize (whale icon in system tray)"
+            Write-ErrorLog "  3. Verify Docker is running with: docker ps"
+            Write-ErrorLog "  4. Re-run this deployment script"
+            Write-ErrorLog ""
+            Write-ErrorLog "If Docker Desktop is running and you still see this error:"
+            Write-ErrorLog "  - Restart Docker Desktop"
+            Write-ErrorLog "  - Check if Docker is set to use Linux containers"
+            Write-ErrorLog "  - Verify Docker Desktop is fully updated"
+            Write-ErrorLog "============================================================"
+            Write-ErrorLog ""
+        }
+        
         throw "Failed to build container image"
     }
     

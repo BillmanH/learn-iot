@@ -710,8 +710,10 @@ install_k3s() {
     log "Downloading and installing K3s..."
     curl -sfL https://get.k3s.io | sh -s - \
         --disable traefik \
-        --write-kubeconfig-mode 644 \
-        --cluster-name "$CLUSTER_NAME"
+        --write-kubeconfig-mode 644
+    
+    # Note: K3s doesn't support --cluster-name flag. The cluster name is used
+    # for Azure resources and kubeconfig context, but not for K3s server startup.
     
     # Wait for K3s to be ready
     log "Waiting for K3s to be ready..."

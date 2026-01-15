@@ -10,12 +10,6 @@ spec:
     requests:
       storage: 5Gi
 ---
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: historian-sa
-  namespace: default
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -33,7 +27,7 @@ spec:
       labels:
         app: demohistorian
     spec:
-      serviceAccountName: historian-sa
+      serviceAccountName: mqtt-client
       containers:
       # PostgreSQL Database Container
       - name: postgres
@@ -66,6 +60,8 @@ spec:
               - pg_isready
               - -U
               - historian
+              - -d
+              - mqtt_historian
           initialDelaySeconds: 15
           periodSeconds: 10
         readinessProbe:
@@ -74,6 +70,8 @@ spec:
               - pg_isready
               - -U
               - historian
+              - -d
+              - mqtt_historian
           initialDelaySeconds: 10
           periodSeconds: 5
       
@@ -127,7 +125,7 @@ spec:
           httpGet:
             path: /health
             port: 8080
-          initialDelaySeconds: 20
+          initialDelaySeconds: 45
           periodSeconds: 30
           timeoutSeconds: 5
         
@@ -135,7 +133,7 @@ spec:
           httpGet:
             path: /health
             port: 8080
-          initialDelaySeconds: 15
+          initialDelaySeconds: 30
           periodSeconds: 10
           timeoutSeconds: 3
         

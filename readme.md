@@ -43,6 +43,7 @@ Run on the edge device to prepare local infrastructure:
 cd linux_build
 bash linux_installer.sh
 ```
+**NOTE**: The install will do several things that can create a restart. This will make it look like you lost connection. This is ok. It's meant to do this. Restart and rerun the script to continue if this happens. 
 
 **Installs**: K3s cluster, kubectl, Helm, optional tools (k9s, mqtt-viewer, mqttui), edge modules  
 **Output**: `edge_configs/cluster_info.json` for remote configuration  
