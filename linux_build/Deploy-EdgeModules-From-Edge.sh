@@ -182,13 +182,18 @@ find_config_file() {
 load_configuration() {
     local config_file="$1"
     
-    # Get absolute path for clarity
-    local abs_config_path=$(readlink -f "$config_file" 2>/dev/null || realpath "$config_file" 2>/dev/null || echo "$config_file")
+    # Get absolute path for clarity (avoid command substitution issues)
+    local abs_config_path=""
+    if [[ "$config_file" = /* ]]; then
+        # Already absolute path
+        abs_config_path="$config_file"
+    else
+        # Make it absolute
+        abs_config_path="$(pwd)/$config_file"
+    fi
     
-    log_info "Loading configuration from: $abs_config_path"
-    log_info "File name: $(basename "$abs_config_path")"
-    log_info "Directory: $(dirname "$abs_config_path")"
-    log_info "Full path length: ${#abs_config_path} characters"
+    log_info "Loading configuration from: $config_file"
+    log_info "Absolute path: $abs_config_path"
     
     # Check if jq is available
     if ! command -v jq &> /dev/null; then
@@ -196,17 +201,24 @@ load_configuration() {
         return 1
     fi
     
-    # Check if file is readable
+    # Check if file exists and is readable
+    if [[ ! -f "$config_file" ]]; then
+        log_error "Configuration file not found: $config_file"
+        return 1
+    fi
+    
     if [[ ! -r "$config_file" ]]; then
-        log_error "Cannot read configuration file: $abs_config_path"
-        log_info "Check file permissions: ls -l $abs_config_path"
+        log_error "Cannot read configuration file: $config_file"
+        log_info "Check file permissions: ls -l $config_file"
         return 1
     fi
     
     # Load container registry if specified
     CONTAINER_REGISTRY=$(jq -r '.azure.container_registry // empty' "$config_file" 2>&1)
-    if [[ $? -ne 0 ]]; then
-        log_error "Failed to parse JSON from: $abs_config_path"
+    local jq_exit_code=$?
+    
+    if [[ $jq_exit_code -ne 0 ]]; then
+        log_error "Failed to parse JSON from: $config_file"
         log_error "jq output: $CONTAINER_REGISTRY"
         return 1
     fi
