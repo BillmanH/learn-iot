@@ -157,25 +157,25 @@ parse_arguments() {
 ################################################################################
 
 find_config_file() {
-    log_info "Searching for linux_aio_config.json..."
+    log_info "Searching for linux_aio_config.json..." >&2
     
     local search_paths=(
         "$CONFIG_PATH"
-        "edge_configs/linux_aio_config.json"
         "linux_aio_config.json"
+        "edge_configs/linux_aio_config.json"
     )
     
     for path in "${search_paths[@]}"; do
         if [[ -n "$path" ]] && [[ -f "$path" ]]; then
-            log_info "Checking: $path"
-            log_success "Found configuration at: $path"
+            log_info "Checking: $path" >&2
+            log_success "Found configuration at: $path" >&2
             echo "$path"
             return 0
         fi
     done
     
-    log_error "Configuration file linux_aio_config.json not found in current directory"
-    log_info "Make sure you're running this from the linux_build directory"
+    log_error "Configuration file linux_aio_config.json not found in current directory" >&2
+    log_info "Make sure you're running this from the linux_build directory and the config file exists" >&2
     return 1
 }
 
