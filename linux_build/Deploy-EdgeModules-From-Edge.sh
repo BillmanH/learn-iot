@@ -182,7 +182,13 @@ find_config_file() {
 load_configuration() {
     local config_file="$1"
     
-    log_info "Loading configuration from: $config_file"
+    # Get absolute path for clarity
+    local abs_config_path=$(readlink -f "$config_file" 2>/dev/null || realpath "$config_file" 2>/dev/null || echo "$config_file")
+    
+    log_info "Loading configuration from: $abs_config_path"
+    log_info "File name: $(basename "$abs_config_path")"
+    log_info "Directory: $(dirname "$abs_config_path")"
+    log_info "Full path length: ${#abs_config_path} characters"
     
     # Check if jq is available
     if ! command -v jq &> /dev/null; then
@@ -190,8 +196,20 @@ load_configuration() {
         return 1
     fi
     
+    # Check if file is readable
+    if [[ ! -r "$config_file" ]]; then
+        log_error "Cannot read configuration file: $abs_config_path"
+        log_info "Check file permissions: ls -l $abs_config_path"
+        return 1
+    fi
+    
     # Load container registry if specified
-    CONTAINER_REGISTRY=$(jq -r '.azure.container_registry // empty' "$config_file")
+    CONTAINER_REGISTRY=$(jq -r '.azure.container_registry // empty' "$config_file" 2>&1)
+    if [[ $? -ne 0 ]]; then
+        log_error "Failed to parse JSON from: $abs_config_path"
+        log_error "jq output: $CONTAINER_REGISTRY"
+        return 1
+    fi
     
     if [[ -n "$CONTAINER_REGISTRY" ]]; then
         log_info "Container registry: $CONTAINER_REGISTRY"
