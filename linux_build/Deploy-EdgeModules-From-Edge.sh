@@ -544,8 +544,11 @@ update_deployment_registry() {
             return 1
         fi
         
+        log_info "Replacing <YOUR_REGISTRY> with: $CONTAINER_REGISTRY"
         # Replace placeholder with actual registry
         deployment_content=$(echo "$deployment_content" | sed "s|<YOUR_REGISTRY>|$CONTAINER_REGISTRY|g")
+    else
+        log_info "No <YOUR_REGISTRY> placeholder found in deployment file"
     fi
     
     # Update namespace to 'default' instead of 'azure-iot-operations'
@@ -556,6 +559,13 @@ update_deployment_registry() {
     echo "$deployment_content" > "$temp_file"
     
     log_info "Created temporary deployment file: $temp_file"
+    
+    # Show what image will be used
+    local image_line=$(grep -E '^\s+image:' "$temp_file" | head -1 | sed 's/^[[:space:]]*//')
+    if [[ -n "$image_line" ]]; then
+        log_info "Deployment $image_line"
+    fi
+    
     echo "$temp_file"
 }
 
