@@ -6,7 +6,8 @@
 # Deploy edge modules directly on the Linux edge device
 # Builds containers locally and deploys to K3s cluster
 #
-# Usage:
+# Usage (run from linux_build directory):
+#   cd linux_build
 #   ./Deploy-EdgeModules-From-Edge.sh [OPTIONS]
 #
 # Options:
@@ -26,8 +27,8 @@
 set -e  # Exit on error
 set -o pipefail  # Catch errors in pipes
 
-# Script variables
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Script variables (assumes running from linux_build directory)
+SCRIPT_DIR="$(pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 IOTOPPS_DIR="$REPO_ROOT/iotopps"
 LOG_FILE="$SCRIPT_DIR/deploy_edge_modules_$(date +%Y%m%d_%H%M%S).log"
@@ -79,7 +80,9 @@ log_error() {
 show_help() {
     cat << EOF
 Deploy Edge Modules - Linux Native Build and Deploy
-
+ (run from linux_build directory):
+  cd linux_build
+ 
 Usage: ./Deploy-EdgeModules-From-Edge.sh [OPTIONS]
 
 Options:
@@ -91,9 +94,7 @@ Options:
   -t, --tag <tag>           Image tag (default: latest)
   -c, --config <path>       Path to linux_aio_config.json
   -h, --help                Show this help message
-
-Examples:
-  # Deploy all enabled modules
+cd linux_build
   ./Deploy-EdgeModules-From-Edge.sh
 
   # Deploy specific module with force redeploy
@@ -101,6 +102,9 @@ Examples:
 
   # Skip build and deploy only (assumes images exist)
   ./Deploy-EdgeModules-From-Edge.sh -m edgemqttsim --skip-build
+
+  # Use custom config file
+  ./Deploy-EdgeModules-From-Edge.sh -c edge_configs/linux_aio_im --skip-build
 
   # Use custom config file
   ./Deploy-EdgeModules-From-Edge.sh -c /path/to/config.json
@@ -157,8 +161,8 @@ find_config_file() {
     
     local search_paths=(
         "$CONFIG_PATH"
-        "$SCRIPT_DIR/edge_configs/linux_aio_config.json"
-        "$SCRIPT_DIR/linux_aio_config.json"
+        "edge_configs/linux_aio_config.json"
+        "linux_aio_config.json"
     )
     
     for path in "${search_paths[@]}"; do
@@ -170,7 +174,8 @@ find_config_file() {
         fi
     done
     
-    log_error "Configuration file linux_aio_config.json not found"
+    log_error "Configuration file linux_aio_config.json not found in current directory"
+    log_info "Make sure you're running this from the linux_build directory"
     return 1
 }
 
