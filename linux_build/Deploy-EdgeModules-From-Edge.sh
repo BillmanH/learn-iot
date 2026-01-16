@@ -254,7 +254,7 @@ get_modules_to_deploy() {
     local config_file="$1"
     
     if [[ -n "$MODULE_NAME" ]]; then
-        log_info "Deploying specific module: $MODULE_NAME"
+        log_info "Deploying specific module: $MODULE_NAME" >&2
         echo "$MODULE_NAME"
         return 0
     fi
@@ -263,11 +263,11 @@ get_modules_to_deploy() {
     local modules=$(jq -r '.modules // {} | to_entries[] | select(.value == true) | .key' "$config_file")
     
     if [[ -z "$modules" ]]; then
-        log_warn "No modules enabled in configuration"
+        log_warn "No modules enabled in configuration" >&2
         return 1
     fi
     
-    log_info "Modules to deploy: $(echo $modules | tr '\n' ' ')"
+    log_info "Modules to deploy: $(echo $modules | tr '\n' ' ')" >&2
     echo "$modules"
 }
 
@@ -335,6 +335,25 @@ check_prerequisites() {
     # Check iotopps directory
     if [[ ! -d "$IOTOPPS_DIR" ]]; then
         log_error "iotopps directory not found: $IOTOPPS_DIR"
+        echo ""
+        echo "============================================================"
+        echo "ERROR: iotopps directory not found"
+        echo "============================================================"
+        echo "This script must be run from the linux_build directory."
+        echo ""
+        echo "Expected directory structure:"
+        echo "  learn-iot/"
+        echo "    ├── linux_build/          ← Run script from here"
+        echo "    │   ├── Deploy-EdgeModules-From-Edge.sh"
+        echo "    │   └── linux_aio_config.json"
+        echo "    └── iotopps/              ← Modules directory"
+        echo "        ├── edgemqttsim/"
+        echo "        ├── hello-flask/"
+        echo "        └── ..."
+        echo ""
+        echo "To fix: cd ~/learn-iot/linux_build"
+        echo "============================================================"
+        echo ""
         return 1
     fi
     log_success "iotopps directory found: $IOTOPPS_DIR"
