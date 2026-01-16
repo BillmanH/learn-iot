@@ -240,6 +240,46 @@ get_modules_to_deploy() {
 # Validation Functions
 ################################################################################
 
+# Detect available container build tool
+CONTAINER_TOOL=""
+
+detect_container_tool() {
+    # Priority: docker > nerdctl > buildah
+    if command -v docker &> /dev/null && docker ps &> /dev/null 2>&1; then
+        CONTAINER_TOOL="docker"
+        log_success "Using Docker for container builds"
+        return 0
+    elif command -v nerdctl &> /dev/null; then
+        CONTAINER_TOOL="nerdctl"
+        log_success "Using nerdctl (containerd) for container builds"
+        return 0
+    elif command -v buildah &> /dev/null; then
+        CONTAINER_TOOL="buildah"
+        log_success "Using buildah for container builds"
+        return 0
+    else
+        log_error "No container build tool found (docker, nerdctl, or buildah)"
+        echo ""
+        echo "============================================================"
+        echo "CONTAINER TOOL NOT FOUND"
+        echo "============================================================"
+        echo "K3s uses containerd, so you can install nerdctl:"
+        echo ""
+        echo "  # Quick install (recommended):"
+        echo "  wget https://github.com/containerd/nerdctl/releases/download/v1.7.2/nerdctl-1.7.2-linux-amd64.tar.gz"
+        echo "  sudo tar Cxzvvf /usr/local/bin nerdctl-1.7.2-linux-amd64.tar.gz"
+        echo ""
+        echo "  # Or use buildah:"
+        echo "  sudo apt-get update && sudo apt-get install -y buildah"
+        echo ""
+        echo "  # Or install Docker:"
+        echo "  curl -fsSL https://get.docker.com | sh"
+        echo "============================================================"
+        echo ""
+        return 1
+    fi
+}
+
 check_prerequisites() {
     log_info "Checking prerequisites..."
     
@@ -250,19 +290,11 @@ check_prerequisites() {
     fi
     log_success "kubectl found: $(kubectl version --client --short 2>/dev/null | head -1)"
     
-    # Check Docker (only if not skipping build)
+    # Check for container build tool (only if not skipping build)
     if [[ "$SKIP_BUILD" == false ]]; then
-        if ! command -v docker &> /dev/null; then
-            log_error "docker is not installed"
+        if ! detect_container_tool; then
             return 1
         fi
-        
-        if ! docker ps &> /dev/null; then
-            log_error "Docker is not running or current user lacks permissions"
-            log_info "Try: sudo usermod -aG docker $USER && newgrp docker"
-            return 1
-        fi
-        log_success "Docker is running: $(docker version --format '{{.Server.Version}}' 2>/dev/null)"
     fi
     
     # Check iotopps directory
@@ -320,6 +352,56 @@ check_module_deployed() {
 # Build and Push Functions
 ################################################################################
 
+build_container_with_tool() {
+    local tool="$1"
+    local image_name="$2"
+    local module_path="$3"
+    
+    case "$tool" in
+        docker)
+            docker build -t "$image_name" "$module_path" 2>&1 | tee -a "$LOG_FILE"
+            return ${PIPESTATUS[0]}
+            ;;
+        nerdctl)
+            # nerdctl needs namespace specification for K3s
+            sudo nerdctl -n k8s.io build -t "$image_name" "$module_path" 2>&1 | tee -a "$LOG_FILE"
+            return ${PIPESTATUS[0]}
+            ;;
+        buildah)
+            buildah bud -t "$image_name" "$module_path" 2>&1 | tee -a "$LOG_FILE"
+            return ${PIPESTATUS[0]}
+            ;;
+        *)
+            log_error "Unknown container tool: $tool"
+            return 1
+            ;;
+    esac
+}
+
+push_container_with_tool() {
+    local tool="$1"
+    local image_name="$2"
+    
+    case "$tool" in
+        docker)
+            docker push "$image_name" 2>&1 | tee -a "$LOG_FILE"
+            return ${PIPESTATUS[0]}
+            ;;
+        nerdctl)
+            sudo nerdctl -n k8s.io push "$image_name" 2>&1 | tee -a "$LOG_FILE"
+            return ${PIPESTATUS[0]}
+            ;;
+        buildah)
+            buildah push "$image_name" 2>&1 | tee -a "$LOG_FILE"
+            return ${PIPESTATUS[0]}
+            ;;
+        *)
+            log_error "Unknown container tool: $tool"
+            return 1
+            ;;
+    esac
+}
+
 build_and_push_container() {
     local module="$1"
     local registry="$2"
@@ -338,13 +420,18 @@ build_and_push_container() {
     fi
     
     local image_name="$registry/$module:$tag"
-    log_info "Building container image..."
+    log_info "Building container image with $CONTAINER_TOOL..."
     log_info "Image: $image_name"
     log_info "Context: $module_path"
     
     # Build the image
-    if ! docker build -t "$image_name" "$module_path" 2>&1 | tee -a "$LOG_FILE"; then
-        log_error "Docker build failed for $module"
+    if ! build_container_with_tool "$CONTAINER_TOOL" "$image_name" "$module_path"; then
+        log_error "Container build failed for $module with $CONTAINER_TOOL"
+        
+        if [[ "$CONTAINER_TOOL" == "nerdctl" ]]; then
+            log_info "Note: nerdctl uses sudo to access containerd runtime"
+        fi
+        
         return 1
     fi
     
@@ -353,9 +440,21 @@ build_and_push_container() {
     # Push the image
     log_info "Pushing image to registry: $registry"
     
-    if ! docker push "$image_name" 2>&1 | tee -a "$LOG_FILE"; then
-        log_error "Docker push failed for $module"
-        log_warn "If registry requires authentication, run: docker login"
+    if ! push_container_with_tool "$CONTAINER_TOOL" "$image_name"; then
+        log_error "Container push failed for $module"
+        
+        case "$CONTAINER_TOOL" in
+            docker)
+                log_warn "If registry requires authentication, run: docker login"
+                ;;
+            nerdctl)
+                log_warn "If registry requires authentication, run: sudo nerdctl login"
+                ;;
+            buildah)
+                log_warn "If registry requires authentication, run: buildah login"
+                ;;
+        esac
+        
         return 1
     fi
     
