@@ -10,7 +10,7 @@
     "aio_instance_name": "",
     "custom_asset_endpoint": "",
     "manage_principal": "",
-    "container_registry": "billmanh/edgemqttsim",
+    "container_registry": "billmanh",
     "enable_arc_on_install": false,
     "deploy_iot_operations": true
   },
