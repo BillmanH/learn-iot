@@ -769,6 +769,86 @@ configure_kubectl() {
     success "kubectl configured for user: $USER"
 }
 
+install_csi_secret_store() {
+    log "Installing CSI Secret Store driver for Azure Key Vault integration..."
+    
+    if [ "$DRY_RUN" = "true" ]; then
+        info "[DRY-RUN] Would install CSI Secret Store driver"
+        return 0
+    fi
+    
+    # Check if already installed
+    if kubectl get csidriver secrets-store.csi.k8s.io &>/dev/null 2>&1; then
+        info "CSI Secret Store driver already installed"
+        
+        # Verify Azure provider is also installed
+        if kubectl get pods -n kube-system -l app=csi-secrets-store-provider-azure &>/dev/null 2>&1; then
+            success "CSI Secret Store and Azure provider already configured"
+            return 0
+        fi
+    fi
+    
+    # Add Secrets Store CSI Driver Helm repo
+    log "Adding Secrets Store CSI Driver Helm repository..."
+    helm repo add secrets-store-csi-driver https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts
+    helm repo update
+    
+    # Install Secrets Store CSI Driver
+    log "Installing Secrets Store CSI Driver..."
+    helm install csi-secrets-store-driver secrets-store-csi-driver/secrets-store-csi-driver \
+        --namespace kube-system \
+        --set syncSecret.enabled=true \
+        --set enableSecretRotation=true
+    
+    # Wait for CSI driver to be ready
+    log "Waiting for CSI Secret Store driver to be ready..."
+    kubectl wait --for=condition=ready pod \
+        -l app.kubernetes.io/name=secrets-store-csi-driver \
+        -n kube-system \
+        --timeout=120s || warn "CSI driver pods may not be fully ready yet"
+    
+    # Install Azure Key Vault Provider
+    log "Installing Azure Key Vault Provider for Secrets Store CSI Driver..."
+    helm repo add csi-secrets-store-provider-azure https://azure.github.io/secrets-store-csi-driver-provider-azure/charts
+    helm repo update
+    
+    helm install azure-csi-provider csi-secrets-store-provider-azure/csi-secrets-store-provider-azure \
+        --namespace kube-system
+    
+    # Wait for Azure provider to be ready
+    log "Waiting for Azure Key Vault provider to be ready..."
+    kubectl wait --for=condition=ready pod \
+        -l app=csi-secrets-store-provider-azure \
+        -n kube-system \
+        --timeout=120s || warn "Azure provider pods may not be fully ready yet"
+    
+    # Verify installation
+    log "Verifying CSI Secret Store installation..."
+    
+    if kubectl get csidriver secrets-store.csi.k8s.io &>/dev/null; then
+        success "✓ CSI driver 'secrets-store.csi.k8s.io' is installed"
+    else
+        error "CSI driver installation verification failed"
+    fi
+    
+    local csi_pods=$(kubectl get pods -n kube-system | grep -c "secrets-store-csi-driver" || echo "0")
+    local azure_pods=$(kubectl get pods -n kube-system | grep -c "csi-secrets-store-provider-azure" || echo "0")
+    
+    if [ "$csi_pods" -gt 0 ]; then
+        success "✓ Found $csi_pods CSI Secret Store driver pod(s)"
+    else
+        warn "No CSI Secret Store driver pods found"
+    fi
+    
+    if [ "$azure_pods" -gt 0 ]; then
+        success "✓ Found $azure_pods Azure Key Vault provider pod(s)"
+    else
+        warn "No Azure Key Vault provider pods found"
+    fi
+    
+    success "CSI Secret Store driver and Azure Key Vault provider installed"
+    info "Secret management is now enabled for Azure IoT Operations dataflows"
+}
 
 # Apply optional RBAC binding for an Azure principal (opt-in via config)
 apply_manage_principal_rbac() {
@@ -1308,6 +1388,7 @@ display_next_steps() {
     echo "Your edge device is now ready with:"
     echo "  ✓ K3s Kubernetes cluster: $CLUSTER_NAME"
     echo "  ✓ kubectl and Helm configured"
+    echo "  ✓ CSI Secret Store driver (Azure Key Vault integration)"
     
     if [ ${#INSTALLED_TOOLS[@]} -gt 0 ]; then
         echo "  ✓ Optional tools: ${INSTALLED_TOOLS[*]}"
@@ -1413,6 +1494,10 @@ main() {
     check_k3s_resources
     install_k3s
     configure_kubectl
+    
+    # Install CSI Secret Store for Azure Key Vault integration (required for Fabric RTI dataflows)
+    install_csi_secret_store
+    
     # Apply optional RBAC binding for a management principal if configured
     apply_manage_principal_rbac
     configure_system_settings
