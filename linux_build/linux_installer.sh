@@ -813,7 +813,8 @@ install_csi_secret_store() {
     helm repo update
     
     helm install azure-csi-provider csi-secrets-store-provider-azure/csi-secrets-store-provider-azure \
-        --namespace kube-system
+        --namespace kube-system \
+        --set secrets-store-csi-driver.install=false
     
     # Wait for Azure provider to be ready
     log "Waiting for Azure Key Vault provider to be ready..."

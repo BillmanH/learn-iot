@@ -225,6 +225,79 @@ function Test-Prerequisites {
     Write-Success "All prerequisites passed"
 }
 
+function Test-CSISecretStore {
+    Write-Log "Checking for CSI Secret Store driver (required for Fabric RTI dataflows)..."
+    
+    try {
+        # Check for CSI driver resource
+        $csiDriver = kubectl get csidriver secrets-store.csi.k8s.io --ignore-not-found 2>&1
+        
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrEmpty($csiDriver)) {
+            Write-WarnLog "CSI Secret Store driver not found"
+            Write-Host ""
+            Write-Host "⚠️  WARNING: CSI Secret Store driver is NOT installed" -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "This means:" -ForegroundColor Yellow
+            Write-Host "  ❌ Secret management will NOT be available" -ForegroundColor Red
+            Write-Host "  ❌ Fabric Real-Time Intelligence dataflows will NOT work" -ForegroundColor Red
+            Write-Host "  ❌ Azure Key Vault integration will be disabled" -ForegroundColor Red
+            Write-Host ""
+            Write-Host "To fix this, run on your Linux edge device:" -ForegroundColor Cyan
+            Write-Host ""
+            Write-Host "  helm repo add secrets-store-csi-driver https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts" -ForegroundColor White
+            Write-Host "  helm repo add csi-secrets-store-provider-azure https://azure.github.io/secrets-store-csi-driver-provider-azure/charts" -ForegroundColor White
+            Write-Host "  helm repo update" -ForegroundColor White
+            Write-Host ""
+            Write-Host "  helm install csi-secrets-store-driver secrets-store-csi-driver/secrets-store-csi-driver \" -ForegroundColor White
+            Write-Host "      --namespace kube-system \" -ForegroundColor White
+            Write-Host "      --set syncSecret.enabled=true \" -ForegroundColor White
+            Write-Host "      --set enableSecretRotation=true" -ForegroundColor White
+            Write-Host ""
+            Write-Host "  helm install azure-csi-provider csi-secrets-store-provider-azure/csi-secrets-store-provider-azure \" -ForegroundColor White
+            Write-Host "      --namespace kube-system" -ForegroundColor White
+            Write-Host ""
+            Write-Host "Or use the updated linux_installer.sh which includes CSI Secret Store installation." -ForegroundColor Cyan
+            Write-Host ""
+            Write-Host "See: linux_build\CSI_SECRET_STORE_SETUP.md for details" -ForegroundColor Gray
+            Write-Host ""
+            
+            $continue = Read-Host "Continue without secret management? (y/N)"
+            if ($continue -ne 'y' -and $continue -ne 'Y') {
+                Write-ErrorLog "Deployment cancelled. Please install CSI Secret Store first." -Fatal
+            }
+            
+            Write-WarnLog "Continuing without secret management - Fabric RTI will NOT be available"
+            return $false
+        }
+        
+        # Check for CSI driver pods
+        $csiPods = kubectl get pods -n kube-system -l app.kubernetes.io/name=secrets-store-csi-driver --no-headers 2>&1
+        $csiPodCount = if ($csiPods -is [array]) { $csiPods.Count } elseif ($csiPods) { 1 } else { 0 }
+        
+        # Check for Azure provider pods
+        $azurePods = kubectl get pods -n kube-system -l app=csi-secrets-store-provider-azure --no-headers 2>&1
+        $azurePodCount = if ($azurePods -is [array]) { $azurePods.Count } elseif ($azurePods) { 1 } else { 0 }
+        
+        if ($csiPodCount -gt 0 -and $azurePodCount -gt 0) {
+            Write-Success "✓ CSI Secret Store driver installed ($csiPodCount pod(s))"
+            Write-Success "✓ Azure Key Vault provider installed ($azurePodCount pod(s))"
+            Write-InfoLog "Secret management is enabled - Fabric RTI dataflows will work"
+            return $true
+        } else {
+            Write-WarnLog "CSI driver resource found but pods may not be ready"
+            Write-WarnLog "  CSI driver pods: $csiPodCount"
+            Write-WarnLog "  Azure provider pods: $azurePodCount"
+            Write-WarnLog "Secret management may not work properly"
+            return $false
+        }
+        
+    } catch {
+        Write-WarnLog "Could not verify CSI Secret Store: $_"
+        Write-WarnLog "Secret management status unknown"
+        return $false
+    }
+}
+
 # ============================================================================
 # CONFIGURATION LOADING
 # ============================================================================
@@ -1362,6 +1435,22 @@ function Test-Deployment {
         Write-WarnLog "Azure IoT Operations instance not found: $instanceName"
     }
     
+    # Verify CSI Secret Store
+    Write-Log "Checking CSI Secret Store for secret management..."
+    $csiInstalled = Test-CSISecretStore
+    
+    if ($csiInstalled) {
+        Write-Host ""
+        Write-Host "✅ Secret management is ENABLED" -ForegroundColor Green
+        Write-Host "   You can now configure Fabric RTI dataflows with Azure Key Vault secrets" -ForegroundColor Green
+        Write-Host ""
+    } else {
+        Write-Host ""
+        Write-Host "⚠️  Secret management is DISABLED" -ForegroundColor Yellow
+        Write-Host "   Fabric RTI dataflows will NOT work until CSI Secret Store is installed" -ForegroundColor Yellow
+        Write-Host ""
+    }
+    
     # Check cluster pods
     Write-Log "Checking cluster resources..."
     kubectl get pods --all-namespaces
@@ -1498,6 +1587,14 @@ function Main {
         
         # Phase 5: Arc Enablement
         Enable-ArcForCluster
+        
+        # Phase 5.5: Verify CSI Secret Store (for Fabric RTI support)
+        Write-Host ""
+        Write-Host "============================================================================" -ForegroundColor Cyan
+        Write-Host "Checking for Secret Management Prerequisites" -ForegroundColor Cyan
+        Write-Host "============================================================================" -ForegroundColor Cyan
+        Test-CSISecretStore
+        Write-Host ""
         
         # Phase 6: IoT Operations Deployment
         New-IoTOperationsInstance
