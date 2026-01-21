@@ -235,12 +235,12 @@ function Test-CSISecretStore {
         if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrEmpty($csiDriver)) {
             Write-WarnLog "CSI Secret Store driver not found"
             Write-Host ""
-            Write-Host "⚠️  WARNING: CSI Secret Store driver is NOT installed" -ForegroundColor Yellow
+            Write-Host "WARNING: CSI Secret Store driver is NOT installed" -ForegroundColor Yellow
             Write-Host ""
             Write-Host "This means:" -ForegroundColor Yellow
-            Write-Host "  ❌ Secret management will NOT be available" -ForegroundColor Red
-            Write-Host "  ❌ Fabric Real-Time Intelligence dataflows will NOT work" -ForegroundColor Red
-            Write-Host "  ❌ Azure Key Vault integration will be disabled" -ForegroundColor Red
+            Write-Host "  [X] Secret management will NOT be available" -ForegroundColor Red
+            Write-Host "  [X] Fabric Real-Time Intelligence dataflows will NOT work" -ForegroundColor Red
+            Write-Host "  [X] Azure Key Vault integration will be disabled" -ForegroundColor Red
             Write-Host ""
             Write-Host "To fix this, run on your Linux edge device:" -ForegroundColor Cyan
             Write-Host ""
@@ -279,8 +279,8 @@ function Test-CSISecretStore {
         $azurePodCount = if ($azurePods -is [array]) { $azurePods.Count } elseif ($azurePods) { 1 } else { 0 }
         
         if ($csiPodCount -gt 0 -and $azurePodCount -gt 0) {
-            Write-Success "✓ CSI Secret Store driver installed ($csiPodCount pod(s))"
-            Write-Success "✓ Azure Key Vault provider installed ($azurePodCount pod(s))"
+            Write-Success "CSI Secret Store driver installed ($csiPodCount pod(s))"
+            Write-Success "Azure Key Vault provider installed ($azurePodCount pod(s))"
             Write-InfoLog "Secret management is enabled - Fabric RTI dataflows will work"
             return $true
         } else {
@@ -1441,12 +1441,12 @@ function Test-Deployment {
     
     if ($csiInstalled) {
         Write-Host ""
-        Write-Host "✅ Secret management is ENABLED" -ForegroundColor Green
+        Write-Host "[OK] Secret management is ENABLED" -ForegroundColor Green
         Write-Host "   You can now configure Fabric RTI dataflows with Azure Key Vault secrets" -ForegroundColor Green
         Write-Host ""
     } else {
         Write-Host ""
-        Write-Host "⚠️  Secret management is DISABLED" -ForegroundColor Yellow
+        Write-Host "[WARNING] Secret management is DISABLED" -ForegroundColor Yellow
         Write-Host "   Fabric RTI dataflows will NOT work until CSI Secret Store is installed" -ForegroundColor Yellow
         Write-Host ""
     }
