@@ -25,6 +25,16 @@ param(
     [string]$ClusterName
 )
 
+# ============================================================================
+# SCRIPT SETUP
+# ============================================================================
+
+$script:ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$script:LogFile = Join-Path $script:ScriptDir "check_secret_management_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+
+# Start transcript logging
+Start-Transcript -Path $script:LogFile -Append
+
 # Color output functions
 function Write-Header {
     param([string]$Message)
@@ -58,7 +68,69 @@ function Write-Error {
     Write-Host "[ERROR] $Message" -ForegroundColor Red
 }
 
-# Get parameters if not provided
+# ============================================================================
+# AUTO-LOAD CONFIGURATION FROM FILES
+# ============================================================================
+
+function Find-ConfigFile {
+    param([string]$FileName)
+    
+    $searchPaths = @(
+        (Join-Path $PSScriptRoot $FileName),
+        (Join-Path (Join-Path $PSScriptRoot "..") (Join-Path "linux_build" $FileName)),
+        (Join-Path (Join-Path $PSScriptRoot "..") (Join-Path "linux_build" (Join-Path "edge_configs" $FileName))),
+        (Join-Path (Get-Location) $FileName),
+        (Join-Path (Join-Path (Get-Location) "linux_build") $FileName),
+        (Join-Path (Join-Path (Get-Location) "edge_configs") $FileName)
+    )
+    
+    foreach ($path in $searchPaths) {
+        if (Test-Path $path) {
+            return $path
+        }
+    }
+    
+    return $null
+}
+
+function Load-ConfigurationFiles {
+    Write-SubHeader "Loading Configuration Files"
+    
+    # Try to find cluster_info.json
+    $clusterInfoPath = Find-ConfigFile "cluster_info.json"
+    if ($clusterInfoPath) {
+        Write-Success "Found cluster_info.json: $clusterInfoPath"
+        try {
+            $clusterInfo = Get-Content $clusterInfoPath -Raw | ConvertFrom-Json
+            $script:ClusterName = $clusterInfo.cluster_name
+            Write-Info "  Loaded cluster_name: $script:ClusterName"
+        } catch {
+            Write-Warning "Could not parse cluster_info.json: $_"
+        }
+    } else {
+        Write-Warning "cluster_info.json not found in common locations"
+    }
+    
+    # Try to find linux_aio_config.json
+    $linuxConfigPath = Find-ConfigFile "linux_aio_config.json"
+    if ($linuxConfigPath) {
+        Write-Success "Found linux_aio_config.json: $linuxConfigPath"
+        try {
+            $linuxConfig = Get-Content $linuxConfigPath -Raw | ConvertFrom-Json
+            $script:ResourceGroup = $linuxConfig.azure.resource_group
+            Write-Info "  Loaded resource_group: $script:ResourceGroup"
+        } catch {
+            Write-Warning "Could not parse linux_aio_config.json: $_"
+        }
+    } else {
+        Write-Warning "linux_aio_config.json not found in common locations"
+    }
+}
+
+# Load configuration files first
+Load-ConfigurationFiles
+
+# Get parameters if not provided (either from command line or config files)
 if ([string]::IsNullOrEmpty($ResourceGroup)) {
     $ResourceGroup = Read-Host "Enter Resource Group name"
 }
@@ -70,6 +142,10 @@ if ([string]::IsNullOrEmpty($ClusterName)) {
 $aioInstanceName = "$ClusterName-aio"
 
 Write-Header "Azure IoT Operations Secret Management Diagnostic"
+Write-Info "Log file: $script:LogFile"
+Write-Info "Started: $(Get-Date)"
+Write-Info "Script directory: $script:ScriptDir"
+Write-Info ""
 Write-Info "Resource Group: $ResourceGroup"
 Write-Info "Cluster Name: $ClusterName"
 Write-Info "AIO Instance: $aioInstanceName"
@@ -313,6 +389,12 @@ Write-Host "  3. Grant 'Key Vault Secrets User' role to managed identity" -Foreg
 Write-Host "  4. Create SecretProviderClass on cluster" -ForegroundColor Gray
 Write-Host "  5. Configure AIO broker to use secret provider" -ForegroundColor Gray
 
+Write-Host "Diagnostic completed: $(Get-Date)" -ForegroundColor Green
+Write-Host "Log file: $script:LogFile" -ForegroundColor Gray
+Write-Host "`n"
+
+# Stop transcript
+Stop-Transcript
 Write-Host "`nFor detailed setup instructions, see:" -ForegroundColor Cyan
 Write-Host "  linux_build\CSI_SECRET_STORE_SETUP.md" -ForegroundColor White
 
