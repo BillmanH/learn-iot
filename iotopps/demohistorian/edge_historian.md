@@ -475,17 +475,17 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: edge-historian
+  name: demohistorian
   namespace: default
 spec:
   replicas: 1  # Single instance for edge
   selector:
     matchLabels:
-      app: edge-historian
+      app: demohistorian
   template:
     metadata:
       labels:
-        app: edge-historian
+        app: demohistorian
     spec:
       serviceAccountName: historian-sa  # For AIO MQTT K8S-SAT auth
       containers:
@@ -605,11 +605,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: edge-historian
+  name: demohistorian
   namespace: default
 spec:
   selector:
-    app: edge-historian
+    app: demohistorian
   ports:
     - port: 8080
       targetPort: 8080
@@ -704,8 +704,13 @@ kubectl logs -n default -l app=demohistorian -c postgres
 kubectl get svc -n default demohistorian
 
 # Test health endpoint (from within cluster)
+# Short form:
 kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- \
   curl http://demohistorian:8080/health
+
+# FQDN (use this format for cross-namespace access like AIO UI):
+kubectl run -it --rm debug --image=curlimages/curl --restart=Never -- \
+  curl http://demohistorian.default.svc.cluster.local:8080/health
 ```
 
 ### Troubleshooting Deployment
@@ -804,7 +809,11 @@ Assuming factory simulation scenario:
 ### Get Last Known Value
 ```bash
 # Request - Get last value from CNC machine topic
-GET http://edge-historian:8080/api/v1/last-value/factory/cnc
+# Short form (same namespace):
+GET http://demohistorian:8080/api/v1/last-value/factory/cnc
+
+# FQDN (cross-namespace, use this for AIO UI):
+GET http://demohistorian.default.svc.cluster.local:8080/api/v1/last-value/factory/cnc
 
 # Response - Actual edgemqttsim CNC message format
 {
@@ -865,8 +874,11 @@ GET http://edge-historian:8080/api/v1/query?machine_id=CNC-01&limit=10
 
 ### Health Check
 ```bash
-# Request
-GET http://edge-historian:8080/health
+# Request (use FQDN for AIO UI)
+GET http://demohistorian.default.svc.cluster.local:8080/health
+
+# Or short form (same namespace only):
+GET http://demohistorian:8080/health
 
 # Response
 {
@@ -881,7 +893,7 @@ GET http://edge-historian:8080/health
 ### Statistics
 ```bash
 # Request
-GET http://edge-historian:8080/api/v1/stats
+GET http://demohistorian.default.svc.cluster.local:8080/api/v1/stats
 
 # Response
 {
