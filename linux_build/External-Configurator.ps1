@@ -1212,8 +1212,36 @@ function New-IoTOperationsInstance {
     Write-Log "Using namespace resource ID: $namespaceResourceId"
     Write-Log "Using schema registry ID: $schemaRegistryId"
     
+    # Create Key Vault for Secret Management (required for Fabric RTI)
+    $keyVaultName = ($script:ClusterName + "-kv").ToLower() -replace '[^a-z0-9]', '' | Select-Object -First 24
+    
+    Write-Log "Setting up Key Vault for Secret Management..."
+    $existingKeyVault = az keyvault show --name $keyVaultName --resource-group $script:ResourceGroup 2>$null
+    
+    if (-not $existingKeyVault) {
+        Write-Log "Creating Key Vault: $keyVaultName"
+        az keyvault create `
+            --name $keyVaultName `
+            --resource-group $script:ResourceGroup `
+            --location $script:Location `
+            --enable-rbac-authorization true `
+            --enabled-for-deployment true `
+            --output none
+        Write-Success "Key Vault created: $keyVaultName"
+    } else {
+        Write-Success "Key Vault already exists: $keyVaultName"
+    }
+    
+    # Get Key Vault resource ID
+    $keyVaultId = az keyvault show `
+        --name $keyVaultName `
+        --resource-group $script:ResourceGroup `
+        --query id -o tsv
+    
+    Write-Log "Using Key Vault ID: $keyVaultId"
+    
     # Deploy Azure IoT Operations
-    Write-Log "Deploying Azure IoT Operations instance - this may take several minutes..."
+    Write-Log "Deploying Azure IoT Operations instance with Secret Management enabled - this may take several minutes..."
     Write-InfoLog "Note: Progress display suppressed to avoid unicode rendering issues"
     
     $deployResult = az iot ops create `
@@ -1222,6 +1250,7 @@ function New-IoTOperationsInstance {
         --name $instanceName `
         --sr-resource-id $schemaRegistryId `
         --ns-resource-id $namespaceResourceId `
+        --kv-resource-id $keyVaultId `
         --no-progress 2>&1
     
     if ($LASTEXITCODE -ne 0) {
