@@ -1250,9 +1250,43 @@ setup_azure_arc() {
     
     # Arc-enable cluster
     info "Arc-enabling cluster..."
+    
+    # Check if Arc resource exists in Azure
+    local arc_resource_exists=false
     if az connectedk8s show --name "$CLUSTER_NAME" --resource-group "$resource_group" &>/dev/null; then
+        arc_resource_exists=true
+    fi
+    
+    # Check if Arc agents are running in the cluster
+    local arc_agents_running=false
+    if kubectl get namespace azure-arc &>/dev/null; then
+        arc_agents_running=true
+    fi
+    
+    # Handle different scenarios
+    if [ "$arc_resource_exists" = true ] && [ "$arc_agents_running" = true ]; then
+        # Both Azure resource and cluster agents exist - properly Arc-enabled
         success "Cluster is already Arc-enabled: $CLUSTER_NAME"
+    elif [ "$arc_resource_exists" = true ] && [ "$arc_agents_running" = false ]; then
+        # Stale registration - Azure resource exists but agents aren't running
+        warn "Detected stale Arc registration (Azure resource exists but agents not running)"
+        info "Cleaning up stale Arc registration..."
+        
+        az connectedk8s delete \
+            --name "$CLUSTER_NAME" \
+            --resource-group "$resource_group" \
+            --yes || warn "Failed to delete stale Arc resource"
+        
+        log "Connecting cluster to Azure Arc (this may take a few minutes)..."
+        az connectedk8s connect \
+            --name "$CLUSTER_NAME" \
+            --resource-group "$resource_group" || {
+            error "Failed to Arc-enable cluster"
+            return 1
+        }
+        success "Cluster Arc-enabled successfully!"
     else
+        # No Arc resource or fresh install
         log "Connecting cluster to Azure Arc (this may take a few minutes)..."
         az connectedk8s connect \
             --name "$CLUSTER_NAME" \

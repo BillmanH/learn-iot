@@ -524,16 +524,28 @@ function Connect-ToAzure {
     $script:SubscriptionId = $currentAccount.id
     $script:SubscriptionName = $currentAccount.name
     
-    # Prompt for missing configuration values
+    # Prompt for missing configuration values (only if not loaded from config file)
     if (-not $script:ResourceGroup) {
+        Write-Host ""
+        Write-WarnLog "Resource group not specified in config file"
+        Write-Host "  Config file should contain: azure.resource_group" -ForegroundColor Gray
+        Write-Host ""
         $script:ResourceGroup = Read-Host "Enter resource group name (will be created if it does not exist)"
     }
     
     if (-not $script:Location) {
+        Write-Host ""
+        Write-WarnLog "Location not specified in config file"
+        Write-Host "  Config file should contain: azure.location" -ForegroundColor Gray
+        Write-Host ""
         $script:Location = Read-Host "Enter Azure region (e.g. eastus or westus2 or westeurope)"
     }
     
     if (-not $script:NamespaceName) {
+        Write-Host ""
+        Write-WarnLog "Namespace name not specified in config file"
+        Write-Host "  Config file should contain: azure.namespace_name" -ForegroundColor Gray
+        Write-Host ""
         $script:NamespaceName = Read-Host "Enter namespace name for Azure Device Registry"
     }
     
