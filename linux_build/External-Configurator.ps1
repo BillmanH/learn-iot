@@ -1213,20 +1213,25 @@ function New-IoTOperationsInstance {
     
     # Get schema registry resource ID
     $schemaRegistryId = az iot ops schema registry show `
-        --name $schemaRegistryName `
+    $keyVaultName = (($script:ClusterName -replace '[^a-z0-9]', '') + 'kv').ToLower() | Select-Object -First 24
         --resource-group $script:ResourceGroup `
         --query id -o tsv
     
     # Create or verify Device Registry namespace
     New-DeviceRegistryNamespace
     
-    # Construct namespace resource ID
-    $namespaceResourceId = "/subscriptions/$script:SubscriptionId/resourceGroups/$script:ResourceGroup/providers/Microsoft.DeviceRegistry/namespaces/$script:NamespaceName"
-    
-    Write-Log "Using namespace resource ID: $namespaceResourceId"
-    Write-Log "Using schema registry ID: $schemaRegistryId"
-    
-    # Create Key Vault for Secret Management (required for Fabric RTI)
+        $keyVaultCreateResult = az keyvault create `
+            --name $keyVaultName `
+            --resource-group $script:ResourceGroup `
+            --location $script:Location `
+            --enable-rbac-authorization true `
+            --enabled-for-deployment true 2>&1
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "Failed to create Key Vault '$keyVaultName'. Azure CLI returned exit code $LASTEXITCODE. Details: $keyVaultCreateResult"
+            throw "Key Vault creation failed for '$keyVaultName'. See previous error for details."
+        }
+        
     $keyVaultName = ($script:ClusterName + "-kv").ToLower() -replace '[^a-z0-9]', '' | Select-Object -First 24
     
     Write-Log "Setting up Key Vault for Secret Management..."
