@@ -23,6 +23,7 @@
 #   --dry-run           Validate configuration without making changes
 #   --config FILE       Use specific configuration file (default: linux_aio_config.json)
 #   --skip-verification Skip post-installation verification
+#   --force-reinstall   Force reinstall of all components (K3s, CSI, etc.)
 #   --help              Show this help message
 #
 # Output:
@@ -48,6 +49,7 @@ CONFIG_FILE="${SCRIPT_DIR}/linux_aio_config.json"
 CLUSTER_INFO_FILE="${SCRIPT_DIR}/cluster_info.json"
 DRY_RUN=false
 SKIP_VERIFICATION=false
+FORCE_REINSTALL=false
 
 # Setup logging
 LOG_FILE="${SCRIPT_DIR}/linux_installer_$(date +'%Y%m%d_%H%M%S').log"
@@ -186,6 +188,11 @@ parse_arguments() {
                 ;;
             --skip-verification)
                 SKIP_VERIFICATION=true
+                shift
+                ;;
+            --force-reinstall)
+                FORCE_REINSTALL=true
+                info "Force reinstall enabled - all components will be reinstalled"
                 shift
                 ;;
             --help|-h)
@@ -349,7 +356,8 @@ load_local_config() {
     # Load edge device settings
     CLUSTER_NAME=$(jq -r '.azure.cluster_name // "edge-device-'$(hostname)'"' "$CONFIG_FILE")
     SKIP_SYSTEM_UPDATE=$(jq -r '.deployment.skip_system_update // false' "$CONFIG_FILE")
-    FORCE_REINSTALL=$(jq -r '.deployment.force_reinstall // false' "$CONFIG_FILE")
+    
+    # Note: force_reinstall is now a command-line parameter (--force-reinstall), not a config option
     
     # Load optional tools configuration
     K9S_ENABLED=$(jq -r '.optional_tools.k9s // false' "$CONFIG_FILE")
@@ -739,7 +747,29 @@ install_k3s() {
     # Verify node is Ready
     local node_status=$(sudo k3s kubectl get nodes -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}')
     if [ "$node_status" != "True" ]; then
+        echo ""
         error "K3s node is not in Ready state"
+        echo ""
+        echo -e "${YELLOW}Troubleshooting steps:${NC}"
+        echo -e "${CYAN}1. Check K3s service status:${NC}"
+        echo -e "   sudo systemctl status k3s"
+        echo ""
+        echo -e "${CYAN}2. Check node status (wait 2-3 minutes and retry):${NC}"
+        echo -e "   kubectl get nodes"
+        echo ""
+        echo -e "${CYAN}3. Check pods are starting:${NC}"
+        echo -e "   kubectl get pods -A"
+        echo ""
+        echo -e "${CYAN}4. If K3s is healthy but installer timed out:${NC}"
+        echo -e "   - Wait for node to show 'Ready' status"
+        echo -e "   - Re-run installer WITHOUT --force-reinstall"
+        echo -e "   - It will continue from where it left off"
+        echo ""
+        echo -e "${CYAN}5. If K3s is broken or in bad state:${NC}"
+        echo -e "   - Re-run installer WITH --force-reinstall"
+        echo -e "   - ./linux_installer.sh --force-reinstall"
+        echo ""
+        exit 1
     fi
     
     success "K3s installed and running"
