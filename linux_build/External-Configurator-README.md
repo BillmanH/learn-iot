@@ -80,7 +80,7 @@ If found, it uses the configuration from your edge device installation.
 
 ```powershell
 # Simply run with cluster_info.json - it will find linux_aio_config.json automatically
-.\External-Configurator.ps1
+.\External-Configurator.ps1 -ClusterInfo edge_configs\cluster_info.json -ConfigFile edge_configs\linux_aio_config.json
 ```
 
 ### Option 2: Interactive Mode
@@ -154,6 +154,9 @@ scp user@edge-device:/path/to/linux_build/linux_aio_config.json .\edge_configs\
 # Skip post-deployment verification
 .\External-Configurator.ps1 -SkipVerification
 
+# Skip Key Vault setup (if you don't need secret management)
+.\External-Configurator.ps1 -SkipKeyVault
+
 # Combine options
 .\External-Configurator.ps1 -ConfigFile custom_config.json -SkipArcEnable
 ```
@@ -198,6 +201,13 @@ scp user@edge-device:/path/to/linux_build/linux_aio_config.json .\edge_configs\
 - Creates Device Registry namespace
 - Deploys Azure IoT Operations instance
 - Enables edge-to-cloud asset sync (rsync)
+
+### Phase 6.5: Key Vault Integration (NEW)
+- Creates Azure Key Vault for secret management
+- Grants permissions to Arc cluster and AIO managed identities
+- Creates SecretProviderClass on Kubernetes cluster
+- Enables secure secret references in dataflows
+- Optional: Prompts to add sample secrets interactively
 
 ### Phase 7: Verification
 - Verifies resource group creation
@@ -463,22 +473,30 @@ Safe to run multiple times.
    - Navigate to resource group
    - Check Arc-enabled cluster status
    - View Azure IoT Operations instance
+   - Verify Key Vault was created
 
-2. **Monitor Cluster Resources**
+2. **Add Secrets to Key Vault** (for Fabric RTI or secure endpoints)
+   ```powershell
+   az keyvault secret set --vault-name <kv-name> --name fabric-connection-string --value "Endpoint=..."
+   ```
+   See [KEYVAULT_INTEGRATION.md](KEYVAULT_INTEGRATION.md) for details
+
+3. **Monitor Cluster Resources**
    ```powershell
    kubectl get pods --all-namespaces
    kubectl get nodes
    ```
 
-3. **Deploy MQTT Assets** (if applicable)
+4. **Deploy MQTT Assets** (if applicable)
    - Use ARM templates in `arm_templates/` directory
    - See `iotopps/edgemqttsim/README.md` for examples
 
-4. **Configure Dataflows**
+5. **Configure Dataflows**
    - Set up data routing in Azure portal
    - Deploy fabric dataflows if using Microsoft Fabric
+   - Reference secrets as: `aio-akv-sp/<secret-name>`
 
-5. **Test MQTT Connectivity**
+6. **Test MQTT Connectivity**
    ```powershell
    kubectl logs -n default -l app=mosquitto-sub -f
    ```
@@ -503,3 +521,5 @@ For issues or questions:
 - `backup_aio_configs.sh` - USB backup utility for config files
 - `separation_of_concerns.md` - Architecture documentation
 - `deployment_summary.json` - Output from deployment
+- `KEYVAULT_INTEGRATION.md` - Key Vault setup and usage guide
+- `CSI_SECRET_STORE_SETUP.md` - CSI driver prerequisites

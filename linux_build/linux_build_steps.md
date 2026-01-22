@@ -1,144 +1,102 @@
-# Azure IoT Operations Linux Installation - Quick Start Guide
+# Azure IoT Operations - Quick Start
 
-This guide provides step-by-step instructions for running the `linuxAIO.sh` script on a fresh Linux installation to set up Azure IoT Operations on a K3s Kubernetes cluster.
+Two-step installation: (1) Edge setup (2) Azure deployment
 
 ## Prerequisites
-
-### System Requirements
-- **OS**: Ubuntu 24.04+ (recommended)
-- **RAM**: Minimum 16GB (32GB recommended)
-- **CPU**: Minimum 4 cores
-- **Kernel**: Version 5.15+
-- **User**: Non-root user with sudo privileges
-
-### Azure Requirements
+- Ubuntu 24.04+, 16GB RAM, 4+ cores
 - Active Azure subscription
-- Azure CLI access or ability to authenticate via browser
+- Git repository cloned
 
-## Quick Setup Steps
+## Step 1: Edge Device Setup
 
-### 1. Prepare Your Linux System
-
-If you're on a fresh Ubuntu install, update the system first:
+**On Linux edge device:**
 ```bash
-sudo apt update && sudo apt upgrade -y
+cd ~/learn-iothub/linux_build
+
+# Edit config (set resource_group, location, cluster_name)
+nano linux_aio_config.json
+
+# Run installer
+chmod +x linux_installer.sh
+./linux_installer.sh
+
+# For clean reinstall:
+./linux_installer.sh --force-reinstall
+
+# To completely remove everything:
+./linux_aio_cleanup.sh
 ```
 
-### 2. Clone or Download the Repository
+This installs:
+- K3s Kubernetes cluster
+- kubectl, Helm, Azure CLI
+- Azure Arc agents
+- CSI Secret Store (for Key Vault integration)
 
-If you haven't already, get the repository:
-```bash
-git clone <repository-url>
-cd learn-iothub/linux_build
+**Time:** 15-25 minutes
+
+## Step 2: Azure IoT Operations Deployment
+
+**On Windows management machine:**
+
+```powershell
+cd C:\path\to\learn-iothub\linux_build
+
+# Deploy Azure IoT Operations
+.\External-Configurator.ps1 -UseArcProxy
+
+# Or specify files explicitly:
+.\External-Configurator.ps1 `
+  -ClusterInfo ".\edge_configs\cluster_info.json" `
+  -ConfigFile ".\linux_aio_config.json" `
+  -UseArcProxy
 ```
 
-### 3. Configure the Installation (Optional but Recommended)
+This deploys:
+- Azure IoT Operations (via Arc)
+- MQTT broker and dataflow pipelines
+- Device Registry and assets (optional)
 
-Create a configuration file to customize your deployment:
+**Time:** 10-15 minutes
 
-**On your development machine (with repository access):**
+## Configuration File
 
-```bash
-# Step 1: Copy the template to a thumb drive
-cp linux_aio_config.template.json /media/usb/linux_aio_config.template.json
-# (Adjust /media/usb to your actual USB mount point)
-```
-
-**Step 2: Edit the template on your development machine or edge device**
-
-Update the configuration file with your Azure settings:
-
-```bash
-# Edit the template file
-nano /media/usb/linux_aio_config.template.json
-# or on Windows: notepad E:\linux_aio_config.template.json
-```
-
-**Minimal configuration** - Update these values:
-- `subscription_id`: Your Azure subscription ID (or leave empty to use current login)
-- `resource_group`: Name for your resource group (e.g., "rg-iot-demo")
-- `location`: Azure region (e.g., "eastus", "westus2")
-- `cluster_name`: Name for your cluster (e.g., "my-iot-cluster")
-
-**Example configuration:**
+Edit `linux_aio_config.json`:
 ```json
 {
   "azure": {
     "subscription_id": "",
-    "resource_group": "rg-iot-demo",
-    "location": "eastus",
-    "cluster_name": "demo-iot-cluster",
+    "resource_group": "IoT-Operations",
+    "location": "westus2",
+    "cluster_name": "iot-ops-cluster",
     "namespace_name": "iot-operations-ns"
   },
   "deployment": {
-    "skip_system_update": false,
-    "force_reinstall": false,
     "deployment_mode": "test"
-  },
-  "optional_tools": {
-    "k9s": true,
-    "mqtt-viewer": true,
-    "mqttui": false,
-    "ssh": false
-  },
-  "modules": {
-    "edgemqttsim": false,
-    "hello-flask": false,
-    "sputnik": false,
-    "wasm-quality-filter-python": false
   }
 }
 ```
 
-**On your edge device (Linux target machine):**
+## Common Commands
 
 ```bash
-# Step 3: Copy the configured template from thumb drive to your home directory
-cp /media/usb/linux_aio_config.template.json ~/linux_aio_config.json
-# or if you're in the linux_build directory:
-cp /media/usb/linux_aio_config.template.json ./linux_aio_config.json
+# Check cluster health
+kubectl get pods --all-namespaces
+
+# View Arc status
+az connectedk8s show --name iot-ops-cluster --resource-group IoT-Operations
+
+# Interactive cluster UI
+k9s
+
+# View logs
+cat /path/to/linux_installer_*.log
 ```
 
-### 4. Make the Script Executable
-
-```bash
-chmod +x linuxAIO.sh
-```
-
-### 5. Run the Installation Script
-
-```bash
-./linuxAIO.sh
-```
-
-**What the script will do:**
-1. Check system requirements
-2. Load configuration from `linux_aio_config.json` (if exists)
-3. Update system packages (unless skipped in config)
-4. Install required tools (Azure CLI, kubectl, Helm, etc.)
-5. Install and configure K3s Kubernetes
-6. Set up Azure authentication
-7. Create Azure resources (Resource Group, etc.)
-8. Enable Azure Arc on the cluster
-9. Deploy Azure IoT Operations
-10. Verify the deployment
-
-## During Installation
-
-### Authentication
-The script will prompt you to authenticate with Azure:
-- If Azure CLI is not logged in, you'll see a browser authentication prompt
-- Follow the on-screen instructions to complete authentication
-
-### Monitoring Progress
-The script provides colored output:
-- **Green**: Normal progress messages
-- **Yellow**: Warnings (installation continues)
-- **Red**: Errors (installation stops)
-
-### Estimated Time
-- Fresh installation: 20-45 minutes
-- Subsequent runs: 10-20 minutes (if components already installed)
+## Color-Coded Output
+- **Green**: Success
+- **Yellow**: Warnings
+- **Red**: Errors
 
 ## Troubleshooting
 
@@ -190,54 +148,32 @@ kubectl get pods -n azure-iot-operations
 
 ## Post-Installation
 
-After successful installation:
 
-1. **Save your configuration** - Keep your `linux_aio_config.json` for future use
-2. **Access your cluster** - kubectl is configured and ready to use
-3. **Check Azure Portal** - Your resources will appear in the specified resource group
-4. **Follow next steps** - The script will display additional configuration steps
+## Troubleshooting
 
-## Re-running the Script
-
-You can safely re-run the script:
-- Existing components will be detected and skipped
-- Use `force_reinstall: true` in config to reinstall components
-- Use `skip_system_update: true` in config for faster subsequent runs
-
-## Using Custom Asset Endpoints
-
-If you encounter Azure CLI command compatibility issues or want to use an existing asset endpoint as the namespace resource, you can specify a custom asset endpoint:
-
-### Option 1: Environment Variable
+**Config file cluster name mismatch:**
 ```bash
-export CUSTOM_ASSET_ENDPOINT="your-existing-asset-endpoint-name"
-sudo -E ./linuxAIO.sh
+# Ensure cluster_name matches in both files
+cat linux_aio_config.json | grep cluster_name
+cat edge_configs/cluster_info.json | grep cluster_name
 ```
 
-### Option 2: Configuration File
-Add to your `linux_aio_config.json`:
-```json
-{
-  "azure": {
-    "resource_group": "your-resource-group",
-    "custom_asset_endpoint": "your-existing-asset-endpoint-name"
-  }
-}
+**Arc proxy fails:**
+```bash
+# Verify cluster is Arc-enabled
+az connectedk8s show --name iot-ops-cluster --resource-group IoT-Operations
 ```
 
-### Requirements for Custom Asset Endpoints
-1. The asset endpoint must already exist in your resource group
-2. You must have permissions to access the asset endpoint
-3. The asset endpoint resource ID will be used for the `--ns-resource-id` parameter
+**Stale Arc registration:**
+- Automatically detected and fixed by linux_installer.sh
+- Use `--force-reinstall` for complete cleanup
 
-### When to Use Custom Asset Endpoints
-- Azure CLI commands for namespace creation are failing
-- You want to use a specific pre-configured asset endpoint
-- Working around Azure CLI version compatibility issues
-- Standardizing on existing asset endpoints across deployments
+**View logs:**
+```bash
+cat linux_installer_*.log
+cat external_configurator_*.log
+```
 
 ## Additional Resources
-
-- Azure IoT Operations Documentation: [Microsoft Learn](https://learn.microsoft.com/azure/iot-operations/)
-- K3s Documentation: [k3s.io](https://k3s.io/)
-- Azure CLI Reference: [Microsoft Docs](https://docs.microsoft.com/cli/azure/)
+- [Azure IoT Operations Docs](https://learn.microsoft.com/azure/iot-operations/)
+- [K3s Documentation](https://k3s.io/)
