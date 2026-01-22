@@ -1411,6 +1411,29 @@ deploy_azure_iot_operations() {
     log "Using namespace resource ID: $namespace_resource_id"
     log "The namespace will be created automatically during deployment"
     
+    # Create Key Vault for Secret Management (required for Fabric RTI)
+    local keyvault_name=$(echo "${CLUSTER_NAME}-kv" | tr '[:upper:]' '[:lower:]' | tr -d '-' | cut -c1-24)
+    
+    info "Setting up Key Vault for Secret Management..."
+    if az keyvault show --name "$keyvault_name" --resource-group "$resource_group" &>/dev/null; then
+        success "Key Vault exists: $keyvault_name"
+    else
+        log "Creating Key Vault: $keyvault_name"
+        az keyvault create \
+            --name "$keyvault_name" \
+            --resource-group "$resource_group" \
+            --location "$location" \
+            --enable-rbac-authorization true \
+            --enabled-for-deployment true
+        success "Key Vault created"
+    fi
+    
+    # Get Key Vault resource ID
+    local keyvault_id=$(az keyvault show \
+        --name "$keyvault_name" \
+        --resource-group "$resource_group" \
+        --query id -o tsv)
+    
     # Deploy Azure IoT Operations instance
     local instance_name="${CLUSTER_NAME}-aio"
     
@@ -1418,17 +1441,18 @@ deploy_azure_iot_operations() {
     if az iot ops show --name "$instance_name" --resource-group "$resource_group" &>/dev/null; then
         success "Azure IoT Operations instance exists: $instance_name"
     else
-        log "Creating IoT Operations instance (this may take several minutes)..."
+        log "Creating IoT Operations instance with Secret Management enabled (this may take several minutes)..."
         az iot ops create \
             --cluster "$CLUSTER_NAME" \
             --resource-group "$resource_group" \
             --name "$instance_name" \
             --sr-resource-id "$schema_registry_id" \
-            --ns-resource-id "$namespace_resource_id" || {
+            --ns-resource-id "$namespace_resource_id" \
+            --kv-resource-id "$keyvault_id" || {
             error "Failed to deploy Azure IoT Operations"
             return 1
         }
-        success "Azure IoT Operations deployed!"
+        success "Azure IoT Operations deployed with Secret Management enabled!"
     fi
     
     # Enable resource sync
