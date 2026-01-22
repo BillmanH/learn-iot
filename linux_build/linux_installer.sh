@@ -1412,7 +1412,16 @@ deploy_azure_iot_operations() {
     log "The namespace will be created automatically during deployment"
     
     # Create Key Vault for Secret Management (required for Fabric RTI)
-    local keyvault_name=$(echo "${CLUSTER_NAME}-kv" | tr '[:upper:]' '[:lower:]' | tr -d '-' | cut -c1-24)
+    # Use configured name or generate one
+    local keyvault_name=$(jq -r '.azure.key_vault_name // empty' "$CONFIG_FILE")
+    
+    if [ -z "$keyvault_name" ]; then
+        # Auto-generate name if not specified
+        keyvault_name=$(echo "${CLUSTER_NAME}-kv" | tr '[:upper:]' '[:lower:]' | tr -d '-' | cut -c1-24)
+        info "Key Vault name not specified in config, using auto-generated: $keyvault_name"
+    else
+        info "Using Key Vault name from config: $keyvault_name"
+    fi
     
     info "Setting up Key Vault for Secret Management..."
     if az keyvault show --name "$keyvault_name" --resource-group "$resource_group" &>/dev/null; then
