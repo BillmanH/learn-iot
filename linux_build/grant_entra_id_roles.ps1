@@ -31,7 +31,7 @@
     .\grant_entra_id_roles.ps1 -AddUser wharding@microsoft.com
     
 .EXAMPLE
-    .\grant_entra_id_roles.ps1 -ResourceGroup "IoT-Operations" -ClusterName "iot-ops-cluster" -AddUser wharding@microsoft.com
+    .\grant_entra_id_roles.ps1 -ResourceGroup "IoT-Operations" -ClusterName "iot-ops-cluster" -AddUser <your OID>
 
 .NOTES
     Author: Azure IoT Operations Team

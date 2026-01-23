@@ -1146,6 +1146,21 @@ function Enable-ArcForCluster {
     
     # Note: K3s restart is handled on the edge device, not from here
     Write-InfoLog "Note: If cluster connectivity issues occur, restart K3s on the edge device: sudo systemctl restart k3s"
+    
+    # Enable OIDC issuer and workload identity (required for secret sync later)
+    Write-Log "Enabling OIDC issuer and workload identity on Arc cluster..."
+    $oidcResult = az connectedk8s update `
+        --name $script:ClusterName `
+        --resource-group $script:ResourceGroup `
+        --enable-oidc-issuer `
+        --enable-workload-identity `
+        --output json 2>&1
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-WarnLog "Failed to enable OIDC/workload identity (may already be enabled): $oidcResult"
+    } else {
+        Write-Success "OIDC issuer and workload identity enabled on Arc cluster"
+    }
 }
 
 # ============================================================================
@@ -1456,14 +1471,19 @@ function Enable-SecretSync {
     }
     
     $miPrincipalId = $miData.principalId
+    $miResourceId = $miData.id
     Write-InfoLog "Managed identity principal ID: $miPrincipalId"
+    Write-InfoLog "Managed identity resource ID: $miResourceId"
+    
+    # Get Key Vault resource ID
+    $kvResourceId = "/subscriptions/$script:SubscriptionId/resourceGroups/$script:ResourceGroup/providers/Microsoft.KeyVault/vaults/$KeyVaultName"
     
     # Grant Key Vault Secrets User role to the managed identity
     Write-Log "Granting 'Key Vault Secrets User' role to managed identity..."
     az role assignment create `
         --role "Key Vault Secrets User" `
         --assignee $miPrincipalId `
-        --scope "/subscriptions/$script:SubscriptionId/resourceGroups/$script:ResourceGroup/providers/Microsoft.KeyVault/vaults/$KeyVaultName" `
+        --scope $kvResourceId `
         --output none 2>$null
     
     Write-Success "Managed identity granted Key Vault access"
@@ -1472,17 +1492,18 @@ function Enable-SecretSync {
     Write-InfoLog "Waiting for role assignment to propagate..."
     Start-Sleep -Seconds 10
     
-    # Enable secret sync
+    # Enable secret sync with correct parameters
     Write-Log "Enabling secret sync for AIO instance..."
     $secretSyncResult = az iot ops secretsync enable `
-        --name $InstanceName `
+        --instance $InstanceName `
         --resource-group $script:ResourceGroup `
-        --mi-name $miName 2>&1
+        --mi-user-assigned $miResourceId `
+        --kv-resource-id $kvResourceId 2>&1
     
     if ($LASTEXITCODE -ne 0) {
         Write-ErrorLog "Failed to enable secret sync: $secretSyncResult"
         Write-WarnLog "You can enable it manually later with:"
-        Write-InfoLog "az iot ops secretsync enable --name $InstanceName --resource-group $script:ResourceGroup --mi-name $miName"
+        Write-InfoLog "az iot ops secretsync enable --instance $InstanceName -g $script:ResourceGroup --mi-user-assigned $miResourceId --kv-resource-id $kvResourceId"
         return
     }
     
@@ -1613,6 +1634,10 @@ function New-KeyVaultForAIO {
     
     # Create SecretProviderClass on Kubernetes cluster
     New-SecretProviderClass
+    
+    # Enable secret sync to synchronize Key Vault secrets to cluster
+    $instanceName = "$script:ClusterName-aio"
+    Enable-SecretSync -InstanceName $instanceName -KeyVaultName $script:KeyVaultName
     
     Write-Success "Key Vault integration configured successfully"
 }
