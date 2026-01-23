@@ -1666,7 +1666,41 @@ function Grant-KeyVaultPermissions {
         Write-Success "AIO instance identity granted Key Vault Secrets User access"
         Write-InfoLog "Principal ID: $($aioInstance.identity.principalId)"
     } else {
-        Write-WarnLog "AIO instance has no managed identity - Key Vault access not configured"
+        Write-WarnLog "AIO instance has no managed identity - attempting to enable it..."
+        
+        # Enable system-assigned managed identity for AIO instance
+        Write-Log "Enabling system-assigned managed identity for AIO instance..."
+        $updateResult = az resource update `
+            --ids $aioInstance.id `
+            --set identity.type=SystemAssigned `
+            --output json 2>$null
+        
+        if ($LASTEXITCODE -eq 0 -and $updateResult) {
+            $updatedInstance = $updateResult | ConvertFrom-Json
+            if ($updatedInstance.identity.principalId) {
+                Write-Success "Managed identity enabled for AIO instance"
+                Write-InfoLog "Principal ID: $($updatedInstance.identity.principalId)"
+                
+                # Wait a few seconds for identity propagation
+                Write-InfoLog "Waiting for identity propagation..."
+                Start-Sleep -Seconds 10
+                
+                # Grant Key Vault access
+                Write-Log "Granting 'Key Vault Secrets User' role to AIO instance identity..."
+                az role assignment create `
+                    --role "Key Vault Secrets User" `
+                    --assignee $updatedInstance.identity.principalId `
+                    --scope "/subscriptions/$script:SubscriptionId/resourceGroups/$script:ResourceGroup/providers/Microsoft.KeyVault/vaults/$script:KeyVaultName" `
+                    --output none 2>$null
+                
+                Write-Success "AIO instance identity granted Key Vault Secrets User access"
+            } else {
+                Write-WarnLog "Failed to enable managed identity - Key Vault access not configured"
+            }
+        } else {
+            Write-WarnLog "Could not enable managed identity for AIO instance"
+            Write-InfoLog "You can enable it manually in Azure portal or use grant_entra_id_roles.ps1 script"
+        }
     }
     
     # Grant access to all managed identities in the resource group (belt and suspenders)
@@ -2039,9 +2073,6 @@ function Main {
             Write-Host "Setting Up Key Vault Integration" -ForegroundColor Cyan
             Write-Host "============================================================================" -ForegroundColor Cyan
             New-KeyVaultForAIO
-            
-            # Optionally add sample secrets
-            Add-SampleSecretsToKeyVault -Interactive
             Write-Host ""
         }
         
