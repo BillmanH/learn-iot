@@ -11,6 +11,7 @@ linux_build/edge_configs/README.txt
 # Configuration files (keep these out of repo for security)
 linux_build/linux_aio_config.json
 iotopps/sputnik/sputnik_config.json
+Fabric_setup/fabric_config.json
 
 
 # Connection strings and keys

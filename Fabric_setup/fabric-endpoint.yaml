@@ -1,0 +1,63 @@
+apiVersion: connectivity.iotoperations.azure.com/v1
+kind: DataflowEndpoint
+metadata:
+  name: fabric-endpoint
+  namespace: azure-iot-operations
+spec:
+  endpointType: Kafka
+  kafkaSettings:
+    # Bootstrap server from Fabric Event Stream custom endpoint
+    # Format: <your-endpoint>.servicebus.windows.net:9093
+    # Replace with your actual bootstrap server from Fabric
+    host: "YOUR_BOOTSTRAP_SERVER.servicebus.windows.net:9093"
+    
+    # TLS must be enabled for Fabric connection
+    tls:
+      mode: Enabled
+    
+    # SASL authentication using connection string from Key Vault
+    authentication:
+      method: Sasl
+      saslSettings:
+        saslType: Plain
+        # Reference to Key Vault-synced secret via SecretProviderClass
+        # The secret must contain 'username' and 'password' keys
+        # username = '$ConnectionString' (literal string)
+        # password = <actual connection string from Fabric>
+        secretRef: fabric-connection-string
+    
+    # Kafka consumer settings
+    consumerGroupId: iot-operations-consumer
+    compression: None
+    
+    # Copy MQTT properties to Kafka headers
+    copyMqttProperties: Enabled
+    
+    # CloudEvents format (optional)
+    cloudEventAttributes: Propagate
+
+---
+# Alternative: Using Kubernetes Secret with SASL Authentication
+# Uncomment this section if you prefer to use a Kubernetes secret instead of Key Vault
+#
+# apiVersion: connectivity.iotoperations.azure.com/v1
+# kind: DataflowEndpoint
+# metadata:
+#   name: fabric-endpoint-sasl
+#   namespace: azure-iot-operations
+# spec:
+#   endpointType: Kafka
+#   kafkaSettings:
+#     host: "YOUR_BOOTSTRAP_SERVER.servicebus.windows.net:9093"
+#     tls:
+#       mode: Enabled
+#     authentication:
+#       method: Sasl
+#       saslSettings:
+#         saslType: Plain
+#         # Reference to Kubernetes secret (no prefix needed)
+#         secretRef: fabric-realtime-secret
+#     consumerGroupId: iot-operations-consumer
+#     compression: None
+#     copyMqttProperties: Enabled
+#     cloudEventAttributes: Propagate
