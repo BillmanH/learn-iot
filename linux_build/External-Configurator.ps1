@@ -1290,6 +1290,9 @@ function New-IoTOperationsInstance {
     $script:KeyVaultName = $keyVaultName
     $script:DeployedResources += "KeyVault:$keyVaultName"
     
+    # Enable Secret Sync for Key Vault integration
+    Enable-SecretSync -InstanceName $instanceName -KeyVaultName $keyVaultName
+    
     # Enable resource sync
     if ($script:EnableResourceSync) {
         Enable-ResourceSync -InstanceName $instanceName
@@ -1409,6 +1412,83 @@ function New-DeviceRegistryNamespace {
     
     Write-Success "Device Registry namespace created: $script:NamespaceName"
     $script:DeployedResources += "DeviceRegistryNamespace:$script:NamespaceName"
+}
+
+function Enable-SecretSync {
+    param(
+        [string]$InstanceName,
+        [string]$KeyVaultName
+    )
+    
+    Write-Log "Enabling Secret Sync for Azure IoT Operations..."
+    
+    if ($DryRun) {
+        Write-InfoLog "[DRY-RUN] Would enable secret sync for: $InstanceName"
+        return
+    }
+    
+    # Create or verify user-assigned managed identity for secret sync
+    $miName = "$($script:ClusterName)-secretsync-mi"
+    Write-Log "Creating user-assigned managed identity: $miName"
+    
+    $existingMi = az identity show --name $miName --resource-group $script:ResourceGroup 2>$null
+    
+    if (-not $existingMi) {
+        Write-Log "Creating new managed identity for secret sync..."
+        $miResult = az identity create `
+            --name $miName `
+            --resource-group $script:ResourceGroup `
+            --location $script:Location `
+            --output json 2>&1
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-ErrorLog "Failed to create managed identity for secret sync: $miResult"
+            Write-WarnLog "Skipping secret sync enablement"
+            return
+        }
+        
+        $miData = $miResult | ConvertFrom-Json
+        Write-Success "Managed identity created: $miName"
+        $script:DeployedResources += "ManagedIdentity:$miName"
+    } else {
+        $miData = $existingMi | ConvertFrom-Json
+        Write-Success "Managed identity already exists: $miName"
+    }
+    
+    $miPrincipalId = $miData.principalId
+    Write-InfoLog "Managed identity principal ID: $miPrincipalId"
+    
+    # Grant Key Vault Secrets User role to the managed identity
+    Write-Log "Granting 'Key Vault Secrets User' role to managed identity..."
+    az role assignment create `
+        --role "Key Vault Secrets User" `
+        --assignee $miPrincipalId `
+        --scope "/subscriptions/$script:SubscriptionId/resourceGroups/$script:ResourceGroup/providers/Microsoft.KeyVault/vaults/$KeyVaultName" `
+        --output none 2>$null
+    
+    Write-Success "Managed identity granted Key Vault access"
+    
+    # Wait a few seconds for role assignment to propagate
+    Write-InfoLog "Waiting for role assignment to propagate..."
+    Start-Sleep -Seconds 10
+    
+    # Enable secret sync
+    Write-Log "Enabling secret sync for AIO instance..."
+    $secretSyncResult = az iot ops secretsync enable `
+        --name $InstanceName `
+        --resource-group $script:ResourceGroup `
+        --mi-name $miName 2>&1
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-ErrorLog "Failed to enable secret sync: $secretSyncResult"
+        Write-WarnLog "You can enable it manually later with:"
+        Write-InfoLog "az iot ops secretsync enable --name $InstanceName --resource-group $script:ResourceGroup --mi-name $miName"
+        return
+    }
+    
+    Write-Success "Secret Sync enabled successfully!"
+    Write-InfoLog "Secrets from Key Vault '$KeyVaultName' will now be synchronized to the cluster"
+    Write-InfoLog "Reference secrets in dataflows as: aio-akv-sp/<secret-name>"
 }
 
 function Enable-ResourceSync {
