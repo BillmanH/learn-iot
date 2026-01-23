@@ -1213,6 +1213,7 @@ function New-IoTOperationsInstance {
     
     # Get schema registry resource ID
     $schemaRegistryId = az iot ops schema registry show `
+        --name $schemaRegistryName `
         --resource-group $script:ResourceGroup `
         --query id -o tsv
     
@@ -1264,8 +1265,9 @@ function New-IoTOperationsInstance {
     Write-Log "Using Key Vault ID: $keyVaultId"
     
     # Deploy Azure IoT Operations
-    Write-Log "Deploying Azure IoT Operations instance with Secret Management enabled - this may take several minutes..."
+    Write-Log "Deploying Azure IoT Operations instance - this may take several minutes..."
     Write-InfoLog "Note: Progress display suppressed to avoid unicode rendering issues"
+    Write-InfoLog "Key Vault integration will be configured after deployment"
     
     $deployResult = az iot ops create `
         --cluster $script:ClusterName `
@@ -1273,7 +1275,6 @@ function New-IoTOperationsInstance {
         --name $instanceName `
         --sr-resource-id $schemaRegistryId `
         --ns-resource-id $namespaceResourceId `
-        --kv-resource-id $keyVaultId `
         --no-progress 2>&1
     
     if ($LASTEXITCODE -ne 0) {
@@ -1284,6 +1285,10 @@ function New-IoTOperationsInstance {
     
     Write-Success "Azure IoT Operations deployed successfully!"
     $script:DeployedResources += "IoTOperationsInstance:$instanceName"
+    
+    # Store Key Vault name for later use
+    $script:KeyVaultName = $keyVaultName
+    $script:DeployedResources += "KeyVault:$keyVaultName"
     
     # Enable resource sync
     if ($script:EnableResourceSync) {
