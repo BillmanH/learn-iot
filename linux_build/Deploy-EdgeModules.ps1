@@ -195,6 +195,111 @@ function Load-Configuration {
 
 #region Validation Functions
 
+function Test-DockerDesktop {
+    Write-InfoLog "Checking Docker Desktop status..."
+    
+    # Check if Docker is installed and responding
+    $previousErrorPref = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    
+    try {
+        $dockerVersion = docker version --format '{{.Server.Version}}' 2>&1
+        $dockerExitCode = $LASTEXITCODE
+        
+        if ($dockerExitCode -ne 0) {
+            $ErrorActionPreference = $previousErrorPref
+            
+            # Check for ARM64-specific WSL2 mount error
+            $dockerOutput = docker version 2>&1 | Out-String
+            if ($dockerOutput -match "WSL_E_WSL_MOUNT_NOT_SUPPORTED|--mount on ARM64 requires Windows version|error during connect|The system cannot find the file") {
+                Write-ErrorLog "Docker Desktop WSL2 error detected"
+                
+                # Detect ARM64 architecture
+                $isARM64 = $env:PROCESSOR_ARCHITECTURE -eq "ARM64"
+                
+                if ($isARM64) {
+                    Write-Host ""
+                    Write-Host "============================================================" -ForegroundColor Red
+                    Write-Host "ARM64 WINDOWS: WSL2 VERSION INCOMPATIBILITY DETECTED" -ForegroundColor Red
+                    Write-Host "============================================================" -ForegroundColor Red
+                    Write-Host "Docker Desktop requires Windows build 27653+ on ARM64 devices." -ForegroundColor Yellow
+                    Write-Host ""
+                    
+                    # Check current Windows version
+                    $osBuild = [System.Environment]::OSVersion.Version.Build
+                    Write-Host "Current Information:" -ForegroundColor Cyan
+                    Write-Host "  Architecture: ARM64"
+                    Write-Host "  Windows Build: $osBuild"
+                    Write-Host "  Required Build: 27653 or newer"
+                    Write-Host ""
+                    
+                    if ($osBuild -lt 27653) {
+                        Write-Host "IMMEDIATE ACTIONS:" -ForegroundColor Cyan
+                        Write-Host "  1. Try WSL reset: wsl --shutdown" -ForegroundColor White
+                        Write-Host "  2. Restart Docker Desktop"
+                        Write-Host ""
+                        Write-Host "PERMANENT FIX - Update Windows:" -ForegroundColor Cyan
+                        Write-Host "  1. Open Settings > Windows Update > Windows Insider Program"
+                        Write-Host "  2. Join Dev Channel or Canary Channel"
+                        Write-Host "  3. Check for updates and install build 27653+"
+                        Write-Host "  4. Restart your device"
+                        Write-Host ""
+                        Write-Host "WORKAROUND - Use this script without building:" -ForegroundColor Cyan
+                        Write-Host "  .\ Deploy-EdgeModules.ps1 -ModuleName $ModuleName -SkipBuild" -ForegroundColor Green
+                        Write-Host "  (Pre-build containers on another machine and push to registry)"
+                    }
+                    
+                    Write-Host ""
+                    Write-Host "ALTERNATIVE: Switch to Hyper-V backend (if available)" -ForegroundColor Cyan
+                    Write-Host "  1. Open Docker Desktop Settings"
+                    Write-Host "  2. General > Uncheck 'Use WSL 2 based engine'"
+                    Write-Host "  3. Apply & Restart"
+                    Write-Host "============================================================" -ForegroundColor Red
+                    Write-Host ""
+                } else {
+                    Write-Host ""
+                    Write-Host "============================================================" -ForegroundColor Red
+                    Write-Host "DOCKER DESKTOP CONNECTION ERROR" -ForegroundColor Red
+                    Write-Host "============================================================" -ForegroundColor Red
+                    Write-Host "Docker Desktop is not responding. Common causes:" -ForegroundColor Yellow
+                    Write-Host "  1. Docker Desktop is not running"
+                    Write-Host "  2. WSL2 backend has stopped"
+                    Write-Host "  3. Docker service needs restart"
+                    Write-Host ""
+                    Write-Host "Try these steps:" -ForegroundColor Cyan
+                    Write-Host "  1. wsl --shutdown"
+                    Write-Host "  2. Restart Docker Desktop"
+                    Write-Host "  3. Wait for Docker to fully initialize"
+                    Write-Host "  4. Verify: docker ps"
+                    Write-Host "============================================================" -ForegroundColor Red
+                    Write-Host ""
+                }
+                
+                throw "Docker Desktop is not available. Cannot build containers."
+            }
+            
+            # Generic Docker not running error
+            throw "Docker is not running. Start Docker Desktop and try again."
+        }
+        
+        $ErrorActionPreference = $previousErrorPref
+        Write-Success "Docker Desktop version: $dockerVersion"
+        
+        # Test docker connectivity with a simple command
+        $dockerPs = docker ps 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-WarnLog "Docker is running but may have connectivity issues"
+            Write-InfoLog "Docker ps output: $dockerPs"
+        }
+        
+        return $true
+    }
+    catch {
+        $ErrorActionPreference = $previousErrorPref
+        throw $_
+    }
+}
+
 function Test-Prerequisites {
     Write-InfoLog "Checking prerequisites..."
     
@@ -380,23 +485,41 @@ function Build-AndPushContainer {
         $buildOutput | ForEach-Object { Write-ErrorLog $_ }
         
         # Check for common Docker Desktop issues on Windows
-        if ($buildOutput -match "dockerDesktopLinuxEngine|The system cannot find the file specified|error during connect") {
+        if ($buildOutput -match "dockerDesktopLinuxEngine|The system cannot find the file specified|error during connect|WSL_E_WSL_MOUNT_NOT_SUPPORTED|--mount on ARM64 requires") {
             Write-ErrorLog ""
             Write-ErrorLog "============================================================"
-            Write-ErrorLog "TROUBLESHOOTING: Docker Desktop may not be running"
+            Write-ErrorLog "TROUBLESHOOTING: Docker Desktop Issue Detected"
             Write-ErrorLog "============================================================"
-            Write-ErrorLog "This error typically occurs when Docker Desktop is not running on Windows."
-            Write-ErrorLog ""
-            Write-ErrorLog "To resolve this issue:"
-            Write-ErrorLog "  1. Start Docker Desktop from the Start menu"
-            Write-ErrorLog "  2. Wait for Docker to fully initialize (whale icon in system tray)"
-            Write-ErrorLog "  3. Verify Docker is running with: docker ps"
-            Write-ErrorLog "  4. Re-run this deployment script"
-            Write-ErrorLog ""
-            Write-ErrorLog "If Docker Desktop is running and you still see this error:"
-            Write-ErrorLog "  - Restart Docker Desktop"
-            Write-ErrorLog "  - Check if Docker is set to use Linux containers"
-            Write-ErrorLog "  - Verify Docker Desktop is fully updated"
+            
+            # Check for ARM64 WSL2 specific error
+            if ($buildOutput -match "WSL_E_WSL_MOUNT_NOT_SUPPORTED|--mount on ARM64 requires") {
+                $osBuild = [System.Environment]::OSVersion.Version.Build
+                Write-ErrorLog "ARM64 WSL2 ISSUE: Windows build $osBuild is too old"
+                Write-ErrorLog ""
+                Write-ErrorLog "Required: Windows build 27653 or newer for ARM64 + WSL2"
+                Write-ErrorLog ""
+                Write-ErrorLog "Quick workaround - Use -SkipBuild flag:"
+                Write-ErrorLog "  .\ Deploy-EdgeModules.ps1 -ModuleName $Module -SkipBuild"
+                Write-ErrorLog "  (Build containers on a different machine first)"
+                Write-ErrorLog ""
+                Write-ErrorLog "Permanent fix - Update Windows:"
+                Write-ErrorLog "  Settings > Windows Update > Windows Insider Program"
+                Write-ErrorLog "  Join Dev/Canary Channel and install build 27653+"
+            } else {
+                Write-ErrorLog "This error typically occurs when Docker Desktop is not running on Windows."
+                Write-ErrorLog ""
+                Write-ErrorLog "To resolve this issue:"
+                Write-ErrorLog "  1. Start Docker Desktop from the Start menu"
+                Write-ErrorLog "  2. Wait for Docker to fully initialize (whale icon in system tray)"
+                Write-ErrorLog "  3. Verify Docker is running with: docker ps"
+                Write-ErrorLog "  4. Re-run this deployment script"
+                Write-ErrorLog ""
+                Write-ErrorLog "If Docker Desktop is running and you still see this error:"
+                Write-ErrorLog "  - Run: wsl --shutdown"
+                Write-ErrorLog "  - Restart Docker Desktop"
+                Write-ErrorLog "  - Check if Docker is set to use Linux containers"
+                Write-ErrorLog "  - Verify Docker Desktop is fully updated"
+            }
             Write-ErrorLog "============================================================"
             Write-ErrorLog ""
         }
@@ -430,15 +553,60 @@ function Update-DeploymentRegistry {
         [string]$Module
     )
     
+    # Read deployment file to check for placeholders
+    $deploymentContent = Get-Content $DeploymentPath -Raw
+    
+    # Check if deployment contains registry placeholders
+    $hasPlaceholder = $deploymentContent -match '<YOUR_REGISTRY>'
+    
+    if ($hasPlaceholder -and -not $script:ContainerRegistry) {
+        Write-ErrorLog "Deployment file for '$Module' contains <YOUR_REGISTRY> placeholder but no container_registry is configured"
+        Write-Host ""
+        Write-Host "============================================================" -ForegroundColor Red
+        Write-Host "CONFIGURATION ERROR: Container Registry Not Set" -ForegroundColor Red
+        Write-Host "============================================================" -ForegroundColor Red
+        Write-Host "The deployment file requires a container registry, but none is configured." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "To fix this, add the following to your linux_aio_config.json:" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host '  "azure": {' -ForegroundColor White
+        Write-Host '    "subscription_id": "...",'
+        Write-Host '    "resource_group": "...",'
+        Write-Host '    "location": "...",'
+        Write-Host '    "cluster_name": "...",'
+        Write-Host '    "namespace": "...",'
+        Write-Host '    "container_registry": "your-dockerhub-username"  // <-- Add this line' -ForegroundColor Green
+        Write-Host '  }'
+        Write-Host ""
+        Write-Host "Examples:" -ForegroundColor Cyan
+        Write-Host '  - Docker Hub: "container_registry": "myusername"'
+        Write-Host '  - Azure ACR: "container_registry": "myregistry.azurecr.io"'
+        Write-Host '  - GitHub: "container_registry": "ghcr.io/myusername"'
+        Write-Host ""
+        Write-Host "After updating the config file, rebuild and redeploy:" -ForegroundColor Cyan
+        Write-Host "  .\Deploy-EdgeModules.ps1 -ModuleName $Module -Force"
+        Write-Host "============================================================" -ForegroundColor Red
+        Write-Host ""
+        throw "Container registry not configured in linux_aio_config.json"
+    }
+    
     if (-not $script:ContainerRegistry) {
-        Write-InfoLog "No container registry configured, using deployment.yaml as-is"
+        Write-InfoLog "No container registry configured, using deployment.yaml as-is (assumes fully qualified image names)"
+        
+        # Still update namespace
+        $updatedContent = $deploymentContent -replace 'namespace:\s*azure-iot-operations', 'namespace: default'
+        
+        if ($updatedContent -ne $deploymentContent) {
+            $tempPath = Join-Path $env:TEMP "$Module-deployment-$(Get-Date -Format 'yyyyMMddHHmmss').yaml"
+            $updatedContent | Set-Content -Path $tempPath -Encoding UTF8
+            Write-InfoLog "Updated namespace in temporary deployment file: $tempPath"
+            return $tempPath
+        }
+        
         return $DeploymentPath
     }
     
     Write-InfoLog "Updating deployment YAML with registry and namespace..."
-    
-    # Read deployment file
-    $deploymentContent = Get-Content $DeploymentPath -Raw
     
     # Replace <YOUR_REGISTRY> placeholder with actual registry
     $updatedContent = $deploymentContent -replace '<YOUR_REGISTRY>', $script:ContainerRegistry
@@ -451,6 +619,7 @@ function Update-DeploymentRegistry {
     $updatedContent | Set-Content -Path $tempPath -Encoding UTF8
     
     Write-InfoLog "Created temporary deployment file: $tempPath"
+    Write-InfoLog "Registry: $script:ContainerRegistry"
     Write-InfoLog "Target namespace: default"
     return $tempPath
 }
@@ -536,13 +705,39 @@ function Deploy-Module {
     Write-InfoLog "Using kubectl through Azure Arc proxy (cross-network)"
     
     $deployResult = kubectl apply -f $deploymentPath 2>&1
+    $deployExitCode = $LASTEXITCODE
     
     # Clean up temp file if it was created
     if ($deploymentPath -ne $moduleCheck.Path -and (Test-Path $deploymentPath)) {
         Remove-Item $deploymentPath -Force -ErrorAction SilentlyContinue
     }
     
-    if ($LASTEXITCODE -eq 0) {
+    # Check for InvalidImageName or other image-related errors
+    if ($deployResult -match 'InvalidImageName|ErrImagePull|ImagePullBackOff') {
+        Write-ErrorLog "Image name or registry configuration error detected"
+        Write-Host ""
+        Write-Host "============================================================" -ForegroundColor Red
+        Write-Host "IMAGE CONFIGURATION ERROR" -ForegroundColor Red
+        Write-Host "============================================================" -ForegroundColor Red
+        Write-Host "Deployment Result:" -ForegroundColor Yellow
+        $deployResult | ForEach-Object { Write-Host "  $_" -ForegroundColor Gray }
+        Write-Host ""
+        Write-Host "Common causes:" -ForegroundColor Cyan
+        Write-Host "  1. Container registry not configured in linux_aio_config.json"
+        Write-Host "  2. Image name contains invalid characters or placeholders"
+        Write-Host "  3. Image does not exist in the specified registry"
+        Write-Host "  4. Registry authentication required but not configured"
+        Write-Host ""
+        Write-Host "To fix:" -ForegroundColor Cyan
+        Write-Host "  1. Add 'container_registry' to azure section in linux_aio_config.json"
+        Write-Host "  2. Build and push the container: .\Deploy-EdgeModules.ps1 -ModuleName $Module"
+        Write-Host "  3. Verify image exists: docker images | grep $Module"
+        Write-Host "============================================================" -ForegroundColor Red
+        Write-Host ""
+        return $false
+    }
+    
+    if ($deployExitCode -eq 0) {
         Write-Success "$Module deployment applied successfully"
         
         # Wait for pod to be ready
@@ -727,6 +922,11 @@ function Main {
         
         # Build and push containers BEFORE starting Arc proxy
         if (-not $SkipBuild -and $script:ContainerRegistry) {
+            # Check Docker Desktop availability (only needed for building)
+            Write-Host ""
+            Test-DockerDesktop
+            Write-Host ""
+            
             Write-Host "`n========================================" -ForegroundColor Cyan
             Write-Host "Building and Pushing Containers" -ForegroundColor Cyan
             Write-Host "========================================" -ForegroundColor Cyan

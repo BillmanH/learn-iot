@@ -32,6 +32,10 @@
 .PARAMETER UseArcProxy
     Use Azure Arc proxy for kubectl connectivity (for remote networks)
     Requires cluster to already be Arc-enabled
+
+.PARAMETER SkipKeyVault
+    Skip Azure Key Vault creation and configuration
+    Use this if you don't need secret management for dataflows
     
 .EXAMPLE
     .\External-Configurator.ps1 -ClusterInfo cluster_info.json
@@ -63,7 +67,10 @@ param(
     [switch]$SkipVerification,
     
     [Parameter(Mandatory=$false)]
-    [switch]$UseArcProxy
+    [switch]$UseArcProxy,
+    
+    [Parameter(Mandatory=$false)]
+    [switch]$SkipKeyVault
 )
 
 # ============================================================================
@@ -86,6 +93,8 @@ $script:NamespaceName = $null
 $script:DeployMqttAssets = $true
 $script:EnableResourceSync = $true
 $script:DeploymentMode = "production"
+$script:KeyVaultName = $null
+$script:CreateKeyVault = $true
 
 # Deployment tracking
 $script:DeployedResources = @()
@@ -223,6 +232,79 @@ function Test-Prerequisites {
     }
     
     Write-Success "All prerequisites passed"
+}
+
+function Test-CSISecretStore {
+    Write-Log "Checking for CSI Secret Store driver (required for Fabric RTI dataflows)..."
+    
+    try {
+        # Check for CSI driver resource
+        $csiDriver = kubectl get csidriver secrets-store.csi.k8s.io --ignore-not-found 2>&1
+        
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrEmpty($csiDriver)) {
+            Write-WarnLog "CSI Secret Store driver not found"
+            Write-Host ""
+            Write-Host "WARNING: CSI Secret Store driver is NOT installed" -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "This means:" -ForegroundColor Yellow
+            Write-Host "  [X] Secret management will NOT be available" -ForegroundColor Red
+            Write-Host "  [X] Fabric Real-Time Intelligence dataflows will NOT work" -ForegroundColor Red
+            Write-Host "  [X] Azure Key Vault integration will be disabled" -ForegroundColor Red
+            Write-Host ""
+            Write-Host "To fix this, run on your Linux edge device:" -ForegroundColor Cyan
+            Write-Host ""
+            Write-Host "  helm repo add secrets-store-csi-driver https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts" -ForegroundColor White
+            Write-Host "  helm repo add csi-secrets-store-provider-azure https://azure.github.io/secrets-store-csi-driver-provider-azure/charts" -ForegroundColor White
+            Write-Host "  helm repo update" -ForegroundColor White
+            Write-Host ""
+            Write-Host "  helm install csi-secrets-store-driver secrets-store-csi-driver/secrets-store-csi-driver \" -ForegroundColor White
+            Write-Host "      --namespace kube-system \" -ForegroundColor White
+            Write-Host "      --set syncSecret.enabled=true \" -ForegroundColor White
+            Write-Host "      --set enableSecretRotation=true" -ForegroundColor White
+            Write-Host ""
+            Write-Host "  helm install azure-csi-provider csi-secrets-store-provider-azure/csi-secrets-store-provider-azure \" -ForegroundColor White
+            Write-Host "      --namespace kube-system" -ForegroundColor White
+            Write-Host ""
+            Write-Host "Or use the updated linux_installer.sh which includes CSI Secret Store installation." -ForegroundColor Cyan
+            Write-Host ""
+            Write-Host "See: linux_build\CSI_SECRET_STORE_SETUP.md for details" -ForegroundColor Gray
+            Write-Host ""
+            
+            $continue = Read-Host "Continue without secret management? (y/N)"
+            if ($continue -ne 'y' -and $continue -ne 'Y') {
+                Write-ErrorLog "Deployment cancelled. Please install CSI Secret Store first." -Fatal
+            }
+            
+            Write-WarnLog "Continuing without secret management - Fabric RTI will NOT be available"
+            return $false
+        }
+        
+        # Check for CSI driver pods
+        $csiPods = kubectl get pods -n kube-system -l app.kubernetes.io/name=secrets-store-csi-driver --no-headers 2>&1
+        $csiPodCount = if ($csiPods -is [array]) { $csiPods.Count } elseif ($csiPods) { 1 } else { 0 }
+        
+        # Check for Azure provider pods
+        $azurePods = kubectl get pods -n kube-system -l app=csi-secrets-store-provider-azure --no-headers 2>&1
+        $azurePodCount = if ($azurePods -is [array]) { $azurePods.Count } elseif ($azurePods) { 1 } else { 0 }
+        
+        if ($csiPodCount -gt 0 -and $azurePodCount -gt 0) {
+            Write-Success "CSI Secret Store driver installed ($csiPodCount pod(s))"
+            Write-Success "Azure Key Vault provider installed ($azurePodCount pod(s))"
+            Write-InfoLog "Secret management is enabled - Fabric RTI dataflows will work"
+            return $true
+        } else {
+            Write-WarnLog "CSI driver resource found but pods may not be ready"
+            Write-WarnLog "  CSI driver pods: $csiPodCount"
+            Write-WarnLog "  Azure provider pods: $azurePodCount"
+            Write-WarnLog "Secret management may not work properly"
+            return $false
+        }
+        
+    } catch {
+        Write-WarnLog "Could not verify CSI Secret Store: $_"
+        Write-WarnLog "Secret management status unknown"
+        return $false
+    }
 }
 
 # ============================================================================
@@ -389,6 +471,11 @@ function Import-AzureConfig {
             $script:EnableResourceSync = if ($null -ne $script:AzureConfig.deployment.enable_resource_sync) { $script:AzureConfig.deployment.enable_resource_sync } else { $true }
         }
         
+        # Load Key Vault settings (optional)
+        if ($script:AzureConfig.azure.key_vault_name) {
+            $script:KeyVaultName = $script:AzureConfig.azure.key_vault_name
+        }
+        
         Write-Success "Azure configuration loaded successfully"
     } catch {
         Write-ErrorLog "Failed to parse Azure config file: $_" -Fatal
@@ -451,16 +538,28 @@ function Connect-ToAzure {
     $script:SubscriptionId = $currentAccount.id
     $script:SubscriptionName = $currentAccount.name
     
-    # Prompt for missing configuration values
+    # Prompt for missing configuration values (only if not loaded from config file)
     if (-not $script:ResourceGroup) {
+        Write-Host ""
+        Write-WarnLog "Resource group not specified in config file"
+        Write-Host "  Config file should contain: azure.resource_group" -ForegroundColor Gray
+        Write-Host ""
         $script:ResourceGroup = Read-Host "Enter resource group name (will be created if it does not exist)"
     }
     
     if (-not $script:Location) {
+        Write-Host ""
+        Write-WarnLog "Location not specified in config file"
+        Write-Host "  Config file should contain: azure.location" -ForegroundColor Gray
+        Write-Host ""
         $script:Location = Read-Host "Enter Azure region (e.g. eastus or westus2 or westeurope)"
     }
     
     if (-not $script:NamespaceName) {
+        Write-Host ""
+        Write-WarnLog "Namespace name not specified in config file"
+        Write-Host "  Config file should contain: azure.namespace_name" -ForegroundColor Gray
+        Write-Host ""
         $script:NamespaceName = Read-Host "Enter namespace name for Azure Device Registry"
     }
     
@@ -1047,6 +1146,21 @@ function Enable-ArcForCluster {
     
     # Note: K3s restart is handled on the edge device, not from here
     Write-InfoLog "Note: If cluster connectivity issues occur, restart K3s on the edge device: sudo systemctl restart k3s"
+    
+    # Enable OIDC issuer and workload identity (required for secret sync later)
+    Write-Log "Enabling OIDC issuer and workload identity on Arc cluster..."
+    $oidcResult = az connectedk8s update `
+        --name $script:ClusterName `
+        --resource-group $script:ResourceGroup `
+        --enable-oidc-issuer `
+        --enable-workload-identity `
+        --output json 2>&1
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-WarnLog "Failed to enable OIDC/workload identity (may already be enabled): $oidcResult"
+    } else {
+        Write-Success "OIDC issuer and workload identity enabled on Arc cluster"
+    }
 }
 
 # ============================================================================
@@ -1127,9 +1241,48 @@ function New-IoTOperationsInstance {
     Write-Log "Using namespace resource ID: $namespaceResourceId"
     Write-Log "Using schema registry ID: $schemaRegistryId"
     
+    # Create Key Vault for Secret Management (required for Fabric RTI)
+    # Use configured name or generate one
+    $configKeyVaultName = $script:AzureConfig.azure.key_vault_name
+    
+    if ([string]::IsNullOrEmpty($configKeyVaultName)) {
+        # Auto-generate name if not specified
+        $keyVaultName = ($script:ClusterName + "-kv").ToLower() -replace '[^a-z0-9]', '' | Select-Object -First 24
+        Write-InfoLog "Key Vault name not specified in config, using auto-generated: $keyVaultName"
+    } else {
+        $keyVaultName = $configKeyVaultName
+        Write-InfoLog "Using Key Vault name from config: $keyVaultName"
+    }
+    
+    Write-Log "Setting up Key Vault for Secret Management..."
+    $existingKeyVault = az keyvault show --name $keyVaultName --resource-group $script:ResourceGroup 2>$null
+    
+    if (-not $existingKeyVault) {
+        Write-Log "Creating Key Vault: $keyVaultName"
+        az keyvault create `
+            --name $keyVaultName `
+            --resource-group $script:ResourceGroup `
+            --location $script:Location `
+            --enable-rbac-authorization true `
+            --enabled-for-deployment true `
+            --output none
+        Write-Success "Key Vault created: $keyVaultName"
+    } else {
+        Write-Success "Key Vault already exists: $keyVaultName"
+    }
+    
+    # Get Key Vault resource ID
+    $keyVaultId = az keyvault show `
+        --name $keyVaultName `
+        --resource-group $script:ResourceGroup `
+        --query id -o tsv
+    
+    Write-Log "Using Key Vault ID: $keyVaultId"
+    
     # Deploy Azure IoT Operations
     Write-Log "Deploying Azure IoT Operations instance - this may take several minutes..."
     Write-InfoLog "Note: Progress display suppressed to avoid unicode rendering issues"
+    Write-InfoLog "Key Vault integration will be configured after deployment"
     
     $deployResult = az iot ops create `
         --cluster $script:ClusterName `
@@ -1147,6 +1300,13 @@ function New-IoTOperationsInstance {
     
     Write-Success "Azure IoT Operations deployed successfully!"
     $script:DeployedResources += "IoTOperationsInstance:$instanceName"
+    
+    # Store Key Vault name for later use
+    $script:KeyVaultName = $keyVaultName
+    $script:DeployedResources += "KeyVault:$keyVaultName"
+    
+    # Enable Secret Sync for Key Vault integration
+    Enable-SecretSync -InstanceName $instanceName -KeyVaultName $keyVaultName
     
     # Enable resource sync
     if ($script:EnableResourceSync) {
@@ -1269,6 +1429,89 @@ function New-DeviceRegistryNamespace {
     $script:DeployedResources += "DeviceRegistryNamespace:$script:NamespaceName"
 }
 
+function Enable-SecretSync {
+    param(
+        [string]$InstanceName,
+        [string]$KeyVaultName
+    )
+    
+    Write-Log "Enabling Secret Sync for Azure IoT Operations..."
+    
+    if ($DryRun) {
+        Write-InfoLog "[DRY-RUN] Would enable secret sync for: $InstanceName"
+        return
+    }
+    
+    # Create or verify user-assigned managed identity for secret sync
+    $miName = "$($script:ClusterName)-secretsync-mi"
+    Write-Log "Creating user-assigned managed identity: $miName"
+    
+    $existingMi = az identity show --name $miName --resource-group $script:ResourceGroup 2>$null
+    
+    if (-not $existingMi) {
+        Write-Log "Creating new managed identity for secret sync..."
+        $miResult = az identity create `
+            --name $miName `
+            --resource-group $script:ResourceGroup `
+            --location $script:Location `
+            --output json 2>&1
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-ErrorLog "Failed to create managed identity for secret sync: $miResult"
+            Write-WarnLog "Skipping secret sync enablement"
+            return
+        }
+        
+        $miData = $miResult | ConvertFrom-Json
+        Write-Success "Managed identity created: $miName"
+        $script:DeployedResources += "ManagedIdentity:$miName"
+    } else {
+        $miData = $existingMi | ConvertFrom-Json
+        Write-Success "Managed identity already exists: $miName"
+    }
+    
+    $miPrincipalId = $miData.principalId
+    $miResourceId = $miData.id
+    Write-InfoLog "Managed identity principal ID: $miPrincipalId"
+    Write-InfoLog "Managed identity resource ID: $miResourceId"
+    
+    # Get Key Vault resource ID
+    $kvResourceId = "/subscriptions/$script:SubscriptionId/resourceGroups/$script:ResourceGroup/providers/Microsoft.KeyVault/vaults/$KeyVaultName"
+    
+    # Grant Key Vault Secrets User role to the managed identity
+    Write-Log "Granting 'Key Vault Secrets User' role to managed identity..."
+    az role assignment create `
+        --role "Key Vault Secrets User" `
+        --assignee $miPrincipalId `
+        --scope $kvResourceId `
+        --output none 2>$null
+    
+    Write-Success "Managed identity granted Key Vault access"
+    
+    # Wait a few seconds for role assignment to propagate
+    Write-InfoLog "Waiting for role assignment to propagate..."
+    Start-Sleep -Seconds 10
+    
+    # Enable secret sync with correct parameters
+    Write-Log "Enabling secret sync for AIO instance..."
+    $secretSyncResult = az iot ops secretsync enable `
+        --instance $InstanceName `
+        --resource-group $script:ResourceGroup `
+        --mi-user-assigned $miResourceId `
+        --kv-resource-id $kvResourceId 2>&1
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-ErrorLog "Failed to enable secret sync: $secretSyncResult"
+        Write-WarnLog "You can enable it manually later with:"
+        Write-InfoLog "az iot ops secretsync enable --instance $InstanceName -g $script:ResourceGroup --mi-user-assigned $miResourceId --kv-resource-id $kvResourceId"
+        return
+    }
+    
+    Write-Success "Secret Sync enabled successfully!"
+    Write-InfoLog "Secrets from Key Vault '$KeyVaultName' will now be synchronized to the cluster"
+    Write-InfoLog "Reference secrets in dataflows as: aio-akv-sp/<secret-name>"
+}
+
 function Enable-ResourceSync {
     param([string]$InstanceName)
     
@@ -1313,6 +1556,291 @@ function Enable-ResourceSync {
         Write-Success "Asset sync enabled successfully!"
         Write-InfoLog "Discovered assets on the edge will now be surfaced in the cloud"
     }
+}
+
+# ============================================================================
+# KEY VAULT INTEGRATION
+# ============================================================================
+
+function New-KeyVaultForAIO {
+    if ($SkipKeyVault) {
+        Write-InfoLog "Skipping Key Vault setup (-SkipKeyVault flag)"
+        return
+    }
+    
+    Write-Log "Setting up Azure Key Vault for secret management..."
+    
+    if ($DryRun) {
+        Write-InfoLog "[DRY-RUN] Would create Key Vault and configure integration"
+        return
+    }
+    
+    # Generate Key Vault name if not provided
+    if (-not $script:KeyVaultName) {
+        # Key Vault names must be globally unique, 3-24 chars, alphanumeric and hyphens
+        # Must begin with letter, end with letter/digit, no consecutive hyphens
+        $uniqueSuffix = -join ((48..57) + (97..122) | Get-Random -Count 6 | ForEach-Object {[char]$_})
+        
+        # Remove non-alphanumeric from cluster name to avoid consecutive hyphens
+        $cleanClusterName = $script:ClusterName -replace '[^a-zA-Z0-9]', ''
+        
+        # Build name and ensure it starts with letter
+        $script:KeyVaultName = "aio$cleanClusterName$uniqueSuffix"
+        
+        # Truncate to 24 chars max
+        if ($script:KeyVaultName.Length -gt 24) {
+            $script:KeyVaultName = $script:KeyVaultName.Substring(0, 24)
+        }
+        
+        # Ensure it ends with alphanumeric (trim trailing hyphens if any)
+        $script:KeyVaultName = $script:KeyVaultName.TrimEnd('-')
+        
+        Write-InfoLog "Generated Key Vault name: $script:KeyVaultName"
+    }
+    
+    # Check if Key Vault already exists
+    $existingKv = az keyvault show --name $script:KeyVaultName --resource-group $script:ResourceGroup 2>$null
+    
+    if ($existingKv) {
+        Write-Success "Key Vault $script:KeyVaultName already exists"
+        $kvData = $existingKv | ConvertFrom-Json
+        Write-InfoLog "Vault URI: $($kvData.properties.vaultUri)"
+    } else {
+        Write-Log "Creating Key Vault: $script:KeyVaultName"
+        
+        $kvResult = az keyvault create `
+            --name $script:KeyVaultName `
+            --resource-group $script:ResourceGroup `
+            --location $script:Location `
+            --enable-rbac-authorization true `
+            --enabled-for-deployment true `
+            --enabled-for-template-deployment true `
+            --output json 2>&1
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-ErrorLog "Failed to create Key Vault: $kvResult"
+            Write-WarnLog "Continuing without Key Vault integration"
+            return
+        }
+        
+        $kvData = $kvResult | ConvertFrom-Json
+        Write-Success "Key Vault created: $script:KeyVaultName"
+        Write-InfoLog "Vault URI: $($kvData.properties.vaultUri)"
+        $script:DeployedResources += "KeyVault:$script:KeyVaultName"
+    }
+    
+    # Grant Key Vault permissions to Arc cluster and AIO managed identities
+    Grant-KeyVaultPermissions
+    
+    # Create SecretProviderClass on Kubernetes cluster
+    New-SecretProviderClass
+    
+    # Enable secret sync to synchronize Key Vault secrets to cluster
+    $instanceName = "$script:ClusterName-aio"
+    Enable-SecretSync -InstanceName $instanceName -KeyVaultName $script:KeyVaultName
+    
+    Write-Success "Key Vault integration configured successfully"
+}
+
+function Grant-KeyVaultPermissions {
+    Write-Log "Granting Key Vault permissions to managed identities..."
+    
+    # Get current user's object ID for initial setup
+    $currentUserOid = az ad signed-in-user show --query id -o tsv 2>$null
+    if ($currentUserOid) {
+        Write-Log "Granting 'Key Vault Administrator' role to current user for initial setup..."
+        az role assignment create `
+            --role "Key Vault Administrator" `
+            --assignee $currentUserOid `
+            --scope "/subscriptions/$script:SubscriptionId/resourceGroups/$script:ResourceGroup/providers/Microsoft.KeyVault/vaults/$script:KeyVaultName" `
+            --output none 2>$null
+        Write-Success "Current user granted Key Vault Administrator access"
+    }
+    
+    # Get Arc cluster managed identity
+    $arcCluster = az connectedk8s show --name $script:ClusterName --resource-group $script:ResourceGroup 2>$null | ConvertFrom-Json
+    
+    if ($arcCluster.identity -and $arcCluster.identity.principalId) {
+        Write-Log "Granting 'Key Vault Secrets User' role to Arc cluster identity..."
+        
+        az role assignment create `
+            --role "Key Vault Secrets User" `
+            --assignee $arcCluster.identity.principalId `
+            --scope "/subscriptions/$script:SubscriptionId/resourceGroups/$script:ResourceGroup/providers/Microsoft.KeyVault/vaults/$script:KeyVaultName" `
+            --output none 2>$null
+        
+        Write-Success "Arc cluster identity granted Key Vault Secrets User access"
+        Write-InfoLog "Principal ID: $($arcCluster.identity.principalId)"
+    } else {
+        Write-WarnLog "Arc cluster has no managed identity - Key Vault access not configured"
+    }
+    
+    # Get AIO instance managed identity
+    $instanceName = "$script:ClusterName-aio"
+    $aioInstance = az iot ops show --name $instanceName --resource-group $script:ResourceGroup 2>$null | ConvertFrom-Json
+    
+    if ($aioInstance.identity -and $aioInstance.identity.principalId) {
+        Write-Log "Granting 'Key Vault Secrets User' role to AIO instance identity..."
+        
+        az role assignment create `
+            --role "Key Vault Secrets User" `
+            --assignee $aioInstance.identity.principalId `
+            --scope "/subscriptions/$script:SubscriptionId/resourceGroups/$script:ResourceGroup/providers/Microsoft.KeyVault/vaults/$script:KeyVaultName" `
+            --output none 2>$null
+        
+        Write-Success "AIO instance identity granted Key Vault Secrets User access"
+        Write-InfoLog "Principal ID: $($aioInstance.identity.principalId)"
+    } else {
+        Write-WarnLog "AIO instance has no managed identity - attempting to enable it..."
+        
+        # Enable system-assigned managed identity for AIO instance
+        Write-Log "Enabling system-assigned managed identity for AIO instance..."
+        $updateResult = az resource update `
+            --ids $aioInstance.id `
+            --set identity.type=SystemAssigned `
+            --output json 2>$null
+        
+        if ($LASTEXITCODE -eq 0 -and $updateResult) {
+            $updatedInstance = $updateResult | ConvertFrom-Json
+            if ($updatedInstance.identity.principalId) {
+                Write-Success "Managed identity enabled for AIO instance"
+                Write-InfoLog "Principal ID: $($updatedInstance.identity.principalId)"
+                
+                # Wait a few seconds for identity propagation
+                Write-InfoLog "Waiting for identity propagation..."
+                Start-Sleep -Seconds 10
+                
+                # Grant Key Vault access
+                Write-Log "Granting 'Key Vault Secrets User' role to AIO instance identity..."
+                az role assignment create `
+                    --role "Key Vault Secrets User" `
+                    --assignee $updatedInstance.identity.principalId `
+                    --scope "/subscriptions/$script:SubscriptionId/resourceGroups/$script:ResourceGroup/providers/Microsoft.KeyVault/vaults/$script:KeyVaultName" `
+                    --output none 2>$null
+                
+                Write-Success "AIO instance identity granted Key Vault Secrets User access"
+            } else {
+                Write-WarnLog "Failed to enable managed identity - Key Vault access not configured"
+            }
+        } else {
+            Write-WarnLog "Could not enable managed identity for AIO instance"
+            Write-InfoLog "You can enable it manually in Azure portal or use grant_entra_id_roles.ps1 script"
+        }
+    }
+    
+    # Grant access to all managed identities in the resource group (belt and suspenders)
+    Write-Log "Checking for additional managed identities in resource group..."
+    $identities = az identity list --resource-group $script:ResourceGroup 2>$null | ConvertFrom-Json
+    
+    if ($identities -and $identities.Count -gt 0) {
+        foreach ($identity in $identities) {
+            Write-Log "Granting access to managed identity: $($identity.name)"
+            
+            az role assignment create `
+                --role "Key Vault Secrets User" `
+                --assignee $identity.principalId `
+                --scope "/subscriptions/$script:SubscriptionId/resourceGroups/$script:ResourceGroup/providers/Microsoft.KeyVault/vaults/$script:KeyVaultName" `
+                --output none 2>$null
+            
+            Write-InfoLog "  Granted access to: $($identity.name) ($($identity.principalId))"
+        }
+    }
+}
+
+function New-SecretProviderClass {
+    Write-Log "Creating SecretProviderClass on Kubernetes cluster..."
+    
+    # Get Key Vault details
+    $kvData = az keyvault show --name $script:KeyVaultName --resource-group $script:ResourceGroup | ConvertFrom-Json
+    $kvUri = $kvData.properties.vaultUri.TrimEnd('/')
+    
+    # Get tenant ID
+    $tenantId = az account show --query tenantId -o tsv
+    
+    # Create SecretProviderClass YAML
+    $spcYaml = @"
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: aio-akv-sp
+  namespace: azure-iot-operations
+spec:
+  provider: azure
+  parameters:
+    usePodIdentity: "false"
+    useVMManagedIdentity: "true"
+    clientID: ""
+    keyvaultName: $script:KeyVaultName
+    cloudName: AzurePublicCloud
+    objects: |
+      array:
+        - |
+          objectName: fabric-connection-string
+          objectType: secret
+          objectVersion: ""
+    tenantId: $tenantId
+"@
+    
+    # Save to temporary file
+    $spcFile = Join-Path $env:TEMP "secretproviderclass-aio.yaml"
+    $spcYaml | Out-File -FilePath $spcFile -Encoding utf8 -Force
+    
+    # Apply to cluster
+    try {
+        kubectl apply -f $spcFile 2>&1 | Out-Null
+        
+        if ($LASTEXITCODE -eq 0) {
+            Write-Success "SecretProviderClass 'aio-akv-sp' created in azure-iot-operations namespace"
+            Write-InfoLog "AIO dataflows can now reference secrets as: aio-akv-sp/<secret-name>"
+        } else {
+            Write-WarnLog "Failed to create SecretProviderClass - check kubectl connectivity"
+        }
+    } catch {
+        Write-WarnLog "Could not create SecretProviderClass: $_"
+    } finally {
+        # Clean up temp file
+        if (Test-Path $spcFile) {
+            Remove-Item $spcFile -Force
+        }
+    }
+}
+
+function Add-SampleSecretsToKeyVault {
+    param([switch]$Interactive)
+    
+    if (-not $Interactive) {
+        return
+    }
+    
+    Write-Host ""
+    Write-Host "Would you like to add sample secrets to the Key Vault? (y/N)" -ForegroundColor Yellow
+    $addSecrets = Read-Host
+    
+    if ($addSecrets -ne 'y' -and $addSecrets -ne 'Y') {
+        return
+    }
+    
+    Write-Log "Adding sample secrets to Key Vault..."
+    
+    # Example: Fabric connection string placeholder
+    $fabricConnStr = Read-Host "Enter Fabric Real-Time Intelligence connection string (or press Enter to skip)"
+    
+    if (-not [string]::IsNullOrWhiteSpace($fabricConnStr)) {
+        az keyvault secret set `
+            --vault-name $script:KeyVaultName `
+            --name "fabric-connection-string" `
+            --value $fabricConnStr `
+            --output none 2>$null
+        
+        if ($LASTEXITCODE -eq 0) {
+            Write-Success "Stored secret: fabric-connection-string"
+            Write-InfoLog "Reference in dataflows as: aio-akv-sp/fabric-connection-string"
+        } else {
+            Write-WarnLog "Failed to store secret"
+        }
+    }
+    
+    Write-InfoLog "You can add more secrets with: az keyvault secret set --vault-name $script:KeyVaultName --name <secret-name> --value <secret-value>"
 }
 
 # ============================================================================
@@ -1362,6 +1890,49 @@ function Test-Deployment {
         Write-WarnLog "Azure IoT Operations instance not found: $instanceName"
     }
     
+    # Verify CSI Secret Store
+    Write-Log "Checking CSI Secret Store for secret management..."
+    $csiInstalled = Test-CSISecretStore
+    
+    if ($csiInstalled) {
+        Write-Host ""
+        Write-Host "[OK] Secret management is ENABLED" -ForegroundColor Green
+        Write-Host "   You can now configure Fabric RTI dataflows with Azure Key Vault secrets" -ForegroundColor Green
+        Write-Host ""
+    } else {
+        Write-Host ""
+        Write-Host "[WARNING] Secret management is DISABLED" -ForegroundColor Yellow
+        Write-Host "   Fabric RTI dataflows will NOT work until CSI Secret Store is installed" -ForegroundColor Yellow
+        Write-Host ""
+    }
+    
+    # Verify Key Vault (if created)
+    if (-not $SkipKeyVault -and $script:KeyVaultName) {
+        Write-Log "Verifying Key Vault integration..."
+        $kvExists = az keyvault show --name $script:KeyVaultName --resource-group $script:ResourceGroup 2>$null
+        
+        if ($kvExists) {
+            $kvData = $kvExists | ConvertFrom-Json
+            Write-Success "Key Vault verified: $script:KeyVaultName"
+            Write-InfoLog "Vault URI: $($kvData.properties.vaultUri)"
+            
+            # Check for SecretProviderClass
+            try {
+                $spc = kubectl get secretproviderclass aio-akv-sp -n azure-iot-operations --ignore-not-found 2>&1
+                if ($spc) {
+                    Write-Success "SecretProviderClass 'aio-akv-sp' is configured"
+                    Write-InfoLog "Dataflows can reference secrets as: aio-akv-sp/<secret-name>"
+                } else {
+                    Write-WarnLog "SecretProviderClass 'aio-akv-sp' not found"
+                }
+            } catch {
+                Write-WarnLog "Could not verify SecretProviderClass"
+            }
+        } else {
+            Write-WarnLog "Key Vault not found: $script:KeyVaultName"
+        }
+    }
+    
     # Check cluster pods
     Write-Log "Checking cluster resources..."
     kubectl get pods --all-namespaces
@@ -1385,6 +1956,7 @@ function Export-DeploymentSummary {
             resource_group = $script:ResourceGroup
             location = $script:Location
             namespace_name = $script:NamespaceName
+            key_vault_name = $script:KeyVaultName
         }
         deployment = @{
             deployment_mode = $script:DeploymentMode
@@ -1441,6 +2013,9 @@ function Show-CompletionSummary {
     Write-Host "  Resource Group: $script:ResourceGroup" -ForegroundColor Gray
     Write-Host "  Location: $script:Location" -ForegroundColor Gray
     Write-Host "  IoT Operations Instance: $($script:ClusterName)-aio" -ForegroundColor Gray
+    if ($script:KeyVaultName) {
+        Write-Host "  Key Vault: $script:KeyVaultName" -ForegroundColor Gray
+    }
     Write-Host ""
     Write-Host "View in Azure Portal: https://portal.azure.com" -ForegroundColor Cyan
     Write-Host ""
@@ -1449,7 +2024,13 @@ function Show-CompletionSummary {
     Write-Host "  1. View deployment summary: cat `$script:DeploymentSummaryFile" -ForegroundColor Gray
     Write-Host "  2. Monitor cluster: kubectl get pods -A" -ForegroundColor Gray
     Write-Host "  3. Check Azure portal for resource status" -ForegroundColor Gray
-    Write-Host "  4. Deploy MQTT assets (if applicable)" -ForegroundColor Gray
+    if ($script:KeyVaultName) {
+        Write-Host "  4. Add secrets to Key Vault: az keyvault secret set --vault-name $script:KeyVaultName --name <name> --value <value>" -ForegroundColor Gray
+        Write-Host "  5. Reference secrets in dataflows as: aio-akv-sp/<secret-name>" -ForegroundColor Gray
+        Write-Host "  6. Deploy MQTT assets and configure Fabric RTI dataflows" -ForegroundColor Gray
+    } else {
+        Write-Host "  4. Deploy MQTT assets (if applicable)" -ForegroundColor Gray
+    }
     Write-Host ""
     Write-Host "============================================================================" -ForegroundColor Cyan
     Write-Host ""
@@ -1499,8 +2080,26 @@ function Main {
         # Phase 5: Arc Enablement
         Enable-ArcForCluster
         
+        # Phase 5.5: Verify CSI Secret Store (for Fabric RTI support)
+        Write-Host ""
+        Write-Host "============================================================================" -ForegroundColor Cyan
+        Write-Host "Checking for Secret Management Prerequisites" -ForegroundColor Cyan
+        Write-Host "============================================================================" -ForegroundColor Cyan
+        Test-CSISecretStore
+        Write-Host ""
+        
         # Phase 6: IoT Operations Deployment
         New-IoTOperationsInstance
+        
+        # Phase 6.5: Key Vault Integration (after AIO deployment)
+        if (-not $SkipKeyVault) {
+            Write-Host ""
+            Write-Host "============================================================================" -ForegroundColor Cyan
+            Write-Host "Setting Up Key Vault Integration" -ForegroundColor Cyan
+            Write-Host "============================================================================" -ForegroundColor Cyan
+            New-KeyVaultForAIO
+            Write-Host ""
+        }
         
         # Phase 7: Verification
         Test-Deployment

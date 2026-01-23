@@ -23,6 +23,7 @@
 #   --dry-run           Validate configuration without making changes
 #   --config FILE       Use specific configuration file (default: linux_aio_config.json)
 #   --skip-verification Skip post-installation verification
+#   --force-reinstall   Force reinstall of all components (K3s, CSI, etc.)
 #   --help              Show this help message
 #
 # Output:
@@ -48,6 +49,7 @@ CONFIG_FILE="${SCRIPT_DIR}/linux_aio_config.json"
 CLUSTER_INFO_FILE="${SCRIPT_DIR}/cluster_info.json"
 DRY_RUN=false
 SKIP_VERIFICATION=false
+FORCE_REINSTALL=false
 
 # Setup logging
 LOG_FILE="${SCRIPT_DIR}/linux_installer_$(date +'%Y%m%d_%H%M%S').log"
@@ -186,6 +188,11 @@ parse_arguments() {
                 ;;
             --skip-verification)
                 SKIP_VERIFICATION=true
+                shift
+                ;;
+            --force-reinstall)
+                FORCE_REINSTALL=true
+                info "Force reinstall enabled - all components will be reinstalled"
                 shift
                 ;;
             --help|-h)
@@ -349,7 +356,8 @@ load_local_config() {
     # Load edge device settings
     CLUSTER_NAME=$(jq -r '.azure.cluster_name // "edge-device-'$(hostname)'"' "$CONFIG_FILE")
     SKIP_SYSTEM_UPDATE=$(jq -r '.deployment.skip_system_update // false' "$CONFIG_FILE")
-    FORCE_REINSTALL=$(jq -r '.deployment.force_reinstall // false' "$CONFIG_FILE")
+    
+    # Note: force_reinstall is now a command-line parameter (--force-reinstall), not a config option
     
     # Load optional tools configuration
     K9S_ENABLED=$(jq -r '.optional_tools.k9s // false' "$CONFIG_FILE")
@@ -739,7 +747,29 @@ install_k3s() {
     # Verify node is Ready
     local node_status=$(sudo k3s kubectl get nodes -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}')
     if [ "$node_status" != "True" ]; then
+        echo ""
         error "K3s node is not in Ready state"
+        echo ""
+        echo -e "${YELLOW}Troubleshooting steps:${NC}"
+        echo -e "${CYAN}1. Check K3s service status:${NC}"
+        echo -e "   sudo systemctl status k3s"
+        echo ""
+        echo -e "${CYAN}2. Check node status (wait 2-3 minutes and retry):${NC}"
+        echo -e "   kubectl get nodes"
+        echo ""
+        echo -e "${CYAN}3. Check pods are starting:${NC}"
+        echo -e "   kubectl get pods -A"
+        echo ""
+        echo -e "${CYAN}4. If K3s is healthy but installer timed out:${NC}"
+        echo -e "   - Wait for node to show 'Ready' status"
+        echo -e "   - Re-run installer WITHOUT --force-reinstall"
+        echo -e "   - It will continue from where it left off"
+        echo ""
+        echo -e "${CYAN}5. If K3s is broken or in bad state:${NC}"
+        echo -e "   - Re-run installer WITH --force-reinstall"
+        echo -e "   - ./linux_installer.sh --force-reinstall"
+        echo ""
+        exit 1
     fi
     
     success "K3s installed and running"
@@ -769,6 +799,87 @@ configure_kubectl() {
     success "kubectl configured for user: $USER"
 }
 
+install_csi_secret_store() {
+    log "Installing CSI Secret Store driver for Azure Key Vault integration..."
+    
+    if [ "$DRY_RUN" = "true" ]; then
+        info "[DRY-RUN] Would install CSI Secret Store driver"
+        return 0
+    fi
+    
+    # Check if already installed
+    if kubectl get csidriver secrets-store.csi.k8s.io &>/dev/null 2>&1; then
+        info "CSI Secret Store driver already installed"
+        
+        # Verify Azure provider is also installed
+        if kubectl get pods -n kube-system -l app=csi-secrets-store-provider-azure &>/dev/null 2>&1; then
+            success "CSI Secret Store and Azure provider already configured"
+            return 0
+        fi
+    fi
+    
+    # Add Secrets Store CSI Driver Helm repo
+    log "Adding Secrets Store CSI Driver Helm repository..."
+    helm repo add secrets-store-csi-driver https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts
+    helm repo update
+    
+    # Install Secrets Store CSI Driver
+    log "Installing Secrets Store CSI Driver..."
+    helm install csi-secrets-store-driver secrets-store-csi-driver/secrets-store-csi-driver \
+        --namespace kube-system \
+        --set syncSecret.enabled=true \
+        --set enableSecretRotation=true
+    
+    # Wait for CSI driver to be ready
+    log "Waiting for CSI Secret Store driver to be ready..."
+    kubectl wait --for=condition=ready pod \
+        -l app.kubernetes.io/name=secrets-store-csi-driver \
+        -n kube-system \
+        --timeout=120s || warn "CSI driver pods may not be fully ready yet"
+    
+    # Install Azure Key Vault Provider
+    log "Installing Azure Key Vault Provider for Secrets Store CSI Driver..."
+    helm repo add csi-secrets-store-provider-azure https://azure.github.io/secrets-store-csi-driver-provider-azure/charts
+    helm repo update
+    
+    helm install azure-csi-provider csi-secrets-store-provider-azure/csi-secrets-store-provider-azure \
+        --namespace kube-system \
+        --set secrets-store-csi-driver.install=false
+    
+    # Wait for Azure provider to be ready
+    log "Waiting for Azure Key Vault provider to be ready..."
+    kubectl wait --for=condition=ready pod \
+        -l app=csi-secrets-store-provider-azure \
+        -n kube-system \
+        --timeout=120s || warn "Azure provider pods may not be fully ready yet"
+    
+    # Verify installation
+    log "Verifying CSI Secret Store installation..."
+    
+    if kubectl get csidriver secrets-store.csi.k8s.io &>/dev/null; then
+        success "✓ CSI driver 'secrets-store.csi.k8s.io' is installed"
+    else
+        error "CSI driver installation verification failed"
+    fi
+    
+    local csi_pods=$(kubectl get pods -n kube-system | grep -c "secrets-store-csi-driver" || echo "0")
+    local azure_pods=$(kubectl get pods -n kube-system | grep -c "csi-secrets-store-provider-azure" || echo "0")
+    
+    if [ "$csi_pods" -gt 0 ]; then
+        success "✓ Found $csi_pods CSI Secret Store driver pod(s)"
+    else
+        warn "No CSI Secret Store driver pods found"
+    fi
+    
+    if [ "$azure_pods" -gt 0 ]; then
+        success "✓ Found $azure_pods Azure Key Vault provider pod(s)"
+    else
+        warn "No Azure Key Vault provider pods found"
+    fi
+    
+    success "CSI Secret Store driver and Azure Key Vault provider installed"
+    info "Secret management is now enabled for Azure IoT Operations dataflows"
+}
 
 # Apply optional RBAC binding for an Azure principal (opt-in via config)
 apply_manage_principal_rbac() {
@@ -1139,9 +1250,43 @@ setup_azure_arc() {
     
     # Arc-enable cluster
     info "Arc-enabling cluster..."
+    
+    # Check if Arc resource exists in Azure
+    local arc_resource_exists=false
     if az connectedk8s show --name "$CLUSTER_NAME" --resource-group "$resource_group" &>/dev/null; then
+        arc_resource_exists=true
+    fi
+    
+    # Check if Arc agents are running in the cluster
+    local arc_agents_running=false
+    if kubectl get namespace azure-arc &>/dev/null; then
+        arc_agents_running=true
+    fi
+    
+    # Handle different scenarios
+    if [ "$arc_resource_exists" = true ] && [ "$arc_agents_running" = true ]; then
+        # Both Azure resource and cluster agents exist - properly Arc-enabled
         success "Cluster is already Arc-enabled: $CLUSTER_NAME"
+    elif [ "$arc_resource_exists" = true ] && [ "$arc_agents_running" = false ]; then
+        # Stale registration - Azure resource exists but agents aren't running
+        warn "Detected stale Arc registration (Azure resource exists but agents not running)"
+        info "Cleaning up stale Arc registration..."
+        
+        az connectedk8s delete \
+            --name "$CLUSTER_NAME" \
+            --resource-group "$resource_group" \
+            --yes || warn "Failed to delete stale Arc resource"
+        
+        log "Connecting cluster to Azure Arc (this may take a few minutes)..."
+        az connectedk8s connect \
+            --name "$CLUSTER_NAME" \
+            --resource-group "$resource_group" || {
+            error "Failed to Arc-enable cluster"
+            return 1
+        }
+        success "Cluster Arc-enabled successfully!"
     else
+        # No Arc resource or fresh install
         log "Connecting cluster to Azure Arc (this may take a few minutes)..."
         az connectedk8s connect \
             --name "$CLUSTER_NAME" \
@@ -1266,6 +1411,38 @@ deploy_azure_iot_operations() {
     log "Using namespace resource ID: $namespace_resource_id"
     log "The namespace will be created automatically during deployment"
     
+    # Create Key Vault for Secret Management (required for Fabric RTI)
+    # Use configured name or generate one
+    local keyvault_name=$(jq -r '.azure.key_vault_name // empty' "$CONFIG_FILE")
+    
+    if [ -z "$keyvault_name" ]; then
+        # Auto-generate name if not specified
+        keyvault_name=$(echo "${CLUSTER_NAME}-kv" | tr '[:upper:]' '[:lower:]' | tr -d '-' | cut -c1-24)
+        info "Key Vault name not specified in config, using auto-generated: $keyvault_name"
+    else
+        info "Using Key Vault name from config: $keyvault_name"
+    fi
+    
+    info "Setting up Key Vault for Secret Management..."
+    if az keyvault show --name "$keyvault_name" --resource-group "$resource_group" &>/dev/null; then
+        success "Key Vault exists: $keyvault_name"
+    else
+        log "Creating Key Vault: $keyvault_name"
+        az keyvault create \
+            --name "$keyvault_name" \
+            --resource-group "$resource_group" \
+            --location "$location" \
+            --enable-rbac-authorization true \
+            --enabled-for-deployment true
+        success "Key Vault created"
+    fi
+    
+    # Get Key Vault resource ID
+    local keyvault_id=$(az keyvault show \
+        --name "$keyvault_name" \
+        --resource-group "$resource_group" \
+        --query id -o tsv)
+    
     # Deploy Azure IoT Operations instance
     local instance_name="${CLUSTER_NAME}-aio"
     
@@ -1273,17 +1450,18 @@ deploy_azure_iot_operations() {
     if az iot ops show --name "$instance_name" --resource-group "$resource_group" &>/dev/null; then
         success "Azure IoT Operations instance exists: $instance_name"
     else
-        log "Creating IoT Operations instance (this may take several minutes)..."
+        log "Creating IoT Operations instance with Secret Management enabled (this may take several minutes)..."
         az iot ops create \
             --cluster "$CLUSTER_NAME" \
             --resource-group "$resource_group" \
             --name "$instance_name" \
             --sr-resource-id "$schema_registry_id" \
-            --ns-resource-id "$namespace_resource_id" || {
+            --ns-resource-id "$namespace_resource_id" \
+            --kv-resource-id "$keyvault_id" || {
             error "Failed to deploy Azure IoT Operations"
             return 1
         }
-        success "Azure IoT Operations deployed!"
+        success "Azure IoT Operations deployed with Secret Management enabled!"
     fi
     
     # Enable resource sync
@@ -1308,6 +1486,7 @@ display_next_steps() {
     echo "Your edge device is now ready with:"
     echo "  ✓ K3s Kubernetes cluster: $CLUSTER_NAME"
     echo "  ✓ kubectl and Helm configured"
+    echo "  ✓ CSI Secret Store driver (Azure Key Vault integration)"
     
     if [ ${#INSTALLED_TOOLS[@]} -gt 0 ]; then
         echo "  ✓ Optional tools: ${INSTALLED_TOOLS[*]}"
@@ -1413,6 +1592,10 @@ main() {
     check_k3s_resources
     install_k3s
     configure_kubectl
+    
+    # Install CSI Secret Store for Azure Key Vault integration (required for Fabric RTI dataflows)
+    install_csi_secret_store
+    
     # Apply optional RBAC binding for a management principal if configured
     apply_manage_principal_rbac
     configure_system_settings
