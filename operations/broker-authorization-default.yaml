@@ -1,0 +1,42 @@
+apiVersion: mqttbroker.iotoperations.azure.com/v1
+kind: BrokerAuthorization
+metadata:
+  name: default-authz
+  namespace: azure-iot-operations
+spec:
+  # Authorization rule for SAT-authenticated clients (your edge modules)
+  authorizationPolicies:
+    # Rule 1: Allow mqtt-client service account to publish/subscribe to factory topics
+    - principals:
+        attributes:
+          - serviceAccount:
+              name: mqtt-client
+              namespace: default
+      brokerResources:
+        - method: Connect
+          topics:
+            - "#"  # Allow all topics
+        - method: Publish
+          topics:
+            - "factory/#"  # Allow publish to all factory topics
+            - "$services/#"  # Allow service topics
+        - method: Subscribe
+          topics:
+            - "factory/#"  # Allow subscribe to all factory topics
+            - "$services/#"  # Allow service topics
+    
+    # Rule 2: Allow other service accounts in default namespace
+    - principals:
+        attributes:
+          - serviceAccount:
+              namespace: default
+      brokerResources:
+        - method: Connect
+          topics:
+            - "#"
+        - method: Publish
+          topics:
+            - "#"
+        - method: Subscribe
+          topics:
+            - "#"

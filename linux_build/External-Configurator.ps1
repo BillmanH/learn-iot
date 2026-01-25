@@ -1747,6 +1747,46 @@ function Grant-KeyVaultPermissions {
     }
 }
 
+function Enable-WorkloadIdentityForArc {
+    <#
+    .SYNOPSIS
+    Configures workload identity for Arc-connected clusters to enable Key Vault secret sync.
+    
+    .DESCRIPTION
+    This function is a WORKAROUND for the current limitation that secret sync via
+    SecretProviderClass doesn't work reliably on Arc clusters. Instead of trying to
+    configure the complex workload identity infrastructure, it provides instructions
+    for manual secret creation.
+    #>
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$ClusterName,
+        
+        [Parameter(Mandatory=$true)]
+        [string]$ResourceGroup,
+        
+        [Parameter(Mandatory=$true)]
+        [string]$KeyVaultName
+    )
+    
+    Write-Warning "Arc-connected cluster detected: Secret sync via CSI driver has known issues"
+    Write-InfoLog "RECOMMENDED WORKAROUND: Manually create secrets in the cluster"
+    Write-Host ""
+    Write-Host "To manually sync secrets from Key Vault to cluster:" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  # Example: Fabric connection string" -ForegroundColor Gray
+    Write-Host "  `$connStr = az keyvault secret show --vault-name $KeyVaultName --name fabric-connection-string --query value -o tsv" -ForegroundColor Gray
+    Write-Host "  kubectl create secret generic fabric-connection-string -n azure-iot-operations --from-literal=username='\`$ConnectionString' --from-literal=password=`$connStr" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  # For other secrets:" -ForegroundColor Gray
+    Write-Host "  `$secretValue = az keyvault secret show --vault-name $KeyVaultName --name <secret-name> --query value -o tsv" -ForegroundColor Gray
+    Write-Host "  kubectl create secret generic <secret-name> -n azure-iot-operations --from-literal=value=`$secretValue" -ForegroundColor Gray
+    Write-Host ""
+    Write-InfoLog "This manual approach bypasses the CSI driver and creates secrets directly"
+    Write-InfoLog "Note: Manually created secrets won't auto-sync if changed in Key Vault"
+    Write-Host ""
+}
+
 function New-SecretProviderClass {
     Write-Log "Creating SecretProviderClass on Kubernetes cluster..."
     
@@ -1757,8 +1797,63 @@ function New-SecretProviderClass {
     # Get tenant ID
     $tenantId = az account show --query tenantId -o tsv
     
-    # Create SecretProviderClass YAML
-    $spcYaml = @"
+    # Detect if this is an Arc-connected cluster (not Azure VM)
+    # Arc-connected clusters need workload identity, not VM managed identity
+    $isArcCluster = $false
+    try {
+        $arcCluster = az connectedk8s show --name $script:ClusterName --resource-group $script:ResourceGroup 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            $isArcCluster = $true
+            Write-InfoLog "Detected Arc-connected cluster - configuring workload identity"
+            
+            # Show warning and workaround instructions
+            Enable-WorkloadIdentityForArc -ClusterName $script:ClusterName -ResourceGroup $script:ResourceGroup -KeyVaultName $script:KeyVaultName
+        }
+    } catch {
+        Write-InfoLog "Not an Arc cluster - using VM managed identity"
+    }
+    
+    # Get the managed identity client ID for workload identity
+    $clientId = ""
+    if ($isArcCluster) {
+        try {
+            $miName = "$script:ClusterName-secretsync-mi"
+            $mi = az identity show --name $miName --resource-group $script:ResourceGroup | ConvertFrom-Json
+            $clientId = $mi.clientId
+            Write-InfoLog "Using managed identity client ID: $clientId"
+        } catch {
+            Write-WarnLog "Could not get managed identity client ID - secret sync may not work"
+        }
+    }
+    
+    # Create SecretProviderClass YAML with appropriate authentication
+    if ($isArcCluster -and $clientId) {
+        # Arc cluster: use workload identity with federated credentials
+        $spcYaml = @"
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: aio-akv-sp
+  namespace: azure-iot-operations
+spec:
+  provider: azure
+  parameters:
+    usePodIdentity: "false"
+    useVMManagedIdentity: "false"
+    clientID: "$clientId"
+    keyvaultName: $script:KeyVaultName
+    cloudName: AzurePublicCloud
+    objects: |
+      array:
+        - |
+          objectName: fabric-connection-string
+          objectType: secret
+          objectVersion: ""
+    tenantId: $tenantId
+"@
+    } else {
+        # Azure VM: use VM managed identity
+        $spcYaml = @"
 apiVersion: secrets-store.csi.x-k8s.io/v1
 kind: SecretProviderClass
 metadata:
@@ -1780,6 +1875,7 @@ spec:
           objectVersion: ""
     tenantId: $tenantId
 "@
+    }
     
     # Save to temporary file
     $spcFile = Join-Path $env:TEMP "secretproviderclass-aio.yaml"

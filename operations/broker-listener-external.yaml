@@ -1,0 +1,23 @@
+apiVersion: mqttbroker.iotoperations.azure.com/v1
+kind: BrokerListener
+metadata:
+  name: external-devices
+  namespace: azure-iot-operations
+spec:
+  serviceName: aio-broker-external
+  serviceType: LoadBalancer  # Change to NodePort if LoadBalancer not available
+  ports:
+    - port: 8883  # Standard MQTT over TLS port
+      authenticationRef: default
+      authorizationRef: edge-apps-authz  # Link to your authorization policy
+      protocol: Mqtt
+      tls:
+        mode: Automatic
+        certManagerCertificateSpec:
+          issuerRef:
+            name: azure-iot-operations-aio-certificate-issuer
+            kind: ClusterIssuer
+            group: cert-manager.io
+          privateKey:
+            algorithm: Ec256
+            rotationPolicy: Always
