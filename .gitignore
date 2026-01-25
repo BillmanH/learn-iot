@@ -65,12 +65,6 @@ venv.bak/
 # Kubernetes secrets (if any)
 *-secret.yaml
 
-# Image files
-*.jpg
-*.jpeg
-*.png
-*.gif
-
 
 
 # Temporary files
