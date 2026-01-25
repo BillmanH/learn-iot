@@ -1297,8 +1297,8 @@ setup_azure_arc() {
         success "Cluster Arc-enabled successfully!"
     fi
     
-    # Enable custom locations
-    info "Enabling custom locations and cluster connect..."
+    # Enable custom locations, OIDC issuer, and workload identity
+    info "Enabling custom locations, cluster connect, OIDC issuer, and workload identity..."
     local object_id=$(az ad sp show --id bc313c14-388c-4e7d-a58e-70017303ee3b --query id -o tsv 2>/dev/null)
     
     if [ -n "$object_id" ]; then
@@ -1310,6 +1310,21 @@ setup_azure_arc() {
         success "Features enabled"
     else
         warn "Could not retrieve custom locations OID. Skipping feature enablement."
+    fi
+    
+    # Enable OIDC issuer and workload identity (required for Key Vault secret sync)
+    info "Enabling OIDC issuer and workload identity for secret management..."
+    if az connectedk8s update \
+        --name "$CLUSTER_NAME" \
+        --resource-group "$resource_group" \
+        --enable-oidc-issuer \
+        --enable-workload-identity &>/dev/null; then
+        success "OIDC issuer and workload identity enabled"
+        info "⚠️  Note: Automatic secret sync from Key Vault requires additional configuration"
+        info "    See linux_build/KEYVAULT_INTEGRATION.md for manual secret creation workaround"
+    else
+        warn "Failed to enable OIDC issuer/workload identity - secret sync may not work"
+        info "You can enable manually: az connectedk8s update -n $CLUSTER_NAME -g $resource_group --enable-oidc-issuer --enable-workload-identity"
     fi
     
     # Deploy Azure IoT Operations

@@ -1,0 +1,32 @@
+{
+  "$schema": "fabric_config_schema",
+  "description": "Configuration for Fabric Real-Time Intelligence endpoint deployment. Copy this file to fabric_config.json and fill in your actual values.",
+  "fabric": {
+    "bootstrapServer": "YOUR_BOOTSTRAP_SERVER.servicebus.windows.net:9093",
+    "topicName": "es_YOUR_GUID",
+    "notes": "Connection string should already be stored in Key Vault under the secret name specified in azure.keyVault.secretName"
+  },
+  "endpoint": {
+    "name": "fabric-endpoint",
+    "namespace": "azure-iot-operations",
+    "consumerGroupId": "iot-operations-consumer",
+    "compression": "None",
+    "copyMqttProperties": true,
+    "cloudEventAttributes": "Propagate"
+  },
+  "azure": {
+    "keyVault": {
+      "name": "iot-opps-keys",
+      "secretName": "fabric-connection-string"
+    },
+    "cluster": {
+      "name": "iot-ops-cluster",
+      "resourceGroup": "IoT-Operations",
+      "namespace": "azure-iot-operations"
+    }
+  },
+  "deployment": {
+    "skipPrereqCheck": false,
+    "validateOnly": false
+  }
+}

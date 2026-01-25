@@ -1,0 +1,14 @@
+apiVersion: connectivity.iotoperations.azure.com/v1
+kind: DataflowEndpoint
+metadata:
+  name: historian-endpoint
+  namespace: azure-iot-operations
+spec:
+  endpointType: DataExplorer  # Using DataExplorer type for HTTP REST
+  dataExplorerSettings:
+    host: http://demohistorian.default.svc.cluster.local:8080
+    authentication:
+      method: Anonymous
+    batching:
+      latencySeconds: 60
+      maxMessages: 100

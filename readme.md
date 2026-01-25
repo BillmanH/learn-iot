@@ -1,99 +1,66 @@
-# Azure IoT Operations - Learning Repository
+# Azure IoT Operations - Quick Start
 
-This repository provides a complete reference implementation for deploying and managing Azure IoT Operations (AIO) on edge devices, with sample applications demonstrating industrial IoT scenarios.
+Automated deployment of Azure IoT Operations (AIO) on edge devices with industrial IoT applications.
 
-## What This Repo Is All About
+## What You Get
 
-This is a hands-on learning repository for Azure IoT Operations, covering:
+- ⚡ **One-command edge setup** - Automated K3s cluster with Azure IoT Operations
+- 🏭 **Industrial IoT apps** - Factory simulator, MQTT historian, data processors
+- ☁️ **Cloud integration** - Microsoft Fabric Real-Time Intelligence connectivity
+- 🔧 **Production-ready** - Separation of edge and cloud configuration for security
 
-- **Edge Infrastructure Setup** - Automated deployment of Azure IoT Operations on Ubuntu/K3s clusters
-- **MQTT-Based Asset Management** - Creating and managing industrial assets with MQTT connectivity
-- **ARM Template Deployment** - Infrastructure-as-code for deploying assets directly to Azure
-- **Sample IoT Applications** - Production-ready edge applications including simulators and data processors
-- **Troubleshooting & Diagnostics** - Scripts and guides for debugging common AIO issues
-- **Cloud Integration** - Connecting edge devices to Azure Fabric, Real-Time Intelligence, and other services
+## Prerequisites
 
-The repository demonstrates real-world patterns for industrial IoT deployments, from initial cluster setup through application deployment and cloud integration.
+- **Hardware**: Ubuntu machine with 16GB RAM, 4 CPU cores, 50GB disk
+- **Azure**: Active subscription with admin access
+- **Network**: Internet connectivity (edge device and management machine)
 
-## Repository Structure
+## Installation
 
-| Folder | Purpose | Key Contents |
-|--------|---------|--------------|
-| **`linux_build/`** | AIO infrastructure deployment on Ubuntu/K3s | `linux_installer.sh` (edge setup), `External-Configurator.ps1` (Azure config), diagnostic scripts, ARM templates, configuration templates |
-| **`linux_build/arm_templates/`** | ARM templates for Azure resources | MQTT asset definitions, endpoint profiles for deploying assets to Azure Resource Manager |
-| **`linux_build/assets/`** | Kubernetes asset manifests | YAML definitions for MQTT assets to deploy on the edge cluster |
-| **`iotopps/`** | Edge applications and workloads | Production IoT applications that run on the AIO cluster |
-| **`iotopps/edgemqttsim/`** | MQTT telemetry simulator | Factory equipment simulator publishing realistic telemetry to MQTT broker |
-| **`iotopps/hello-flask/`** | Sample Flask web application | Basic containerized web app for testing deployments |
-| **`iotopps/sputnik/`** | MQTT test publisher | Simple MQTT client sending periodic "beep" messages for testing |
-| **`iotopps/demohistorian/`** | SQL-based MQTT historian | Subscribes to all topics, stores in PostgreSQL, provides HTTP API for queries |
-| **`iotopps/wasm-quality-filter-python/`** | WebAssembly data filter | WASM-based telemetry filtering for edge processing |
-| **`Fabric_setup/`** | Azure Fabric integration | Documentation and queries for connecting AIO to Microsoft Fabric Real-Time Intelligence |
-| **`operations/`** | Operational configurations | Azure resource definitions for data pipelines and endpoints |
-| **`certs/`** | SSL/TLS certificates | Base64-encoded certificates for secure MQTT connections |
+### 1. Clone Repository
 
-## Quick Start
-
-The deployment process is split into two distinct phases for better security and flexibility.
-
-### Phase 1: Edge Device Setup (`linux_installer.sh`)
-Run on the edge device to prepare local infrastructure:
 ```bash
-# On Ubuntu edge device (24.04+, 16GB RAM, 4 CPU cores minimum)
+git clone https://github.com/yourusername/learn-iothub.git
+cd learn-iothub
+```
+
+### 2. Edge Setup (On Ubuntu Device)
+
+```bash
 cd linux_build
 bash linux_installer.sh
 ```
-**NOTE**: The install will do several things that can create a restart. This will make it look like you lost connection. This is ok. It's meant to do this. Restart and rerun the script to continue if this happens. 
 
-**Installs**: K3s cluster, kubectl, Helm, optional tools (k9s, mqtt-viewer, mqttui), edge modules  
-**Output**: `edge_configs/cluster_info.json` for remote configuration  
-**Configuration**: Uses `linux_aio_config.json` for optional_tools and modules settings
+**What it does**: Installs K3s, kubectl, Helm, and prepares cluster for Azure IoT Operations  
+**Time**: ~10-15 minutes  
+**Output**: `edge_configs/cluster_info.json` (needed for next step)
 
-### Phase 2: Azure Configuration (`External-Configurator.ps1`)
-Run from any Windows machine with Azure CLI to connect and deploy AIO:
+> **Note**: System may restart during installation. This is normal. Rerun the script after restart to continue.
+
+### 3. Azure Configuration (From Windows Machine)
+
 ```powershell
-# On DevOps machine, developer workstation, or CI/CD pipeline
+# Prerequisites: Install Azure CLI and login
+az login
+
+# Configure Azure resources and connect edge cluster
 cd linux_build
 .\External-Configurator.ps1 -ConfigFile ".\edge_configs\cluster_info.json"
 ```
 
-**Configures**: Azure Arc, resource groups, AIO deployment, asset sync  
-**Benefits**: No Azure credentials needed on edge device, supports multi-cluster management
+**What it does**: Azure Arc enablement, AIO deployment, asset synchronization  
+**Time**: ~15-20 minutes  
+**Benefit**: No Azure credentials needed on edge device
 
-### Verify Deployment
+### 4. Verify Installation
 
 ```bash
-# Check AIO pods are running
+# Check pods are running
 kubectl get pods -n azure-iot-operations
 
-# Verify assets in Azure
-az resource list --resource-group <YOUR_RG> --resource-type Microsoft.DeviceRegistry/assets -o table
-
-# Monitor MQTT messages
-kubectl exec -it -n azure-iot-operations deploy/aio-broker-frontend -- \
-  mosquitto_sub -h localhost -p 18883 -t 'factory/#' -v
+# View MQTT messages
+kubectl logs -n azure-iot-operations -l app=aio-broker-frontend --tail=20
 ```
-
-### Optional: Kubernetes Bearer Token for Azure Portal
-
-If you want to view Kubernetes resources directly in the Azure Portal (under Arc-enabled Kubernetes → Kubernetes resources), you'll need a service account bearer token:
-
-```bash
-# On the edge device
-cd linux_build
-bash get-k8s-bearer-token.sh
-```
-
-This script:
-- Creates a service account with cluster-admin permissions
-- Generates a bearer token
-- Saves the token to USB/SD drive (or local directory)
-- Provides instructions for using it in Azure Portal
-
-**Note**: This is **not required** for Azure IoT Operations to function. AIO works independently of the Azure Portal Kubernetes viewer. However, the bearer token can be helpful for:
-- Troubleshooting pods and deployments from the Azure Portal
-- Viewing cluster resources without SSH access to the edge device
-- Demonstrating full cluster visibility to stakeholders
 
 ## Key Documentation
 
@@ -120,88 +87,44 @@ Create the Python environment using uv:
 uv sync
 ```
 
-## Architecture
+## What's Included
 
-This repository demonstrates a modern edge-to-cloud architecture with separated edge infrastructure and cloud orchestration.
+### Edge Applications (`iotopps/`)
+- **edgemqttsim** - Factory equipment simulator (CNC, 3D printer, welding, etc.)
+- **demohistorian** - SQL-based MQTT historian with HTTP API
+- **sputnik** - Simple MQTT test publisher
+- **hello-flask** - Basic web app for testing
 
-### Separated Architecture
+### Key Directories
+- **`linux_build/`** - Installation scripts and ARM templates
+- **`Fabric_setup/`** - Microsoft Fabric Real-Time Intelligence integration
+- **`operations/`** - Dataflow configurations for cloud connectivity
 
-The deployment architecture divides the process into two distinct phases for better security and maintainability:
+## Configuration
 
-```
-┌────────────────────────────────────────────────────────────────┐
-│  Phase 1: Edge Device Setup (linux_installer.sh)              │
-│  Runs ON the edge device                                       │
-│                                                                 │
-│  ┌──────────────────────────────────────────────────────────┐ │
-│  │  Edge Device (Ubuntu + K3s)                              │ │
-│  │  • System preparation & validation                       │ │
-│  │  • K3s cluster installation                              │ │
-│  │  • kubectl & Helm installation                           │ │
-│  │  • Local system configuration                            │ │
-│  │  Output: cluster_info.json                               │ │
-│  └──────────────────────────────────────────────────────────┘ │
-└────────────────────────────────────────────────────────────────┘
-                              │
-                              │ Transfer cluster_info.json
-                              │ (Secure copy to management machine)
-                              ▼
-┌────────────────────────────────────────────────────────────────┐
-│  Phase 2: Azure Configuration (External-Configurator.ps1)     │
-│  Runs FROM any Windows machine with Azure CLI                 │
-│                                                                 │
-│  ┌──────────────────────────────────────────────────────────┐ │
-│  │  Remote Configuration Machine                            │ │
-│  │  • Azure Arc enablement                                  │ │
-│  │  • Resource group & namespace creation                   │ │
-│  │  • AIO instance deployment                               │ │
-│  │  • Asset synchronization                                 │ │
-│  │  • Multi-cluster management                              │ │
-│  │  Output: deployment_summary.json                         │ │
-│  └──────────────────────────────────────────────────────────┘ │
-└────────────────────────────────────────────────────────────────┘
-                              │
-                              │ Azure Arc Connection
-                              ▼
-┌────────────────────────────────────────────────────────────────┐
-│  Azure Cloud Resources                                         │
-│  • Arc-enabled Kubernetes (connected edge cluster)            │
-│  • Azure IoT Operations instance                              │
-│  • Device Registry (Assets)                                   │
-│  • Schema Registry & Storage                                  │
-│  • Microsoft Fabric integration                               │
-└────────────────────────────────────────────────────────────────┘
-```
+Customize deployment via `linux_build/linux_aio_config.json`:
+- Azure subscription and resource group settings
+- Optional tools (k9s, MQTT viewers)
+- Edge modules to deploy
+- Fabric Event Stream integration
 
-**Benefits of Separated Architecture**:
-- 🔒 **Security**: No Azure credentials needed on edge devices
-- 📡 **Remote Management**: Configure multiple edge devices from central location
-- 🔄 **CI/CD Friendly**: Easy pipeline integration for GitOps workflows
-- 🐛 **Easier Debugging**: Clear separation of local vs. cloud issues
-- 🏢 **Production Ready**: Follows best practices for enterprise deployments
-- 🎯 **Modular Deployment**: Configure edge modules (edgemqttsim, demohistorian, etc.) via config file
+## Next Steps
 
-## Prerequisites
+After installation:
 
-- **Hardware**: 16GB RAM minimum, 4 CPU cores, 50GB disk space
-- **OS**: Ubuntu 24.04 LTS (or compatible Linux distribution)
-- **Azure**: Active Azure subscription with appropriate permissions
-- **Tools**: Azure CLI, kubectl, docker/containerd
+1. **View MQTT messages**: See [README_ADVANCED.md](README_ADVANCED.md#monitoring-mqtt-traffic)
+2. **Deploy applications**: See [README_ADVANCED.md](README_ADVANCED.md#deploying-edge-applications)
+3. **Connect to Fabric**: See [README_ADVANCED.md](README_ADVANCED.md#fabric-integration)
+4. **Troubleshooting**: See [README_ADVANCED.md](README_ADVANCED.md#troubleshooting)
 
-## Contributing
+## Documentation
 
-This is a learning repository. Feel free to:
-- Add new sample applications to `iotopps/`
-- Improve diagnostic scripts in `linux_build/`
-- Contribute troubleshooting tips and solutions
-- Share integration examples with other Azure services
+- **[README_ADVANCED.md](README_ADVANCED.md)** - Detailed technical guide
+- **[Bug Reports](operations/)** - Known issues and workarounds
+- **[Application READMEs](iotopps/)** - Individual app documentation
 
-## Related Resources
+## Support
 
-- [Azure IoT Operations Documentation](https://learn.microsoft.com/azure/iot-operations/)
+- [Azure IoT Operations Docs](https://learn.microsoft.com/azure/iot-operations/)
 - [K3s Documentation](https://docs.k3s.io/)
-- [MQTT Protocol Specification](https://mqtt.org/)
-- [Azure Arc Documentation](https://learn.microsoft.com/azure/azure-arc/)
-
-This setup enables edge computing capabilities with local MQTT brokers, data processing pipelines, and integration with Azure cloud services.
-
+- [Issue Tracker](https://github.com/yourusername/learn-iothub/issues)

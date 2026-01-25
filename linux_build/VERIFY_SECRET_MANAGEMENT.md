@@ -156,9 +156,53 @@ kubectl get dataflowendpoint -n azure-iot-operations
 - If you ONLY see `default`, you **haven't created a Fabric endpoint yet**
 - The error won't appear until you try to CREATE a Fabric endpoint
 
+### 4.2 Getting Your Fabric Real-Time Intelligence Connection String
+
+**Before creating a Fabric endpoint, you need connection details from Fabric:**
+
+#### Step 1: Create a Fabric Event Stream
+
+1. Go to [Microsoft Fabric](https://app.fabric.microsoft.com/)
+2. Navigate to your workspace (or create a new Premium workspace)
+3. Click **+ New** > **Real-Time Intelligence** > **Eventstream**
+4. Name it (e.g., `iot-operations-stream`) and click **Create**
+
+#### Step 2: Add Custom Endpoint Source
+
+1. In the Event Stream editor, click **Add source** > **Custom endpoint**
+2. Configure:
+   - **Source name**: `iot-operations-data` (or any name)
+   - Click **Add**
+3. Click **Publish** in the Event Stream editor
+4. Click on the custom endpoint you just created
+
+#### Step 3: Get Connection Details
+
+1. Select **Protocol**: **Kafka**
+2. Select **Authentication**: **Shared access key (SAS)**
+3. Copy these values (you'll need them):
+   - **Bootstrap server**: `pkc-<id>.<region>.azure.confluent.cloud:9092` or similar
+   - **Topic name**: `es_<guid>` (e.g., `es_aaaaaaaa-0000-1111-2222-bbbbbbbbbbbb`)
+   - **Connection string-primary key**: The full connection string (use this for authentication)
+
+#### Step 4: Store Connection String in Key Vault
+
+```powershell
+# Store the connection string in Key Vault
+az keyvault secret set `
+  --vault-name iot-opps-keys `
+  --name fabric-connection-string `
+  --value "Endpoint=sb://<your-endpoint>.servicebus.windows.net/;SharedAccessKeyName=<key-name>;SharedAccessKey=<key-value>;EntityPath=<topic>"
+
+# Verify the secret was created
+az keyvault secret show --vault-name iot-opps-keys --name fabric-connection-string --query name -o tsv
+```
+
+**Now you're ready to create the Fabric endpoint!**
+
 ```powershell
 # Check if you have any Fabric endpoints (not the MQTT broker one)
-kubectl get dataflowendpoint -n azure-iot-operations -o json | Select-String "FabricOneLake"
+kubectl get dataflowendpoint -n azure-iot-operations -o json | Select-String "Kafka"
 ```
 
 ❌ **If empty:** You haven't created a Fabric endpoint yet. The error will appear when you create one with incorrect secret format.
@@ -170,49 +214,60 @@ kubectl describe dataflowendpoint <your-fabric-endpoint-name> -n azure-iot-opera
 
 **What you're looking for:**
 - ❌ **Skip** endpoints with `Endpoint Type: Mqtt` and `Method: ServiceAccountToken` (this is your "default" broker endpoint - it's correct)
-- ✅ **Check** endpoints with `Endpoint Type: FabricOneLake` or `Kafka` (external endpoints that need secrets)
+- ✅ **Check** endpoints with `Endpoint Type: Kafka` (Fabric RTI uses Kafka protocol for external endpoints that need secrets)
 
-### 4.2 Verify Secret Reference Format
+### 4.3 Verify Secret Reference Format
 
-When you create a **Fabric RTI or Event Hub endpoint**, the authentication section must look like this:
+When you create a **Fabric RTI endpoint** using Azure CLI, the secret reference must include the `aio-akv-sp/` prefix:
 
-✅ **CORRECT format:**
-```yaml
-authentication:
-  method: SystemAssignedManagedIdentity
-  systemAssignedManagedIdentitySettings:
-    secretRef: aio-akv-sp/my-secret-name
+✅ **CORRECT Azure CLI command:**
+```powershell
+az iot ops dataflow endpoint create kafka `
+  --name fabric-endpoint `
+  --instance iot-ops-cluster-aio `
+  -g IoT-Operations `
+  --host "<your-bootstrap-server>:9093" `
+  --authentication SystemAssignedManagedIdentity `
+  --secret-ref aio-akv-sp/fabric-connection-string  # ✅ Correct!
 ```
 
 ❌ **WRONG - Missing prefix (causes the error):**
-```yaml
-secretRef: my-secret-name
+```powershell
+--secret-ref fabric-connection-string  # ❌ Missing aio-akv-sp/ prefix
 ```
 
-❌ **WRONG - Wrong prefix:**
-```yaml
-secretRef: keyvault/my-secret-name
-```
+**Or in YAML format:**
 
-### 4.3 Example: Creating a Fabric Endpoint with Secrets
-
+✅ **CORRECT format:**
 ```yaml
-apiVersion: connectivity.iotoperations.azure.com/v1beta1
+apiVersion: connectivity.iotoperations.azure.com/v1
 kind: DataflowEndpoint
 metadata:
   name: fabric-endpoint
   namespace: azure-iot-operations
 spec:
-  endpointType: FabricOneLake
-  fabricOneLakeSettings:
-    host: "https://msit-onelake.dfs.fabric.microsoft.com"
+  endpointType: Kafka
+  kafkaSettings:
+    host: "<your-bootstrap-server>:9093"
+    tls:
+      mode: Enabled
     authentication:
       method: SystemAssignedManagedIdentity
       systemAssignedManagedIdentitySettings:
         secretRef: aio-akv-sp/fabric-connection-string  # Must use this format!
 ```
 
-### 4.3 The Secret Reference Format Explained
+❌ **WRONG - Missing prefix (causes the error):**
+```yaml
+secretRef: fabric-connection-string
+```
+
+❌ **WRONG - Wrong prefix:**
+```yaml
+secretRef: keyvault/fabric-connection-string
+```
+
+### 4.4 The Secret Reference Format Explained
 
 - `aio-akv-sp` = The SecretProviderClass name (from Step 2)
 - `/` = Separator (required)
