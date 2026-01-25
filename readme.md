@@ -9,6 +9,12 @@ Automated deployment of Azure IoT Operations (AIO) on edge devices with industri
 - ☁️ **Cloud integration** - Microsoft Fabric Real-Time Intelligence connectivity
 - 🔧 **Production-ready** - Separation of edge and cloud configuration for security
 
+> **For detailed technical information, see [README_ADVANCED.md](README_ADVANCED.md)**
+
+# Quick Start
+
+![Process Overview](./img/process_1.png)
+
 ## Prerequisites
 
 - **Hardware**: Ubuntu machine with 16GB RAM, 4 CPU cores, 50GB disk
@@ -24,7 +30,26 @@ git clone https://github.com/yourusername/learn-iothub.git
 cd learn-iothub
 ```
 
-### 2. Edge Setup (On Ubuntu Device)
+### 2. Create and Complete Config File ⚠️ **DO THIS FIRST**
+
+**Before running any installation scripts**, create and configure `linux_aio_config.json`:
+
+```bash
+cd linux_build
+cp linux_aio_config.template.json linux_aio_config.json
+```
+
+Edit `linux_aio_config.json` with your settings:
+- Azure subscription ID
+- Resource group name
+- Location (e.g., "eastus")
+- Cluster name
+- Optional tools to install (k9s, mqtt-viewer, mqttui)
+- Edge modules to deploy (edgemqttsim, demohistorian, etc.)
+
+**This config file controls the entire deployment.** Review it carefully before proceeding.
+
+### 3. Edge Setup (On Ubuntu Device)
 
 ```bash
 cd linux_build
@@ -36,8 +61,17 @@ bash linux_installer.sh
 **Output**: `edge_configs/cluster_info.json` (needed for next step)
 
 > **Note**: System may restart during installation. This is normal. Rerun the script after restart to continue.
+![k9s pre iot](./img/k9s-pre-iot.jpg)
+After this you should see the core arc-kubernetes components on your nuc device. 
+You can also use the proxy service at:
+```
+az connectedk8s proxy --name <your-cluster> --resource-group <your resource group>
+```
+You'll need this when you get to troubleshooting later. 
 
-### 3. Azure Configuration (From Windows Machine)
+![reosources pre iot](./img/azure-resources-pre-iot.png)
+
+### 4. Azure Configuration (From Windows Machine)
 
 ```powershell
 # Prerequisites: Install Azure CLI and login
@@ -52,7 +86,10 @@ cd linux_build
 **Time**: ~15-20 minutes  
 **Benefit**: No Azure credentials needed on edge device
 
-### 4. Verify Installation
+![k9s post iot](./img/k9s-post-iot.jpg)
+![reosources post iot](./img/azure-resources-post-iot.png)
+
+### 5. Verify Installation
 
 ```bash
 # Check pods are running
