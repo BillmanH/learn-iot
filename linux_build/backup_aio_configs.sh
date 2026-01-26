@@ -53,6 +53,7 @@ LOG_FILES=()
 
 # Search in script directory and parent
 SEARCH_DIRS=(
+    "$SCRIPT_DIR/edge_configs"
     "$SCRIPT_DIR"
     "$SCRIPT_DIR/.."
     "$HOME/azure-iot-operations"
