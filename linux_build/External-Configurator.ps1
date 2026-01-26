@@ -450,7 +450,24 @@ function Import-AzureConfig {
     }
     
     try {
-        $script:AzureConfig = Get-Content $configPath -Raw | ConvertFrom-Json
+        $configContent = Get-Content $configPath -Raw
+        
+        # Try to parse JSON and catch any errors
+        try {
+            $script:AzureConfig = $configContent | ConvertFrom-Json
+        } catch {
+            Write-ErrorLog "JSON parsing failed: $_"
+            Write-Host "  Config file may have invalid JSON syntax (trailing commas, etc.)" -ForegroundColor Yellow
+            Write-Host "  Validate your JSON at: https://jsonlint.com/" -ForegroundColor Yellow
+            Write-ErrorLog "Fix the JSON syntax in: $configPath" -Fatal
+        }
+        
+        # Verify the azure section exists
+        if (-not $script:AzureConfig.azure) {
+            Write-ErrorLog "Config file missing 'azure' section"
+            Write-Host "  Expected structure: { `"azure`": { `"resource_group`": `"...`", ... } }" -ForegroundColor Yellow
+            Write-ErrorLog "Fix the config structure in: $configPath" -Fatal
+        }
         
         # Load Azure settings
         $script:SubscriptionId = $script:AzureConfig.azure.subscription_id
@@ -1196,6 +1213,39 @@ function New-IoTOperationsInstance {
     }
     
     Write-InfoLog "Azure IoT Operations instance not found. Proceeding with deployment..."
+    
+    # Check Arc cluster connectivity status before initializing
+    # The 'az iot ops init' command requires connectivityStatus to be 'Connected'
+    Write-Log "Checking Arc cluster connectivity status..."
+    $clusterStatus = az connectedk8s show --name $script:ClusterName --resource-group $script:ResourceGroup --query "connectivityStatus" -o tsv 2>$null
+    
+    if ($clusterStatus -ne "Connected") {
+        Write-ErrorLog "Arc cluster is not fully connected yet"
+        Write-Host ""
+        Write-Host "Current connectivity status: '$clusterStatus'" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "The cluster needs to be fully connected before Azure IoT Operations can be deployed." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Steps to resolve:" -ForegroundColor Cyan
+        Write-Host "  1. Wait a few minutes for the cluster to finish connecting to Azure Arc" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "  2. Check the status periodically:" -ForegroundColor Gray
+        Write-Host "     az connectedk8s show --name $script:ClusterName --resource-group $script:ResourceGroup --query connectivityStatus -o tsv" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "  3. On the edge device, verify Arc agents are running:" -ForegroundColor Gray
+        Write-Host "     kubectl get pods -n azure-arc" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "  4. If agents are not running, restart the Arc connection:" -ForegroundColor Gray
+        Write-Host "     az connectedk8s delete --name $script:ClusterName --resource-group $script:ResourceGroup" -ForegroundColor Yellow
+        Write-Host "     az connectedk8s connect --name $script:ClusterName --resource-group $script:ResourceGroup --location $script:Location" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "  5. Once status is 'Connected', re-run this script:" -ForegroundColor Gray
+        Write-Host "     .\External-Configurator.ps1" -ForegroundColor Yellow
+        Write-Host ""
+        Write-ErrorLog "Arc cluster must be 'Connected' before proceeding" -Fatal
+    }
+    
+    Write-Success "Arc cluster connectivity status: Connected"
     
     # Initialize cluster for Azure IoT Operations
     Write-Log "Initializing cluster for Azure IoT Operations..."

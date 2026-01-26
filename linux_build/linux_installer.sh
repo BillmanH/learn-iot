@@ -46,7 +46,8 @@ set -o pipefail  # Catch errors in pipes
 # Script configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${SCRIPT_DIR}/linux_aio_config.json"
-CLUSTER_INFO_FILE="${SCRIPT_DIR}/cluster_info.json"
+EDGE_CONFIGS_DIR="${SCRIPT_DIR}/edge_configs"
+CLUSTER_INFO_FILE="${EDGE_CONFIGS_DIR}/cluster_info.json"
 DRY_RUN=false
 SKIP_VERIFICATION=false
 FORCE_REINSTALL=false
@@ -69,14 +70,15 @@ FORCE_REINSTALL=false
 K9S_ENABLED=false
 MQTT_VIEWER_ENABLED=false
 SSH_ENABLED=false
-EDGEMQTTSIM_ENABLED=false
-HELLO_FLASK_ENABLED=false
-SPUTNIK_ENABLED=false
-WASM_FILTER_ENABLED=false
+# NOTE: Module deployment disabled in linux_installer.sh - handled by External-Configurator.ps1
+# EDGEMQTTSIM_ENABLED=false
+# HELLO_FLASK_ENABLED=false
+# SPUTNIK_ENABLED=false
+# WASM_FILTER_ENABLED=false
 MANAGE_PRINCIPAL=""
 
 # Deployment tracking
-DEPLOYED_MODULES=()
+# DEPLOYED_MODULES=()  # Not used - modules deployed by External-Configurator.ps1
 INSTALLED_TOOLS=()
 
 # ============================================================================
@@ -364,11 +366,12 @@ load_local_config() {
     MQTT_VIEWER_ENABLED=$(jq -r '.optional_tools."mqtt-viewer" // false' "$CONFIG_FILE")
     SSH_ENABLED=$(jq -r '.optional_tools.ssh // false' "$CONFIG_FILE")
     
-    # Load modules configuration
-    EDGEMQTTSIM_ENABLED=$(jq -r '.modules.edgemqttsim // false' "$CONFIG_FILE")
-    HELLO_FLASK_ENABLED=$(jq -r '.modules."hello-flask" // false' "$CONFIG_FILE")
-    SPUTNIK_ENABLED=$(jq -r '.modules.sputnik // false' "$CONFIG_FILE")
-    WASM_FILTER_ENABLED=$(jq -r '.modules."wasm-quality-filter-python" // false' "$CONFIG_FILE")
+    # NOTE: Modules configuration is NOT used by linux_installer.sh
+    # Modules are deployed by External-Configurator.ps1 after Azure Arc enablement
+    # EDGEMQTTSIM_ENABLED=$(jq -r '.modules.edgemqttsim // false' "$CONFIG_FILE")
+    # HELLO_FLASK_ENABLED=$(jq -r '.modules."hello-flask" // false' "$CONFIG_FILE")
+    # SPUTNIK_ENABLED=$(jq -r '.modules.sputnik // false' "$CONFIG_FILE")
+    # WASM_FILTER_ENABLED=$(jq -r '.modules."wasm-quality-filter-python" // false' "$CONFIG_FILE")
     
     # Display configuration
     echo ""
@@ -382,11 +385,12 @@ load_local_config() {
     echo "  mqtt-viewer: $MQTT_VIEWER_ENABLED"
     echo "  ssh: $SSH_ENABLED"
     echo ""
-    echo "Modules to deploy:"
-    echo "  edgemqttsim: $EDGEMQTTSIM_ENABLED"
-    echo "  hello-flask: $HELLO_FLASK_ENABLED"
-    echo "  sputnik: $SPUTNIK_ENABLED"
-    echo "  wasm-quality-filter-python: $WASM_FILTER_ENABLED"
+    # Note: Module deployment info removed - handled by External-Configurator.ps1
+    # echo "Modules to deploy:"
+    # echo "  edgemqttsim: $EDGEMQTTSIM_ENABLED"
+    # echo "  hello-flask: $HELLO_FLASK_ENABLED"
+    # echo "  sputnik: $SPUTNIK_ENABLED"
+    # echo "  wasm-quality-filter-python: $WASM_FILTER_ENABLED"
     # Optional Azure management principal (UPN or object id) to grant read-only access
     MANAGE_PRINCIPAL=$(jq -r '.azure.manage_principal // empty' "$CONFIG_FILE")
     if [ -n "$MANAGE_PRINCIPAL" ]; then
@@ -748,24 +752,49 @@ install_k3s() {
     local node_status=$(sudo k3s kubectl get nodes -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}')
     if [ "$node_status" != "True" ]; then
         echo ""
-        error "K3s node is not in Ready state"
+        echo -e "${RED}[$(date +'%Y-%m-%d %H:%M:%S')] ERROR: K3s node is not in Ready state${NC}"
         echo ""
-        echo -e "${YELLOW}Troubleshooting steps:${NC}"
+        echo -e "${YELLOW}╔══════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${YELLOW}║  K3s is installed but the node isn't Ready yet.                  ║${NC}"
+        echo -e "${YELLOW}║                                                                  ║${NC}"
+        echo -e "${YELLOW}║  ⚡ IF K3S WAS JUST INSTALLED: This is EXPECTED behavior!        ║${NC}"
+        echo -e "${YELLOW}║     K3s needs 2-5 minutes to download images and initialize.    ║${NC}"
+        echo -e "${YELLOW}║     Just wait and check again - no action needed.               ║${NC}"
+        echo -e "${YELLOW}╚══════════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        echo -e "${GREEN}Wait 2-5 minutes, then check if the node is Ready:${NC}"
+        echo ""
+        echo -e "   ${CYAN}kubectl get nodes${NC}"
+        echo ""
+        echo "   You should see:"
+        echo "   NAME         STATUS   ROLES                  AGE   VERSION"
+        echo "   <hostname>   Ready    control-plane,master   Xm    v1.xx.x"
+        echo ""
+        echo -e "${YELLOW}Troubleshooting steps if still not Ready after 5 minutes:${NC}"
+        echo ""
         echo -e "${CYAN}1. Check K3s service status:${NC}"
         echo -e "   sudo systemctl status k3s"
         echo ""
-        echo -e "${CYAN}2. Check node status (wait 2-3 minutes and retry):${NC}"
-        echo -e "   kubectl get nodes"
+        echo -e "${CYAN}2. Watch node status (Ctrl+C to exit):${NC}"
+        echo -e "   kubectl get nodes --watch"
+        echo ""
+        echo -e "${CYAN}   If kubectl fails with 'connection refused', set up kubeconfig first:${NC}"
+        echo -e "   mkdir -p ~/.kube"
+        echo -e "   sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config"
+        echo -e "   sudo chown \$USER:\$USER ~/.kube/config"
         echo ""
         echo -e "${CYAN}3. Check pods are starting:${NC}"
         echo -e "   kubectl get pods -A"
         echo ""
-        echo -e "${CYAN}4. If K3s is healthy but installer timed out:${NC}"
+        echo -e "${CYAN}4. View K3s logs for errors:${NC}"
+        echo -e "   sudo journalctl -u k3s -f"
+        echo ""
+        echo -e "${CYAN}5. If K3s is healthy but installer timed out:${NC}"
         echo -e "   - Wait for node to show 'Ready' status"
         echo -e "   - Re-run installer WITHOUT --force-reinstall"
-        echo -e "   - It will continue from where it left off"
+        echo -e "   - ./linux_installer.sh"
         echo ""
-        echo -e "${CYAN}5. If K3s is broken or in bad state:${NC}"
+        echo -e "${CYAN}6. If K3s is broken or in bad state:${NC}"
         echo -e "   - Re-run installer WITH --force-reinstall"
         echo -e "   - ./linux_installer.sh --force-reinstall"
         echo ""
@@ -1128,6 +1157,9 @@ generate_cluster_info() {
         return 0
     fi
     
+    # Ensure edge_configs directory exists
+    mkdir -p "$EDGE_CONFIGS_DIR"
+    
     # Get node information
     local node_name=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
     local node_version=$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.kubeletVersion}')
@@ -1426,57 +1458,29 @@ deploy_azure_iot_operations() {
     log "Using namespace resource ID: $namespace_resource_id"
     log "The namespace will be created automatically during deployment"
     
-    # Create Key Vault for Secret Management (required for Fabric RTI)
-    # Use configured name or generate one
-    local keyvault_name=$(jq -r '.azure.key_vault_name // empty' "$CONFIG_FILE")
+    # NOTE: Key Vault creation and Secret Management setup moved to External-Configurator.ps1
+    # This follows the separation of concerns: linux_installer.sh handles edge infrastructure only
     
-    if [ -z "$keyvault_name" ]; then
-        # Auto-generate name if not specified
-        keyvault_name=$(echo "${CLUSTER_NAME}-kv" | tr '[:upper:]' '[:lower:]' | tr -d '-' | cut -c1-24)
-        info "Key Vault name not specified in config, using auto-generated: $keyvault_name"
-    else
-        info "Using Key Vault name from config: $keyvault_name"
-    fi
-    
-    info "Setting up Key Vault for Secret Management..."
-    if az keyvault show --name "$keyvault_name" --resource-group "$resource_group" &>/dev/null; then
-        success "Key Vault exists: $keyvault_name"
-    else
-        log "Creating Key Vault: $keyvault_name"
-        az keyvault create \
-            --name "$keyvault_name" \
-            --resource-group "$resource_group" \
-            --location "$location" \
-            --enable-rbac-authorization true \
-            --enabled-for-deployment true
-        success "Key Vault created"
-    fi
-    
-    # Get Key Vault resource ID
-    local keyvault_id=$(az keyvault show \
-        --name "$keyvault_name" \
-        --resource-group "$resource_group" \
-        --query id -o tsv)
-    
-    # Deploy Azure IoT Operations instance
+    # Deploy Azure IoT Operations instance (without inline Key Vault - that's handled by External-Configurator.ps1)
     local instance_name="${CLUSTER_NAME}-aio"
     
     info "Deploying Azure IoT Operations instance..."
     if az iot ops show --name "$instance_name" --resource-group "$resource_group" &>/dev/null; then
         success "Azure IoT Operations instance exists: $instance_name"
     else
-        log "Creating IoT Operations instance with Secret Management enabled (this may take several minutes)..."
+        log "Creating IoT Operations instance (this may take several minutes)..."
+        log "Note: Secret Management will be configured by External-Configurator.ps1"
         az iot ops create \
             --cluster "$CLUSTER_NAME" \
             --resource-group "$resource_group" \
             --name "$instance_name" \
             --sr-resource-id "$schema_registry_id" \
-            --ns-resource-id "$namespace_resource_id" \
-            --kv-resource-id "$keyvault_id" || {
+            --ns-resource-id "$namespace_resource_id" || {
             error "Failed to deploy Azure IoT Operations"
             return 1
         }
-        success "Azure IoT Operations deployed with Secret Management enabled!"
+        success "Azure IoT Operations deployed!"
+        info "Run External-Configurator.ps1 to enable Secret Management and deploy modules"
     fi
     
     # Enable resource sync
@@ -1518,8 +1522,8 @@ display_next_steps() {
     echo "   cat $CLUSTER_INFO_FILE"
     echo ""
     echo "2. Connect this cluster to Azure Arc and deploy Azure IoT Operations:"
-    echo "   - Transfer $CLUSTER_INFO_FILE to your Windows management machine"
-    echo "   - Run: .\External-Configurator.ps1 -ClusterInfo cluster_info.json"
+    echo "   - Transfer the edge_configs/ folder to your Windows management machine"
+    echo "   - Run: .\External-Configurator.ps1 -ClusterInfo edge_configs/cluster_info.json"
     echo ""
     echo "3. Monitor your cluster:"
     echo "   kubectl get pods --all-namespaces"
@@ -1615,8 +1619,8 @@ main() {
     apply_manage_principal_rbac
     configure_system_settings
     
-    # Deploy modules
-    deploy_modules
+    # NOTE: Module deployment is handled by External-Configurator.ps1 after Azure Arc enablement
+    # deploy_modules
     
     # Verification
     verify_local_cluster

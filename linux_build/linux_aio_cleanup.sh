@@ -289,7 +289,12 @@ cleanup_logs() {
     find "$SCRIPT_DIR" -name "linux_installer_*.log" -type f -delete 2>/dev/null || true
     find "$SCRIPT_DIR" -name "external_configurator_*.log" -type f -delete 2>/dev/null || true
     
+    # Remove old cleanup logs (but keep the current one being written)
+    local current_log_basename=$(basename "$LOG_FILE")
+    find "$SCRIPT_DIR" -name "linux_aio_cleanup_*.log" -type f ! -name "$current_log_basename" -delete 2>/dev/null || true
+    
     success "Log files cleaned"
+    info "Note: Current cleanup log preserved: $current_log_basename"
 }
 
 cleanup_container_runtime() {
