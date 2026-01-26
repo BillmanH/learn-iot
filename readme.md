@@ -41,8 +41,8 @@ Once you have setup AIO via this process, you should be able to do everything th
 ### 1. Clone Repository
 
 ```bash
-git clone https://github.com/yourusername/learn-iothub.git
-cd learn-iothub
+git clone https://github.com/BillmanH/learn-iot.git
+cd learn-iot
 ```
 
 ### 2a. Create and Complete Config File ⚠️ **DO THIS FIRST**
