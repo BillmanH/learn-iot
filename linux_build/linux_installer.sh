@@ -46,7 +46,8 @@ set -o pipefail  # Catch errors in pipes
 # Script configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${SCRIPT_DIR}/linux_aio_config.json"
-CLUSTER_INFO_FILE="${SCRIPT_DIR}/cluster_info.json"
+EDGE_CONFIGS_DIR="${SCRIPT_DIR}/edge_configs"
+CLUSTER_INFO_FILE="${EDGE_CONFIGS_DIR}/cluster_info.json"
 DRY_RUN=false
 SKIP_VERIFICATION=false
 FORCE_REINSTALL=false
@@ -751,24 +752,41 @@ install_k3s() {
     local node_status=$(sudo k3s kubectl get nodes -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}')
     if [ "$node_status" != "True" ]; then
         echo ""
-        error "K3s node is not in Ready state"
+        echo -e "${RED}[$(date +'%Y-%m-%d %H:%M:%S')] ERROR: K3s node is not in Ready state${NC}"
         echo ""
-        echo -e "${YELLOW}Troubleshooting steps:${NC}"
+        echo -e "${YELLOW}╔══════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${YELLOW}║  K3s is installed but the node isn't Ready yet.                  ║${NC}"
+        echo -e "${YELLOW}║  This is NORMAL - K3s can take 2-5 minutes to fully initialize.  ║${NC}"
+        echo -e "${YELLOW}╚══════════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        echo -e "${GREEN}Wait 2-5 minutes, then check if the node is Ready:${NC}"
+        echo ""
+        echo -e "   ${CYAN}kubectl get nodes${NC}"
+        echo ""
+        echo "   You should see:"
+        echo "   NAME         STATUS   ROLES                  AGE   VERSION"
+        echo "   <hostname>   Ready    control-plane,master   Xm    v1.xx.x"
+        echo ""
+        echo -e "${YELLOW}Troubleshooting steps if still not Ready after 5 minutes:${NC}"
+        echo ""
         echo -e "${CYAN}1. Check K3s service status:${NC}"
         echo -e "   sudo systemctl status k3s"
         echo ""
-        echo -e "${CYAN}2. Check node status (wait 2-3 minutes and retry):${NC}"
-        echo -e "   kubectl get nodes"
+        echo -e "${CYAN}2. Watch node status (Ctrl+C to exit):${NC}"
+        echo -e "   kubectl get nodes --watch"
         echo ""
         echo -e "${CYAN}3. Check pods are starting:${NC}"
         echo -e "   kubectl get pods -A"
         echo ""
-        echo -e "${CYAN}4. If K3s is healthy but installer timed out:${NC}"
+        echo -e "${CYAN}4. View K3s logs for errors:${NC}"
+        echo -e "   sudo journalctl -u k3s -f"
+        echo ""
+        echo -e "${CYAN}5. If K3s is healthy but installer timed out:${NC}"
         echo -e "   - Wait for node to show 'Ready' status"
         echo -e "   - Re-run installer WITHOUT --force-reinstall"
-        echo -e "   - It will continue from where it left off"
+        echo -e "   - ./linux_installer.sh"
         echo ""
-        echo -e "${CYAN}5. If K3s is broken or in bad state:${NC}"
+        echo -e "${CYAN}6. If K3s is broken or in bad state:${NC}"
         echo -e "   - Re-run installer WITH --force-reinstall"
         echo -e "   - ./linux_installer.sh --force-reinstall"
         echo ""
@@ -1130,6 +1148,9 @@ generate_cluster_info() {
         info "[DRY-RUN] Would generate cluster_info.json"
         return 0
     fi
+    
+    # Ensure edge_configs directory exists
+    mkdir -p "$EDGE_CONFIGS_DIR"
     
     # Get node information
     local node_name=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
@@ -1493,8 +1514,8 @@ display_next_steps() {
     echo "   cat $CLUSTER_INFO_FILE"
     echo ""
     echo "2. Connect this cluster to Azure Arc and deploy Azure IoT Operations:"
-    echo "   - Transfer $CLUSTER_INFO_FILE to your Windows management machine"
-    echo "   - Run: .\External-Configurator.ps1 -ClusterInfo cluster_info.json"
+    echo "   - Transfer the edge_configs/ folder to your Windows management machine"
+    echo "   - Run: .\External-Configurator.ps1 -ClusterInfo edge_configs/cluster_info.json"
     echo ""
     echo "3. Monitor your cluster:"
     echo "   kubectl get pods --all-namespaces"
