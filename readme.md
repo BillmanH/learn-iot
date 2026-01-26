@@ -99,6 +99,24 @@ az connectedk8s proxy --name <your-cluster> --resource-group <your resource grou
 ```
 You'll need this when you get to troubleshooting later. 
 
+### 3b. Grant Azure AD Access to Cluster ⚠️ **REQUIRED FOR REMOTE ACCESS**
+
+After linux_installer.sh completes successfully, run this command **on the edge device** to allow your Azure AD user to manage the cluster remotely via Arc proxy:
+
+```bash
+# Get your Azure AD Object ID (run on any machine with Azure CLI)
+az ad signed-in-user show --query id -o tsv
+
+# On the edge device, create the cluster role binding
+kubectl create clusterrolebinding azure-user-cluster-admin \
+  --clusterrole=cluster-admin \
+  --user="<your-azure-ad-object-id>"
+```
+
+**Why this is needed**: When connecting via Arc proxy, Azure authenticates you with your Azure AD identity. K3s needs this binding to grant your identity cluster-admin permissions.
+
+**Tip**: You can add this Object ID to the `manage_principal` field in `linux_aio_config.json` for reference.
+
 ![reosources pre iot](./img/azure-resources-pre-iot.png)
 
 ### 4. Azure Configuration (From Windows Machine)
@@ -111,6 +129,7 @@ cd linux_build
 cd linux_build
 .\External-Configurator.ps1 -ConfigFile ".\edge_configs\cluster_info.json"
 ```
+**WARNING** the field `kubeconfig_base64` contains a secret. Be careful with that. 
 
 **What it does**: Azure Arc enablement, AIO deployment, asset synchronization  
 **Time**: ~15-20 minutes  
