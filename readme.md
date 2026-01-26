@@ -8,10 +8,25 @@ Automated deployment of Azure IoT Operations (AIO) on edge devices with industri
 - 🏭 **Industrial IoT apps** - Factory simulator, MQTT historian, data processors
 - ☁️ **Cloud integration** - Microsoft Fabric Real-Time Intelligence connectivity
 - 🔧 **Production-ready** - Separation of edge and cloud configuration for security
+- TBD - Windowns AIO installer - comming soon
 
 > **For detailed technical information, see [README_ADVANCED.md](README_ADVANCED.md)**
 
+## Why not use codespaces form the docs? 
+The docs have a very clean "one click" deployment in the MSFT docs. It's a great first step, especially if you just want to see the tools. 
+* That will live in it's own environment and you won't be able to connect it to your signals or your devices. 
+* This version will help you set up AIO in the actual environment where you do your IoT operations.
+* This is much closer to a production-level deployment.
+* This instance will last as long as you want to keep it.
+
+As the end-goal is an IoT solution, this repo has a preference for installing on hardware over virtualization. The goal is that you can put this in your IoT environment, validate the build, and then migrate to a production version. 
+
+
 # Quick Start
+The goal here is to install AIO on a Ubuntu machine (like a local NUC, PC or a VM). So that you can get working quickly on your datflow pipelines and get data in fabric quickly. 
+
+Once you have setup AIO via this process, you should be able to do everything that you want in the cloud without touching the Ubuntu machine again.
+
 
 ![Process Overview](./img/process_1.png)
 
@@ -30,7 +45,7 @@ git clone https://github.com/yourusername/learn-iothub.git
 cd learn-iothub
 ```
 
-### 2. Create and Complete Config File ⚠️ **DO THIS FIRST**
+### 2a. Create and Complete Config File ⚠️ **DO THIS FIRST**
 
 **Before running any installation scripts**, create and configure `linux_aio_config.json`:
 
@@ -40,14 +55,29 @@ cp linux_aio_config.template.json linux_aio_config.json
 ```
 
 Edit `linux_aio_config.json` with your settings:
-- Azure subscription ID
+- Azure subscription ID (leave empty to use current login)
 - Resource group name
 - Location (e.g., "eastus")
 - Cluster name
-- Optional tools to install (k9s, mqtt-viewer, mqttui)
-- Edge modules to deploy (edgemqttsim, demohistorian, etc.)
+- Optional tools to install (k9s, mqtt-viewer, ssh)
+- Edge modules to deploy (edgemqttsim, hello-flask, sputnik, wasm-quality-filter-python)
 
 **This config file controls the entire deployment.** Review it carefully before proceeding.
+
+### 2b. Login to Azure CLI
+
+Before running the installer, authenticate with Azure:
+
+```bash
+az login
+```
+
+This authenticates your session. The edge installer will use this to:
+- Create the resource group and Key Vault
+- Arc-enable your cluster (if `enable_arc_on_install` is set to true in config)
+- Store cluster credentials securely
+
+**Note**: You only need to do this once per session. The credentials are used for both the edge setup and later Azure configuration.
 
 ### 3. Edge Setup (On Ubuntu Device)
 
@@ -74,10 +104,10 @@ You'll need this when you get to troubleshooting later.
 ### 4. Azure Configuration (From Windows Machine)
 
 ```powershell
-# Prerequisites: Install Azure CLI and login
-az login
-
 # Configure Azure resources and connect edge cluster
+cd linux_build
+.\External-Configurator.ps1 -ConfigFile ".\edge_configs\cluster_info.json"
+```
 cd linux_build
 .\External-Configurator.ps1 -ConfigFile ".\edge_configs\cluster_info.json"
 ```

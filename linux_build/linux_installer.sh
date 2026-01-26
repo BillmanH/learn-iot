@@ -69,14 +69,15 @@ FORCE_REINSTALL=false
 K9S_ENABLED=false
 MQTT_VIEWER_ENABLED=false
 SSH_ENABLED=false
-EDGEMQTTSIM_ENABLED=false
-HELLO_FLASK_ENABLED=false
-SPUTNIK_ENABLED=false
-WASM_FILTER_ENABLED=false
+# NOTE: Module deployment disabled in linux_installer.sh - handled by External-Configurator.ps1
+# EDGEMQTTSIM_ENABLED=false
+# HELLO_FLASK_ENABLED=false
+# SPUTNIK_ENABLED=false
+# WASM_FILTER_ENABLED=false
 MANAGE_PRINCIPAL=""
 
 # Deployment tracking
-DEPLOYED_MODULES=()
+# DEPLOYED_MODULES=()  # Not used - modules deployed by External-Configurator.ps1
 INSTALLED_TOOLS=()
 
 # ============================================================================
@@ -364,11 +365,12 @@ load_local_config() {
     MQTT_VIEWER_ENABLED=$(jq -r '.optional_tools."mqtt-viewer" // false' "$CONFIG_FILE")
     SSH_ENABLED=$(jq -r '.optional_tools.ssh // false' "$CONFIG_FILE")
     
-    # Load modules configuration
-    EDGEMQTTSIM_ENABLED=$(jq -r '.modules.edgemqttsim // false' "$CONFIG_FILE")
-    HELLO_FLASK_ENABLED=$(jq -r '.modules."hello-flask" // false' "$CONFIG_FILE")
-    SPUTNIK_ENABLED=$(jq -r '.modules.sputnik // false' "$CONFIG_FILE")
-    WASM_FILTER_ENABLED=$(jq -r '.modules."wasm-quality-filter-python" // false' "$CONFIG_FILE")
+    # NOTE: Modules configuration is NOT used by linux_installer.sh
+    # Modules are deployed by External-Configurator.ps1 after Azure Arc enablement
+    # EDGEMQTTSIM_ENABLED=$(jq -r '.modules.edgemqttsim // false' "$CONFIG_FILE")
+    # HELLO_FLASK_ENABLED=$(jq -r '.modules."hello-flask" // false' "$CONFIG_FILE")
+    # SPUTNIK_ENABLED=$(jq -r '.modules.sputnik // false' "$CONFIG_FILE")
+    # WASM_FILTER_ENABLED=$(jq -r '.modules."wasm-quality-filter-python" // false' "$CONFIG_FILE")
     
     # Display configuration
     echo ""
@@ -382,11 +384,12 @@ load_local_config() {
     echo "  mqtt-viewer: $MQTT_VIEWER_ENABLED"
     echo "  ssh: $SSH_ENABLED"
     echo ""
-    echo "Modules to deploy:"
-    echo "  edgemqttsim: $EDGEMQTTSIM_ENABLED"
-    echo "  hello-flask: $HELLO_FLASK_ENABLED"
-    echo "  sputnik: $SPUTNIK_ENABLED"
-    echo "  wasm-quality-filter-python: $WASM_FILTER_ENABLED"
+    # Note: Module deployment info removed - handled by External-Configurator.ps1
+    # echo "Modules to deploy:"
+    # echo "  edgemqttsim: $EDGEMQTTSIM_ENABLED"
+    # echo "  hello-flask: $HELLO_FLASK_ENABLED"
+    # echo "  sputnik: $SPUTNIK_ENABLED"
+    # echo "  wasm-quality-filter-python: $WASM_FILTER_ENABLED"
     # Optional Azure management principal (UPN or object id) to grant read-only access
     MANAGE_PRINCIPAL=$(jq -r '.azure.manage_principal // empty' "$CONFIG_FILE")
     if [ -n "$MANAGE_PRINCIPAL" ]; then
@@ -1426,57 +1429,29 @@ deploy_azure_iot_operations() {
     log "Using namespace resource ID: $namespace_resource_id"
     log "The namespace will be created automatically during deployment"
     
-    # Create Key Vault for Secret Management (required for Fabric RTI)
-    # Use configured name or generate one
-    local keyvault_name=$(jq -r '.azure.key_vault_name // empty' "$CONFIG_FILE")
+    # NOTE: Key Vault creation and Secret Management setup moved to External-Configurator.ps1
+    # This follows the separation of concerns: linux_installer.sh handles edge infrastructure only
     
-    if [ -z "$keyvault_name" ]; then
-        # Auto-generate name if not specified
-        keyvault_name=$(echo "${CLUSTER_NAME}-kv" | tr '[:upper:]' '[:lower:]' | tr -d '-' | cut -c1-24)
-        info "Key Vault name not specified in config, using auto-generated: $keyvault_name"
-    else
-        info "Using Key Vault name from config: $keyvault_name"
-    fi
-    
-    info "Setting up Key Vault for Secret Management..."
-    if az keyvault show --name "$keyvault_name" --resource-group "$resource_group" &>/dev/null; then
-        success "Key Vault exists: $keyvault_name"
-    else
-        log "Creating Key Vault: $keyvault_name"
-        az keyvault create \
-            --name "$keyvault_name" \
-            --resource-group "$resource_group" \
-            --location "$location" \
-            --enable-rbac-authorization true \
-            --enabled-for-deployment true
-        success "Key Vault created"
-    fi
-    
-    # Get Key Vault resource ID
-    local keyvault_id=$(az keyvault show \
-        --name "$keyvault_name" \
-        --resource-group "$resource_group" \
-        --query id -o tsv)
-    
-    # Deploy Azure IoT Operations instance
+    # Deploy Azure IoT Operations instance (without inline Key Vault - that's handled by External-Configurator.ps1)
     local instance_name="${CLUSTER_NAME}-aio"
     
     info "Deploying Azure IoT Operations instance..."
     if az iot ops show --name "$instance_name" --resource-group "$resource_group" &>/dev/null; then
         success "Azure IoT Operations instance exists: $instance_name"
     else
-        log "Creating IoT Operations instance with Secret Management enabled (this may take several minutes)..."
+        log "Creating IoT Operations instance (this may take several minutes)..."
+        log "Note: Secret Management will be configured by External-Configurator.ps1"
         az iot ops create \
             --cluster "$CLUSTER_NAME" \
             --resource-group "$resource_group" \
             --name "$instance_name" \
             --sr-resource-id "$schema_registry_id" \
-            --ns-resource-id "$namespace_resource_id" \
-            --kv-resource-id "$keyvault_id" || {
+            --ns-resource-id "$namespace_resource_id" || {
             error "Failed to deploy Azure IoT Operations"
             return 1
         }
-        success "Azure IoT Operations deployed with Secret Management enabled!"
+        success "Azure IoT Operations deployed!"
+        info "Run External-Configurator.ps1 to enable Secret Management and deploy modules"
     fi
     
     # Enable resource sync
@@ -1615,8 +1590,8 @@ main() {
     apply_manage_principal_rbac
     configure_system_settings
     
-    # Deploy modules
-    deploy_modules
+    # NOTE: Module deployment is handled by External-Configurator.ps1 after Azure Arc enablement
+    # deploy_modules
     
     # Verification
     verify_local_cluster
