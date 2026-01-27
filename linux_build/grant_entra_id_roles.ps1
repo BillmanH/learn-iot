@@ -18,7 +18,7 @@
     
 .PARAMETER AddUser
     User email/UPN or Object ID (GUID) to grant full access
-    Examples: wharding@microsoft.com or 12345678-1234-1234-1234-123456789abc
+    Examples: you@mail.com or 12345678-1234-1234-1234-123456789abc
     Optional - if not provided, grants to current signed-in user
 
 .PARAMETER SubscriptionId
@@ -28,7 +28,7 @@
     .\grant_entra_id_roles.ps1
     
 .EXAMPLE
-    .\grant_entra_id_roles.ps1 -AddUser wharding@microsoft.com
+    .\grant_entra_id_roles.ps1 -AddUser you@mail.com or 12345678-1234-1234-1234-123456789abc
     
 .EXAMPLE
     .\grant_entra_id_roles.ps1 -ResourceGroup "IoT-Operations" -ClusterName "iot-ops-cluster" -AddUser <your OID>
