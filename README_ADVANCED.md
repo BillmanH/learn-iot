@@ -711,6 +711,70 @@ kubectl logs -n azure-iot-operations -l app=aio-dataflow-processor --tail=100
 
 ## Troubleshooting
 
+### Azure Arc RBAC Issues
+
+When connecting to the cluster via Azure Arc proxy, you may see errors like:
+
+```
+Error from server (Forbidden): nodes is forbidden: User "user@domain.com" cannot list resource "nodes"
+```
+
+**Cause**: Azure Arc authenticates you with your Azure AD identity, but K3s doesn't have RBAC bindings for Azure AD users by default.
+
+**Solution**: Create ClusterRoleBindings for your Azure AD identity on the edge device:
+
+```bash
+# Get your Azure AD Object ID and UPN
+az ad signed-in-user show --query "[id, userPrincipalName]" -o tsv
+
+# Create bindings for BOTH formats (Arc may use either)
+kubectl create clusterrolebinding azure-user-objectid-admin \
+  --clusterrole=cluster-admin \
+  --user="<your-object-id-guid>"
+
+kubectl create clusterrolebinding azure-user-upn-admin \
+  --clusterrole=cluster-admin \
+  --user="<your-email@domain.com>"
+```
+
+**Why both bindings?** Azure Arc proxy behavior varies:
+- Some configurations pass the Object ID (GUID format)
+- Others pass the UPN (email format)
+- Creating both ensures access works regardless
+
+**Adding additional users:**
+
+```bash
+# Get another user's info
+az ad user show --id "User.Name@domain.com" --query "[id, userPrincipalName]" -o tsv
+
+# Create bindings for that user
+kubectl create clusterrolebinding azure-username-objectid-admin \
+  --clusterrole=cluster-admin \
+  --user="<their-object-id>"
+
+kubectl create clusterrolebinding azure-username-upn-admin \
+  --clusterrole=cluster-admin \
+  --user="User.Name@domain.com"
+```
+
+**Check existing bindings:**
+
+```bash
+# List all cluster role bindings
+kubectl get clusterrolebindings | grep azure
+
+# View details of a specific binding
+kubectl get clusterrolebinding azure-user-objectid-admin -o yaml
+```
+
+**Patch an existing binding to add a user:**
+
+```bash
+kubectl patch clusterrolebinding azure-user-objectid-admin --type='json' \
+  -p='[{"op": "add", "path": "/subjects/-", "value": {"apiGroup": "rbac.authorization.k8s.io", "kind": "User", "name": "NewUser@domain.com"}}]'
+```
+
 ### Common Issues
 
 #### 1. No Pods Running After Installation

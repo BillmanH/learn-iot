@@ -104,18 +104,20 @@ You'll need this when you get to troubleshooting later.
 After linux_installer.sh completes successfully, run this command **on the edge device** to allow your Azure AD user to manage the cluster remotely via Arc proxy:
 
 ```bash
-# Get your Azure AD Object ID (run on any machine with Azure CLI)
-az ad signed-in-user show --query id -o tsv
+# Get your Azure AD info (run on any machine with Azure CLI)
+az ad signed-in-user show --query "[id, userPrincipalName]" -o tsv
 
-# On the edge device, create the cluster role binding
-kubectl create clusterrolebinding azure-user-cluster-admin \
+# On the edge device, create bindings for BOTH Object ID and UPN
+kubectl create clusterrolebinding azure-user-objectid-admin \
   --clusterrole=cluster-admin \
-  --user="<your-azure-ad-object-id>"
+  --user="<your-object-id-guid>"
+
+kubectl create clusterrolebinding azure-user-upn-admin \
+  --clusterrole=cluster-admin \
+  --user="<your-email@domain.com>"
 ```
 
-**Why this is needed**: When connecting via Arc proxy, Azure authenticates you with your Azure AD identity. K3s needs this binding to grant your identity cluster-admin permissions.
-
-**Tip**: You can add this Object ID to the `manage_principal` field in `linux_aio_config.json` for reference.
+> **Note**: Azure Arc proxy may use either format. See [README_ADVANCED.md](README_ADVANCED.md#azure-arc-rbac-issues) for troubleshooting access issues.
 
 ![reosources pre iot](./img/azure-resources-pre-iot.png)
 
