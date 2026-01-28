@@ -87,6 +87,7 @@ $script:SubscriptionName = $null
 $script:ResourceGroup = $null
 $script:Location = $null
 $script:ClusterName = $null
+$script:ConfigClusterName = $null  # Cluster name from aio_config.json (for validation)
 $script:NamespaceName = $null
 $script:KeyVaultName = $null
 $script:StorageAccountName = $null
@@ -315,16 +316,87 @@ function Import-AzureConfig {
             $script:NamespaceName = $script:AzureConfig.azure.namespace_name
             $script:KeyVaultName = $script:AzureConfig.azure.key_vault_name
             
-            # Override cluster name from config if provided
-            if ($script:AzureConfig.azure.cluster_name) {
-                $script:ClusterName = $script:AzureConfig.azure.cluster_name
-            }
+            # Store the config cluster name for validation (don't override yet)
+            $script:ConfigClusterName = $script:AzureConfig.azure.cluster_name
         }
         
         Write-Success "Azure configuration loaded from: $configPath"
     } catch {
         Write-ErrorLog "Failed to parse config file: $_"
         Write-WarnLog "Configuration will be collected interactively"
+    }
+}
+
+function Test-ConfigConsistency {
+    Write-Log "Validating configuration consistency..."
+    
+    # Check if both configs have cluster names defined
+    $clusterInfoName = $script:ClusterData.cluster_name
+    $aioConfigName = $script:ConfigClusterName
+    
+    if (-not $clusterInfoName) {
+        Write-ErrorLog "cluster_info.json is missing cluster_name" -Fatal
+    }
+    
+    if (-not $aioConfigName) {
+        Write-InfoLog "aio_config.json does not specify cluster_name - using cluster_info.json value: $clusterInfoName"
+        $script:ClusterName = $clusterInfoName
+        return
+    }
+    
+    # Both have cluster names - check if they match
+    if ($clusterInfoName -ne $aioConfigName) {
+        Write-Host ""
+        Write-Host "============================================================================" -ForegroundColor Red
+        Write-Host "WARNING: Cluster name mismatch detected!" -ForegroundColor Red
+        Write-Host "============================================================================" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "  cluster_info.json (from edge installer): $clusterInfoName" -ForegroundColor Yellow
+        Write-Host "  aio_config.json (Azure config):          $aioConfigName" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "This could indicate:" -ForegroundColor Cyan
+        Write-Host "  - You're using the wrong config file for this cluster" -ForegroundColor Gray
+        Write-Host "  - The aio_config.json was not updated after a fresh edge install" -ForegroundColor Gray
+        Write-Host "  - These configs are for different environments" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "The cluster_info.json name comes from the actual edge device installer." -ForegroundColor Cyan
+        Write-Host "The aio_config.json name is what will be used for Azure Arc registration." -ForegroundColor Cyan
+        Write-Host ""
+        
+        Write-Host "Options:" -ForegroundColor Cyan
+        Write-Host "  [1] Use cluster_info.json value: $clusterInfoName (recommended for fresh installs)" -ForegroundColor Gray
+        Write-Host "  [2] Use aio_config.json value: $aioConfigName (if cluster is already Arc-enabled with this name)" -ForegroundColor Gray
+        Write-Host "  [3] Abort and fix the configuration files" -ForegroundColor Gray
+        Write-Host ""
+        
+        $choice = Read-Host "Enter choice (1/2/3)"
+        
+        switch ($choice) {
+            "1" {
+                $script:ClusterName = $clusterInfoName
+                Write-InfoLog "Using cluster name from cluster_info.json: $clusterInfoName"
+                Write-WarnLog "Consider updating aio_config.json to match: cluster_name = '$clusterInfoName'"
+            }
+            "2" {
+                $script:ClusterName = $aioConfigName
+                Write-InfoLog "Using cluster name from aio_config.json: $aioConfigName"
+                Write-WarnLog "Consider updating cluster_info.json if this is a fresh install"
+            }
+            "3" {
+                Write-Host ""
+                Write-Host "To fix this, update one of the files to match:" -ForegroundColor Yellow
+                Write-Host "  - Edit config/aio_config.json and set cluster_name to '$clusterInfoName'" -ForegroundColor Gray
+                Write-Host "  - Or edit config/cluster_info.json and set cluster_name to '$aioConfigName'" -ForegroundColor Gray
+                Write-Host ""
+                Write-ErrorLog "Configuration mismatch - user chose to abort" -Fatal
+            }
+            default {
+                Write-ErrorLog "Invalid choice. Aborting." -Fatal
+            }
+        }
+    } else {
+        Write-Success "Cluster names match: $clusterInfoName"
+        $script:ClusterName = $clusterInfoName
     }
 }
 
@@ -452,27 +524,30 @@ function Deploy-ARMTemplate {
         $DeploymentName = "$TemplateName-$(Get-Date -Format 'yyyyMMddHHmmss')"
     }
     
-    # Build parameters string
-    $paramString = ($Parameters.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ' '
+    # Build parameters as individual arguments (avoid JSON parsing issues)
+    $paramArgs = @()
+    foreach ($param in $Parameters.GetEnumerator()) {
+        $paramArgs += "$($param.Key)=$($param.Value)"
+    }
     
     Write-Log "Deploying ARM template: $TemplateName"
-    Write-InfoLog "Parameters: $paramString"
+    Write-InfoLog "Parameters: $($paramArgs -join ', ')"
     
     if ($DryRun) {
         # Use what-if for validation
         if ($SubscriptionLevel) {
             Write-InfoLog "[DRY-RUN] Validating subscription-level deployment..."
-            $result = az deployment sub what-if `
+            $result = & az deployment sub what-if `
                 --location $script:Location `
                 --template-file $templatePath `
-                --parameters $paramString `
+                --parameters @paramArgs `
                 --output json 2>&1
         } else {
             Write-InfoLog "[DRY-RUN] Validating resource group deployment..."
-            $result = az deployment group what-if `
+            $result = & az deployment group what-if `
                 --resource-group $script:ResourceGroup `
                 --template-file $templatePath `
-                --parameters $paramString `
+                --parameters @paramArgs `
                 --output json 2>&1
         }
         
@@ -487,18 +562,18 @@ function Deploy-ARMTemplate {
     
     # Actual deployment
     if ($SubscriptionLevel) {
-        $result = az deployment sub create `
+        $result = & az deployment sub create `
             --location $script:Location `
             --name $DeploymentName `
             --template-file $templatePath `
-            --parameters $paramString `
+            --parameters @paramArgs `
             --output json 2>&1
     } else {
-        $result = az deployment group create `
+        $result = & az deployment group create `
             --resource-group $script:ResourceGroup `
             --name $DeploymentName `
             --template-file $templatePath `
-            --parameters $paramString `
+            --parameters @paramArgs `
             --output json 2>&1
     }
     
@@ -516,7 +591,35 @@ function Deploy-ARMTemplate {
     } else {
         Write-ErrorLog "ARM deployment failed: $TemplateName"
         Write-ErrorLog "Error: $result"
-        return $null
+        Write-Host ""
+        Write-Host "Stopping deployment due to ARM template failure." -ForegroundColor Red
+        
+        # Check for authorization error and provide specific guidance
+        if ($result -match "AuthorizationFailed|does not have authorization") {
+            Write-Host ""
+            Write-Host "============================================================================" -ForegroundColor Yellow
+            Write-Host "AUTHORIZATION ERROR DETECTED" -ForegroundColor Yellow
+            Write-Host "============================================================================" -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "Your account does not have sufficient permissions to deploy ARM templates." -ForegroundColor Yellow
+            Write-Host "You need 'Contributor' or 'Owner' role on the subscription." -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "To grant the required permissions, run:" -ForegroundColor Cyan
+            Write-Host ""
+            Write-Host "  .\grant_entra_id_roles.ps1 -AddUser $($script:SubscriptionName)" -ForegroundColor Green
+            Write-Host ""
+            Write-Host "Or ask your Azure admin to grant you one of these roles:" -ForegroundColor Gray
+            Write-Host "  - Contributor (can deploy resources)" -ForegroundColor Gray
+            Write-Host "  - Owner (can deploy resources and manage access)" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "After permissions are granted, run this script again." -ForegroundColor Yellow
+            Write-Host "============================================================================" -ForegroundColor Yellow
+        } else {
+            Write-Host "Please fix the issue above and run the script again." -ForegroundColor Yellow
+            Write-Host "Tip: You can use -SkipArcEnable if infrastructure is already deployed." -ForegroundColor Gray
+        }
+        
+        Write-ErrorLog "ARM deployment failed - cannot continue" -Fatal
     }
 }
 
@@ -532,7 +635,6 @@ function Deploy-Infrastructure {
     $rgResult = Deploy-ARMTemplate -TemplateName "resourceGroup" -SubscriptionLevel -Parameters @{
         resourceGroupName = $script:ResourceGroup
         location = $script:Location
-        tags = "{'project':'azure-iot-operations','cluster':'$($script:ClusterName)'}"
     }
     
     if (-not $rgResult -and -not $DryRun) {
@@ -983,6 +1085,9 @@ function Main {
         
         Import-ClusterInfo
         Import-AzureConfig
+        
+        # Validate cluster names match between config files
+        Test-ConfigConsistency
         
         Connect-ToAzure
         

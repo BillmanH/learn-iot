@@ -8,7 +8,7 @@
     and grants user access to Key Vault and IoT resources.
     
 .PARAMETER ResourceGroup
-    Azure resource group name (default: from linux_aio_config.json)
+    Azure resource group name (default: from config/aio_config.json)
     
 .PARAMETER ClusterName
     Kubernetes cluster name (default: from cluster_info.json)
@@ -109,9 +109,12 @@ function Write-ErrorMsg {
 function Find-ConfigFile {
     param([string]$FileName)
     
+    $repoRoot = Split-Path -Parent $script:ScriptDir
+    $configDir = Join-Path $repoRoot "config"
+    
     $searchPaths = @(
+        (Join-Path $configDir $FileName),
         (Join-Path $script:ScriptDir $FileName),
-        (Join-Path $script:ScriptDir "edge_configs\$FileName"),
         (Join-Path (Get-Location) $FileName)
     )
     
@@ -140,10 +143,10 @@ function Load-Configuration {
         }
     }
     
-    # Try to load linux_aio_config.json
-    $configPath = Find-ConfigFile "linux_aio_config.json"
+    # Try to load aio_config.json
+    $configPath = Find-ConfigFile "aio_config.json"
     if ($configPath) {
-        Write-Success "Found linux_aio_config.json: $configPath"
+        Write-Success "Found aio_config.json: $configPath"
         try {
             $config = Get-Content $configPath -Raw | ConvertFrom-Json
             $script:ResourceGroup = $config.azure.resource_group
@@ -154,7 +157,7 @@ function Load-Configuration {
             Write-Info "  Resource Group: $script:ResourceGroup"
             Write-Info "  Subscription: $script:SubscriptionId"
         } catch {
-            Write-Warning "Could not parse linux_aio_config.json"
+            Write-Warning "Could not parse aio_config.json"
         }
     }
 }
