@@ -64,6 +64,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Configuration variables (loaded from JSON)
+CONFIG_TYPE="quickstart"  # Default to quickstart mode
 CLUSTER_NAME=""
 SKIP_SYSTEM_UPDATE=false
 FORCE_REINSTALL=false
@@ -76,6 +77,12 @@ SSH_ENABLED=false
 # SPUTNIK_ENABLED=false
 # WASM_FILTER_ENABLED=false
 MANAGE_PRINCIPAL=""
+
+# Advanced mode skip flags
+SKIP_KUBECONFIG_SETUP=false
+SKIP_CONTAINER_REGISTRY_SETUP=false
+SKIP_CERTIFICATE_SETUP=false
+ENABLE_KEYVAULT_SYNC=true
 
 # Deployment tracking
 # DEPLOYED_MODULES=()  # Not used - modules deployed by External-Configurator.ps1
@@ -355,9 +362,20 @@ load_local_config() {
         error "Invalid JSON in configuration file: $CONFIG_FILE"
     fi
     
+    # Load config type
+    CONFIG_TYPE=$(jq -r '.config_type // "quickstart"' "$CONFIG_FILE")
+    
     # Load edge device settings
     CLUSTER_NAME=$(jq -r '.azure.cluster_name // "edge-device-'$(hostname)'"' "$CONFIG_FILE")
     SKIP_SYSTEM_UPDATE=$(jq -r '.deployment.skip_system_update // false' "$CONFIG_FILE")
+    
+    # Load advanced mode skip flags (only used if config_type is "advanced")
+    if [ "$CONFIG_TYPE" = "advanced" ]; then
+        SKIP_KUBECONFIG_SETUP=$(jq -r '.azure.skip_kubeconfig_setup // false' "$CONFIG_FILE")
+        SKIP_CONTAINER_REGISTRY_SETUP=$(jq -r '.azure.skip_container_registry_setup // false' "$CONFIG_FILE")
+        SKIP_CERTIFICATE_SETUP=$(jq -r '.azure.skip_certificate_setup // false' "$CONFIG_FILE")
+        ENABLE_KEYVAULT_SYNC=$(jq -r '.azure.enable_keyvault_sync // true' "$CONFIG_FILE")
+    fi
     
     # Note: force_reinstall is now a command-line parameter (--force-reinstall), not a config option
     
@@ -375,11 +393,25 @@ load_local_config() {
     
     # Display configuration
     echo ""
+    echo -e "${CYAN}========================================${NC}"
+    echo -e "${CYAN}Configuration Mode: ${GREEN}${CONFIG_TYPE^^}${NC}"
+    echo -e "${CYAN}========================================${NC}"
+    echo ""
     echo "Configuration loaded:"
     echo "  Cluster name: $CLUSTER_NAME"
     echo "  Skip system update: $SKIP_SYSTEM_UPDATE"
     echo "  Force reinstall: $FORCE_REINSTALL"
     echo ""
+    
+    if [ "$CONFIG_TYPE" = "advanced" ]; then
+        echo "Advanced mode settings:"
+        echo "  Skip kubeconfig setup: $SKIP_KUBECONFIG_SETUP"
+        echo "  Skip container registry setup: $SKIP_CONTAINER_REGISTRY_SETUP"
+        echo "  Skip certificate setup: $SKIP_CERTIFICATE_SETUP"
+        echo "  Enable Key Vault sync: $ENABLE_KEYVAULT_SYNC"
+        echo ""
+    fi
+    
     echo "Optional tools:"
     echo "  k9s: $K9S_ENABLED"
     echo "  mqtt-viewer: $MQTT_VIEWER_ENABLED"
@@ -805,6 +837,12 @@ install_k3s() {
 }
 
 configure_kubectl() {
+    # Skip if configured in advanced mode
+    if [ "$CONFIG_TYPE" = "advanced" ] && [ "$SKIP_KUBECONFIG_SETUP" = "true" ]; then
+        info "Skipping kubectl configuration (advanced mode: skip_kubeconfig_setup=true)"
+        return 0
+    fi
+    
     log "Configuring kubectl for local access..."
     
     if [ "$DRY_RUN" = "true" ]; then
@@ -829,6 +867,13 @@ configure_kubectl() {
 }
 
 install_csi_secret_store() {
+    # Check if Key Vault sync should be enabled
+    if [ "$CONFIG_TYPE" = "advanced" ] && [ "$ENABLE_KEYVAULT_SYNC" != "true" ]; then
+        info "Skipping CSI Secret Store installation (advanced mode: enable_keyvault_sync=false)"
+        warn "Without Key Vault sync, Fabric RTI dataflows requiring secrets will not work"
+        return 0
+    fi
+    
     log "Installing CSI Secret Store driver for Azure Key Vault integration..."
     
     if [ "$DRY_RUN" = "true" ]; then
@@ -1502,10 +1547,30 @@ display_next_steps() {
     echo -e "${CYAN}Edge Device Installation Completed Successfully!${NC}"
     echo -e "${CYAN}============================================================================${NC}"
     echo ""
+    echo -e "Configuration mode: ${GREEN}${CONFIG_TYPE^^}${NC}"
+    echo ""
     echo "Your edge device is now ready with:"
     echo "  ✓ K3s Kubernetes cluster: $CLUSTER_NAME"
-    echo "  ✓ kubectl and Helm configured"
-    echo "  ✓ CSI Secret Store driver (Azure Key Vault integration)"
+    
+    if [ "$CONFIG_TYPE" = "advanced" ] && [ "$SKIP_KUBECONFIG_SETUP" = "true" ]; then
+        echo "  ⚠ kubectl configuration skipped (manual setup required)"
+    else
+        echo "  ✓ kubectl and Helm configured"
+    fi
+    
+    if [ "$CONFIG_TYPE" = "advanced" ] && [ "$ENABLE_KEYVAULT_SYNC" != "true" ]; then
+        echo "  ⚠ CSI Secret Store skipped (Key Vault sync disabled)"
+    else
+        echo "  ✓ CSI Secret Store driver (Azure Key Vault integration)"
+    fi
+    
+    if [ "$CONFIG_TYPE" = "advanced" ] && [ "$SKIP_CONTAINER_REGISTRY_SETUP" = "true" ]; then
+        echo "  ⚠ Container registry setup skipped"
+    fi
+    
+    if [ "$CONFIG_TYPE" = "advanced" ] && [ "$SKIP_CERTIFICATE_SETUP" = "true" ]; then
+        echo "  ⚠ Certificate setup skipped"
+    fi
     
     if [ ${#INSTALLED_TOOLS[@]} -gt 0 ]; then
         echo "  ✓ Optional tools: ${INSTALLED_TOOLS[*]}"
@@ -1518,14 +1583,47 @@ display_next_steps() {
     echo ""
     echo -e "${GREEN}Next Steps:${NC}"
     echo ""
-    echo "1. Review cluster information:"
-    echo "   cat $CLUSTER_INFO_FILE"
-    echo ""
-    echo "2. Connect this cluster to Azure Arc and deploy Azure IoT Operations:"
-    echo "   - Transfer the edge_configs/ folder to your Windows management machine"
-    echo "   - Run: .\External-Configurator.ps1 -ClusterInfo edge_configs/cluster_info.json"
-    echo ""
-    echo "3. Monitor your cluster:"
+    
+    if [ "$CONFIG_TYPE" = "quickstart" ]; then
+        echo "QUICKSTART MODE - Most setup is automated!"
+        echo ""
+        echo "1. Review cluster information:"
+        echo "   cat $CLUSTER_INFO_FILE"
+        echo ""
+        if [ "$(jq -r '.azure.enable_arc_on_install // false' "$CONFIG_FILE")" = "true" ]; then
+            echo "2. Azure Arc and IoT Operations should be deploying automatically"
+            echo "   Check status: kubectl get pods -A"
+            echo ""
+            echo "3. Monitor your cluster:"
+        else
+            echo "2. Connect this cluster to Azure Arc (if enable_arc_on_install was false):"
+            echo "   - Transfer the configs/ folder to your Windows management machine"
+            echo "   - Run: .\External-Configurator.ps1 -ClusterInfo configs/cluster_info.json"
+            echo ""
+            echo "3. Monitor your cluster:"
+        fi
+    else
+        echo "ADVANCED MODE - Manual control enabled"
+        echo ""
+        echo "1. Review cluster information:"
+        echo "   cat $CLUSTER_INFO_FILE"
+        echo ""
+        
+        if [ "$SKIP_KUBECONFIG_SETUP" = "true" ]; then
+            echo "2. Configure kubectl manually (skipped in installation):"
+            echo "   mkdir -p ~/.kube"
+            echo "   sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config"
+            echo "   sudo chown \$USER:\$USER ~/.kube/config"
+            echo ""
+        fi
+        
+        echo "3. Connect to Azure Arc and deploy IoT Operations:"
+        echo "   - Transfer the configs/ folder to your Windows management machine"
+        echo "   - Run: .\External-Configurator.ps1 -ClusterInfo configs/cluster_info.json"
+        echo ""
+        echo "4. Monitor your cluster:"
+    fi
+    
     echo "   kubectl get pods --all-namespaces"
     
     if [[ " ${INSTALLED_TOOLS[@]} " =~ " k9s " ]]; then
@@ -1579,9 +1677,13 @@ main() {
     # Setup logging
     setup_logging
     
+    # Load configuration first to get config_type
+    load_local_config
+    
     # Show banner
     log "Starting Azure IoT Operations - Edge Device Installer"
     log "Version: 2.0.0 (Separation of Concerns)"
+    log "Configuration Mode: ${CONFIG_TYPE^^}"
     
     if [ "$DRY_RUN" = "true" ]; then
         warn "DRY-RUN MODE: No changes will be made to your system"
@@ -1593,9 +1695,6 @@ main() {
     check_root
     check_system_requirements
     check_port_conflicts
-    
-    # Load configuration
-    load_local_config
     
     # System preparation
     update_system
