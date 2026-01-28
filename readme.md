@@ -28,7 +28,7 @@ The goal here is to install AIO on a Ubuntu machine (like a local NUC, PC or a V
 Once you have setup AIO via this process, you should be able to do everything that you want in the cloud without touching the Ubuntu machine again.
 
 
-![Process Overview](./img/process_1.png)
+![Process Overview](docs/img/process_1.png)
 
 ## Prerequisites
 
@@ -73,7 +73,7 @@ bash installer.sh
 **Output**: `config/cluster_info.json` (needed for next step)
 
 > **Note**: System may restart during installation. This is normal. Rerun the script after restart to continue.
-![k9s pre iot](./img/k9s-pre-iot.jpg)
+![k9s pre iot](docs/img/k9s-pre-iot.jpg)
 After this you should see the core arc-kubernetes components on your nuc device. 
 You can also use the proxy service at:
 ```
@@ -83,7 +83,7 @@ You'll need this when you get to troubleshooting later.
 
 > **Note**: If you need remote access via Arc proxy, see [README_ADVANCED.md](README_ADVANCED.md#azure-arc-rbac-issues) for RBAC setup.
 
-![reosources pre iot](./img/azure-resources-pre-iot.png)
+![reosources pre iot](docs/img/azure-resources-pre-iot.png)
 
 ### 4. Azure Configuration (From Windows Machine)
 
@@ -101,8 +101,8 @@ cd external_configuration
 **Time**: ~15-20 minutes  
 **Benefit**: No Azure credentials needed on edge device
 
-![k9s post iot](./img/k9s-post-iot.jpg)
-![reosources post iot](./img/azure-resources-post-iot.png)
+![k9s post iot](docs/img/k9s-post-iot.jpg)
+![reosources post iot](docs/img/azure-resources-post-iot.png)
 
 ### 5. Verify Installation
 
