@@ -115,7 +115,7 @@ kubectl create clusterrolebinding azure-user-cluster-admin \
 
 **Why this is needed**: When connecting via Arc proxy, Azure authenticates you with your Azure AD identity. K3s needs this binding to grant your identity cluster-admin permissions.
 
-**Tip**: You can add this Object ID to the `manage_principal` field in `linux_aio_config.json` for reference.
+**Tip**: You can add this Object ID to the `manage_principal` field in `aio_config.json` for reference.
 
 ![reosources pre iot](./img/azure-resources-pre-iot.png)
 
@@ -188,7 +188,7 @@ uv sync
 
 ## Configuration
 
-Customize deployment via `linux_build/linux_aio_config.json`:
+Customize deployment via `arc_build_linux/aio_config.json`:
 - Azure subscription and resource group settings
 - Optional tools (k9s, MQTT viewers)
 - Edge modules to deploy

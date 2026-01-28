@@ -6,8 +6,8 @@
     "resource_group": "rg-iot-quickstart",
     "location": "eastus",
     "cluster_name": "iot-ops-cluster",
-    "enable_arc_on_install": true,
-    "deploy_iot_operations": true
+    "enable_arc_on_install": false,
+    "deploy_iot_operations": false
   },
   "deployment": {
     "skip_system_update": false,

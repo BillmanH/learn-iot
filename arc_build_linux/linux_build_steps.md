@@ -14,7 +14,7 @@ Two-step installation: (1) Edge setup (2) Azure deployment
 cd ~/learn-iot/arc_build_linux
 
 # Edit config (set resource_group, location, cluster_name)
-nano linux_aio_config.json
+nano aio_config.json
 
 # Run installer
 chmod +x installer.sh
@@ -48,7 +48,7 @@ cd C:\path\to\learn-iot\external_configuration
 # Or specify files explicitly:
 .\External-Configurator.ps1 `
   -ClusterInfo "..\configs\cluster_info.json" `
-  -ConfigFile "..\arc_build_linux\linux_aio_config.json" `
+  -ConfigFile "..\arc_build_linux\aio_config.json" `
   -UseArcProxy
 ```
 
@@ -61,7 +61,7 @@ This deploys:
 
 ## Configuration File
 
-Edit `linux_aio_config.json`:
+Edit `aio_config.json`:
 ```json
 {
   "azure": {
@@ -154,7 +154,7 @@ kubectl get pods -n azure-iot-operations
 **Config file cluster name mismatch:**
 ```bash
 # Ensure cluster_name matches in both files
-cat linux_aio_config.json | grep cluster_name
+cat aio_config.json | grep cluster_name
 cat ../configs/cluster_info.json | grep cluster_name
 ```
 

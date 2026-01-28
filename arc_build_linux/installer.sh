@@ -17,11 +17,11 @@
 #   - Internet connectivity
 #
 # Usage:
-#   ./linux_installer.sh [OPTIONS]
+#   ./installer.sh [OPTIONS]
 #
 # Options:
 #   --dry-run           Validate configuration without making changes
-#   --config FILE       Use specific configuration file (default: linux_aio_config.json)
+#   --config FILE       Use specific configuration file (default: aio_config.json)
 #   --skip-verification Skip post-installation verification
 #   --force-reinstall   Force reinstall of all components (K3s, CSI, etc.)
 #   --help              Show this help message
@@ -45,7 +45,7 @@ set -o pipefail  # Catch errors in pipes
 
 # Script configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="${SCRIPT_DIR}/linux_aio_config.json"
+CONFIG_FILE="${SCRIPT_DIR}/aio_config.json"
 EDGE_CONFIGS_DIR="${SCRIPT_DIR}/../configs"
 CLUSTER_INFO_FILE="${EDGE_CONFIGS_DIR}/cluster_info.json"
 DRY_RUN=false
@@ -71,7 +71,7 @@ FORCE_REINSTALL=false
 K9S_ENABLED=false
 MQTT_VIEWER_ENABLED=false
 SSH_ENABLED=false
-# NOTE: Module deployment disabled in linux_installer.sh - handled by External-Configurator.ps1
+# NOTE: Module deployment disabled in installer.sh - handled by External-Configurator.ps1
 # EDGEMQTTSIM_ENABLED=false
 # HELLO_FLASK_ENABLED=false
 # SPUTNIK_ENABLED=false
@@ -153,12 +153,12 @@ It does NOT configure Azure resources - use External-Configurator.ps1 for that.
 
 Options:
     --dry-run               Validate configuration without making changes
-    --config FILE           Use specific configuration file (default: linux_aio_config.json)
+    --config FILE           Use specific configuration file (default: aio_config.json)
     --skip-verification     Skip post-installation verification
     --help                  Show this help message
 
 Configuration:
-    Edit linux_aio_config.json to customize:
+    Edit aio_config.json to customize:
     - Edge device settings (cluster name, K3s options)
     - Optional tools (k9s, mqtt-viewer, ssh)
     - Modules to deploy (edgemqttsim, hello-flask, sputnik, wasm-quality-filter-python)
@@ -170,13 +170,13 @@ Output:
 
 Examples:
     # Standard installation
-    ./linux_installer.sh
+    ./installer.sh
 
     # Dry-run to validate configuration
-    ./linux_installer.sh --dry-run
+    ./installer.sh --dry-run
 
     # Use custom config file
-    ./linux_installer.sh --config my_config.json
+    ./installer.sh --config my_config.json
 
 For more information, see: arc_build_linux/docs/edge_installation_guide.md
 EOF
@@ -384,7 +384,7 @@ load_local_config() {
     MQTT_VIEWER_ENABLED=$(jq -r '.optional_tools."mqtt-viewer" // false' "$CONFIG_FILE")
     SSH_ENABLED=$(jq -r '.optional_tools.ssh // false' "$CONFIG_FILE")
     
-    # NOTE: Modules configuration is NOT used by linux_installer.sh
+    # NOTE: Modules configuration is NOT used by installer.sh
     # Modules are deployed by External-Configurator.ps1 after Azure Arc enablement
     # EDGEMQTTSIM_ENABLED=$(jq -r '.modules.edgemqttsim // false' "$CONFIG_FILE")
     # HELLO_FLASK_ENABLED=$(jq -r '.modules."hello-flask" // false' "$CONFIG_FILE")
@@ -824,11 +824,11 @@ install_k3s() {
         echo -e "${CYAN}5. If K3s is healthy but installer timed out:${NC}"
         echo -e "   - Wait for node to show 'Ready' status"
         echo -e "   - Re-run installer WITHOUT --force-reinstall"
-        echo -e "   - ./linux_installer.sh"
+        echo -e "   - ./installer.sh"
         echo ""
         echo -e "${CYAN}6. If K3s is broken or in bad state:${NC}"
         echo -e "   - Re-run installer WITH --force-reinstall"
-        echo -e "   - ./linux_installer.sh --force-reinstall"
+        echo -e "   - ./installer.sh --force-reinstall"
         echo ""
         exit 1
     fi
