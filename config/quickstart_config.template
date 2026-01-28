@@ -1,0 +1,38 @@
+{
+  "config_type": "quickstart",
+  "azure": {
+    "subscription_id": "",
+    "subscription_name": "",
+    "resource_group": "rg-iot-quickstart",
+    "location": "eastus",
+    "cluster_name": "iot-ops-cluster",
+    "enable_arc_on_install": true,
+    "deploy_iot_operations": true
+  },
+  "deployment": {
+    "skip_system_update": false,
+    "deployment_mode": "test"
+  },
+  "optional_tools": {
+    "k9s": true,
+    "mqtt-viewer": true,
+    "ssh": false
+  },
+  "comments": {
+    "config_type": "Quickstart mode: automated setup with Arc enablement and IoT Operations deployment using sensible defaults; Advanced mode: manual control with selective automation and skip flags.",
+    "subscription_id": "Leave empty to use current logged-in subscription, or provide your Azure subscription GUID",
+    "subscription_name": "Leave empty to use current logged-in subscription, or provide subscription display name",
+    "resource_group": "Name of Azure resource group (will be created if it doesn't exist)",
+    "location": "Azure region (e.g., eastus, westus2, westeurope, northeurope)",
+    "cluster_name": "Name for your Arc-enabled Kubernetes cluster",
+    "enable_arc_on_install": "Set to true to Arc-enable cluster during installation (requires Azure CLI and login)",
+    "deploy_iot_operations": "Set to true to deploy Azure IoT Operations automatically with default settings",
+    "deployment_mode": "Options: 'test' for development, 'secure' for production (future)",
+    "skip_system_update": "Set to true to skip apt update/upgrade for faster runs",
+    "optional_tools": {
+      "k9s": "Terminal UI for Kubernetes cluster management. Recommended for quickstart.",
+      "mqtt-viewer": "Installs mosquitto-clients (mosquitto_sub, mosquitto_pub) for MQTT debugging.",
+      "ssh": "Secure remote shell access. Set to true if you need remote management."
+    }
+  }
+}
