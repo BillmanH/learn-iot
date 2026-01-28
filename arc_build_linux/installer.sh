@@ -1305,7 +1305,6 @@ display_next_steps() {
         echo "   - .\\External-Configurator.ps1 -ClusterInfo ..\\configs\\cluster_info.json"
         echo ""
         echo "3. Monitor your cluster:"
-        fi
     else
         echo "ADVANCED MODE - Manual control enabled"
         echo ""
