@@ -3,6 +3,9 @@ config/*.json
 config/README.txt
 fabric_setup/fabric_config.json
 
+# ARM template parameters (contain secrets)
+arm_templates/parameters.json
+
 
 # VS Code
 .vscode/settings.json

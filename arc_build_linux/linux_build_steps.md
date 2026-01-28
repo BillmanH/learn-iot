@@ -155,7 +155,7 @@ kubectl get pods -n azure-iot-operations
 ```bash
 # Ensure cluster_name matches in both files
 cat aio_config.json | grep cluster_name
-cat ../configs/cluster_info.json | grep cluster_name
+cat ../config/cluster_info.json | grep cluster_name
 ```
 
 **Arc proxy fails:**

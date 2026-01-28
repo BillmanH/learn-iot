@@ -47,48 +47,30 @@ cd learn-iot
 
 ### 2a. Create and Complete Config File ⚠️ **DO THIS FIRST**
 
-**Before running any installation scripts**, create and configure `linux_aio_config.json`:
+**Before running any installation scripts**, create and configure `aio_config.json`:
 
 ```bash
-cd linux_build
-cp linux_aio_config.template.json linux_aio_config.json
+cd arc_build_linux
+cp aio_config.json.template aio_config.json
 ```
 
-Edit `linux_aio_config.json` with your settings:
-- Azure subscription ID (leave empty to use current login)
-- Resource group name
-- Location (e.g., "eastus")
-- Cluster name
+Edit `aio_config.json` with your settings:
+- Cluster name for your edge device
 - Optional tools to install (k9s, mqtt-viewer, ssh)
-- Edge modules to deploy (edgemqttsim, hello-flask, sputnik, wasm-quality-filter-python)
+- Azure AD principal for remote access (optional but recommended)
 
-**This config file controls the entire deployment.** Review it carefully before proceeding.
-
-### 2b. Login to Azure CLI
-
-Before running the installer, authenticate with Azure:
-
-```bash
-az login
-```
-
-This authenticates your session. The edge installer will use this to:
-- Create the resource group and Key Vault
-- Arc-enable your cluster (if `enable_arc_on_install` is set to true in config)
-- Store cluster credentials securely
-
-**Note**: You only need to do this once per session. The credentials are used for both the edge setup and later Azure configuration.
+**This config file controls the edge deployment.** Review it carefully before proceeding.
 
 ### 3. Edge Setup (On Ubuntu Device)
 
 ```bash
-cd linux_build
-bash linux_installer.sh
+cd arc_build_linux
+bash installer.sh
 ```
 
-**What it does**: Installs K3s, kubectl, Helm, and prepares cluster for Azure IoT Operations  
+**What it does**: Installs K3s, kubectl, Helm, CSI Secret Store driver, and prepares cluster for Azure IoT Operations  
 **Time**: ~10-15 minutes  
-**Output**: `edge_configs/cluster_info.json` (needed for next step)
+**Output**: `config/cluster_info.json` (needed for next step)
 
 > **Note**: System may restart during installation. This is normal. Rerun the script after restart to continue.
 ![k9s pre iot](./img/k9s-pre-iot.jpg)
@@ -99,44 +81,20 @@ az connectedk8s proxy --name <your-cluster> --resource-group <your resource grou
 ```
 You'll need this when you get to troubleshooting later. 
 
-### 3b. Grant Azure AD Access to Cluster ⚠️ **REQUIRED FOR REMOTE ACCESS**
-
-After linux_installer.sh completes successfully, run this command **on the edge device** to allow your Azure AD user to manage the cluster remotely via Arc proxy:
-
-```bash
-# Get your Azure AD info (run on any machine with Azure CLI)
-az ad signed-in-user show --query "[id, userPrincipalName]" -o tsv
-
-# On the edge device, create bindings for BOTH Object ID and UPN
-kubectl create clusterrolebinding azure-user-objectid-admin \
-  --clusterrole=cluster-admin \
-  --user="<your-object-id-guid>"
-
-kubectl create clusterrolebinding azure-user-upn-admin \
-  --clusterrole=cluster-admin \
-  --user="<your-email@domain.com>"
-```
-
-<<<<<<< HEAD
-> **Note**: Azure Arc proxy may use either format. See [README_ADVANCED.md](README_ADVANCED.md#azure-arc-rbac-issues) for troubleshooting access issues.
-=======
-**Why this is needed**: When connecting via Arc proxy, Azure authenticates you with your Azure AD identity. K3s needs this binding to grant your identity cluster-admin permissions.
-
-**Tip**: You can add this Object ID to the `manage_principal` field in `aio_config.json` for reference.
->>>>>>> 54001628bed48857dd4283d47e7e0bb34874eb02
+> **Note**: If you need remote access via Arc proxy, see [README_ADVANCED.md](README_ADVANCED.md#azure-arc-rbac-issues) for RBAC setup.
 
 ![reosources pre iot](./img/azure-resources-pre-iot.png)
 
 ### 4. Azure Configuration (From Windows Machine)
 
+Transfer the `config/` folder to your Windows management machine, then:
+
 ```powershell
 # Configure Azure resources and connect edge cluster
-cd linux_build
-.\External-Configurator.ps1 -ConfigFile ".\edge_configs\cluster_info.json"
+cd external_configuration
+.\External-Configurator.ps1 -ClusterInfo "..\config\cluster_info.json"
 ```
-cd linux_build
-.\External-Configurator.ps1 -ConfigFile ".\edge_configs\cluster_info.json"
-```
+
 **WARNING** the field `kubeconfig_base64` contains a secret. Be careful with that. 
 
 **What it does**: Azure Arc enablement, AIO deployment, asset synchronization  
@@ -147,6 +105,8 @@ cd linux_build
 ![reosources post iot](./img/azure-resources-post-iot.png)
 
 ### 5. Verify Installation
+
+SSH into your Linux edge device and run:
 
 ```bash
 # Check pods are running
@@ -160,19 +120,17 @@ kubectl logs -n azure-iot-operations -l app=aio-broker-frontend --tail=20
 
 ### Infrastructure & Setup
 
-- **[Linux Build Steps](./linux_build/linux_build_steps.md)** - Complete step-by-step guide for installing AIO on a fresh Linux system
-- **[K3s Troubleshooting Guide](./linux_build/K3S_TROUBLESHOOTING_GUIDE.md)** - Comprehensive troubleshooting reference for K3s cluster issues
-- **[Azure Portal Setup](./aio_portal_setup.md)** - Guide for discovering and managing devices in Azure Portal
-- **`linux_installer.sh`** - Edge device installer (local infrastructure only)
-- **`External-Configurator.ps1`** - Remote Azure configurator (cloud resources only)
-- **`Deploy-EdgeModules.ps1`** - Automated deployment script for edge applications
-- **`Deploy-Assets.ps1`** - ARM template deployment script for Azure assets
+- **[Linux Build Steps](./arc_build_linux/linux_build_steps.md)** - Complete step-by-step guide for installing AIO on a fresh Linux system
+- **[Config Files Guide](./config/readme.md)** - Configuration file templates and outputs
+- **`arc_build_linux/installer.sh`** - Edge device installer (local infrastructure only)
+- **`external_configuration/External-Configurator.ps1`** - Remote Azure configurator (cloud resources only)
+- **`external_configuration/Deploy-EdgeModules.ps1`** - Automated deployment script for edge applications
 
 ### Applications & Samples
 
 - **[Edge MQTT Simulator](./iotopps/edgemqttsim/README.md)** - Comprehensive factory telemetry simulator
 - **[Edge Historian](./iotopps/demohistorian/README.md)** - SQL-based historian with HTTP API for querying historical MQTT data
-- **[Fabric Integration](./Fabric_setup/fabric-realtime-intelligence-setup.md)** - Connecting AIO to Microsoft Fabric
+- **[Fabric Integration](./fabric_setup/fabric-realtime-intelligence-setup.md)** - Connecting AIO to Microsoft Fabric
 
 ### Development Environment
 
@@ -190,17 +148,24 @@ uv sync
 - **hello-flask** - Basic web app for testing
 
 ### Key Directories
-- **`linux_build/`** - Installation scripts and ARM templates
-- **`Fabric_setup/`** - Microsoft Fabric Real-Time Intelligence integration
+- **`arc_build_linux/`** - Edge device installation scripts (runs on Ubuntu)
+- **`external_configuration/`** - Azure configuration scripts (runs on Windows)
+- **`config/`** - Configuration files and cluster info outputs
+- **`fabric_setup/`** - Microsoft Fabric Real-Time Intelligence integration
 - **`operations/`** - Dataflow configurations for cloud connectivity
+- **`modules/`** - Deployable edge modules and ARM templates
 
 ## Configuration
 
-Customize deployment via `arc_build_linux/aio_config.json`:
+Customize edge deployment via `arc_build_linux/aio_config.json`:
+- Cluster name for your edge device
+- Optional tools (k9s, MQTT viewers, SSH)
+- Azure AD principal for Arc proxy access
+
+Customize Azure deployment via `config/linux_aio_config.json`:
 - Azure subscription and resource group settings
-- Optional tools (k9s, MQTT viewers)
-- Edge modules to deploy
-- Fabric Event Stream integration
+- Location and namespace configuration
+- Key Vault settings for secret management
 
 ## Next Steps
 

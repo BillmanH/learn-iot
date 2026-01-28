@@ -45,9 +45,9 @@ set -o pipefail  # Catch errors in pipes
 
 # Script configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="${SCRIPT_DIR}/aio_config.json"
-EDGE_CONFIGS_DIR="${SCRIPT_DIR}/../configs"
-CLUSTER_INFO_FILE="${EDGE_CONFIGS_DIR}/cluster_info.json"
+CONFIG_DIR="${SCRIPT_DIR}/../config"
+CONFIG_FILE="${CONFIG_DIR}/aio_config.json"
+CLUSTER_INFO_FILE="${CONFIG_DIR}/cluster_info.json"
 DRY_RUN=false
 SKIP_VERIFICATION=false
 FORCE_REINSTALL=false
@@ -1202,8 +1202,8 @@ generate_cluster_info() {
         return 0
     fi
     
-    # Ensure edge_configs directory exists
-    mkdir -p "$EDGE_CONFIGS_DIR"
+    # Ensure config directory exists
+    mkdir -p "$CONFIG_DIR"
     
     # Get node information
     local node_name=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
@@ -1300,9 +1300,9 @@ display_next_steps() {
         echo "   cat $CLUSTER_INFO_FILE"
         echo ""
         echo "2. Connect this cluster to Azure Arc and deploy IoT Operations:"
-        echo "   - Transfer the configs/ folder to your Windows management machine"
+        echo "   - Transfer the config/ folder to your Windows management machine"
         echo "   - From the external_configuration/ folder, run:"
-        echo "   - .\\External-Configurator.ps1 -ClusterInfo ..\\configs\\cluster_info.json"
+        echo "   - .\\External-Configurator.ps1 -ClusterInfo ..\\config\\cluster_info.json"
         echo ""
         echo "3. Monitor your cluster:"
     else
@@ -1321,9 +1321,9 @@ display_next_steps() {
         fi
         
         echo "3. Connect to Azure Arc and deploy IoT Operations:"
-        echo "   - Transfer the configs/ folder to your Windows management machine"
+        echo "   - Transfer the config/ folder to your Windows management machine"
         echo "   - From the external_configuration/ folder, run:"
-        echo "   - .\External-Configurator.ps1 -ClusterInfo ..\configs\cluster_info.json"
+        echo "   - .\External-Configurator.ps1 -ClusterInfo ..\config\cluster_info.json"
         echo ""
         echo "4. Monitor your cluster:"
     fi
