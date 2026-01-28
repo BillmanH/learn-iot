@@ -46,7 +46,7 @@ set -o pipefail  # Catch errors in pipes
 # Script configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${SCRIPT_DIR}/linux_aio_config.json"
-EDGE_CONFIGS_DIR="${SCRIPT_DIR}/edge_configs"
+EDGE_CONFIGS_DIR="${SCRIPT_DIR}/../configs"
 CLUSTER_INFO_FILE="${EDGE_CONFIGS_DIR}/cluster_info.json"
 DRY_RUN=false
 SKIP_VERIFICATION=false
