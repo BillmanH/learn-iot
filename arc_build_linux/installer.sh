@@ -17,11 +17,11 @@
 #   - Internet connectivity
 #
 # Usage:
-#   ./linux_installer.sh [OPTIONS]
+#   ./installer.sh [OPTIONS]
 #
 # Options:
 #   --dry-run           Validate configuration without making changes
-#   --config FILE       Use specific configuration file (default: linux_aio_config.json)
+#   --config FILE       Use specific configuration file (default: aio_config.json)
 #   --skip-verification Skip post-installation verification
 #   --force-reinstall   Force reinstall of all components (K3s, CSI, etc.)
 #   --help              Show this help message
@@ -45,8 +45,8 @@ set -o pipefail  # Catch errors in pipes
 
 # Script configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="${SCRIPT_DIR}/linux_aio_config.json"
-EDGE_CONFIGS_DIR="${SCRIPT_DIR}/edge_configs"
+CONFIG_FILE="${SCRIPT_DIR}/aio_config.json"
+EDGE_CONFIGS_DIR="${SCRIPT_DIR}/../configs"
 CLUSTER_INFO_FILE="${EDGE_CONFIGS_DIR}/cluster_info.json"
 DRY_RUN=false
 SKIP_VERIFICATION=false
@@ -64,18 +64,25 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Configuration variables (loaded from JSON)
+CONFIG_TYPE="quickstart"  # Default to quickstart mode
 CLUSTER_NAME=""
 SKIP_SYSTEM_UPDATE=false
 FORCE_REINSTALL=false
 K9S_ENABLED=false
 MQTT_VIEWER_ENABLED=false
 SSH_ENABLED=false
-# NOTE: Module deployment disabled in linux_installer.sh - handled by External-Configurator.ps1
+# NOTE: Module deployment disabled in installer.sh - handled by External-Configurator.ps1
 # EDGEMQTTSIM_ENABLED=false
 # HELLO_FLASK_ENABLED=false
 # SPUTNIK_ENABLED=false
 # WASM_FILTER_ENABLED=false
 MANAGE_PRINCIPAL=""
+
+# Advanced mode skip flags
+SKIP_KUBECONFIG_SETUP=false
+SKIP_CONTAINER_REGISTRY_SETUP=false
+SKIP_CERTIFICATE_SETUP=false
+ENABLE_KEYVAULT_SYNC=true
 
 # Deployment tracking
 # DEPLOYED_MODULES=()  # Not used - modules deployed by External-Configurator.ps1
@@ -146,12 +153,12 @@ It does NOT configure Azure resources - use External-Configurator.ps1 for that.
 
 Options:
     --dry-run               Validate configuration without making changes
-    --config FILE           Use specific configuration file (default: linux_aio_config.json)
+    --config FILE           Use specific configuration file (default: aio_config.json)
     --skip-verification     Skip post-installation verification
     --help                  Show this help message
 
 Configuration:
-    Edit linux_aio_config.json to customize:
+    Edit aio_config.json to customize:
     - Edge device settings (cluster name, K3s options)
     - Optional tools (k9s, mqtt-viewer, ssh)
     - Modules to deploy (edgemqttsim, hello-flask, sputnik, wasm-quality-filter-python)
@@ -163,15 +170,15 @@ Output:
 
 Examples:
     # Standard installation
-    ./linux_installer.sh
+    ./installer.sh
 
     # Dry-run to validate configuration
-    ./linux_installer.sh --dry-run
+    ./installer.sh --dry-run
 
     # Use custom config file
-    ./linux_installer.sh --config my_config.json
+    ./installer.sh --config my_config.json
 
-For more information, see: linux_build/docs/edge_installation_guide.md
+For more information, see: arc_build_linux/docs/edge_installation_guide.md
 EOF
     exit 0
 }
@@ -355,9 +362,20 @@ load_local_config() {
         error "Invalid JSON in configuration file: $CONFIG_FILE"
     fi
     
+    # Load config type
+    CONFIG_TYPE=$(jq -r '.config_type // "quickstart"' "$CONFIG_FILE")
+    
     # Load edge device settings
     CLUSTER_NAME=$(jq -r '.azure.cluster_name // "edge-device-'$(hostname)'"' "$CONFIG_FILE")
     SKIP_SYSTEM_UPDATE=$(jq -r '.deployment.skip_system_update // false' "$CONFIG_FILE")
+    
+    # Load advanced mode skip flags (only used if config_type is "advanced")
+    if [ "$CONFIG_TYPE" = "advanced" ]; then
+        SKIP_KUBECONFIG_SETUP=$(jq -r '.azure.skip_kubeconfig_setup // false' "$CONFIG_FILE")
+        SKIP_CONTAINER_REGISTRY_SETUP=$(jq -r '.azure.skip_container_registry_setup // false' "$CONFIG_FILE")
+        SKIP_CERTIFICATE_SETUP=$(jq -r '.azure.skip_certificate_setup // false' "$CONFIG_FILE")
+        ENABLE_KEYVAULT_SYNC=$(jq -r '.azure.enable_keyvault_sync // true' "$CONFIG_FILE")
+    fi
     
     # Note: force_reinstall is now a command-line parameter (--force-reinstall), not a config option
     
@@ -366,7 +384,7 @@ load_local_config() {
     MQTT_VIEWER_ENABLED=$(jq -r '.optional_tools."mqtt-viewer" // false' "$CONFIG_FILE")
     SSH_ENABLED=$(jq -r '.optional_tools.ssh // false' "$CONFIG_FILE")
     
-    # NOTE: Modules configuration is NOT used by linux_installer.sh
+    # NOTE: Modules configuration is NOT used by installer.sh
     # Modules are deployed by External-Configurator.ps1 after Azure Arc enablement
     # EDGEMQTTSIM_ENABLED=$(jq -r '.modules.edgemqttsim // false' "$CONFIG_FILE")
     # HELLO_FLASK_ENABLED=$(jq -r '.modules."hello-flask" // false' "$CONFIG_FILE")
@@ -375,11 +393,25 @@ load_local_config() {
     
     # Display configuration
     echo ""
+    echo -e "${CYAN}========================================${NC}"
+    echo -e "${CYAN}Configuration Mode: ${GREEN}${CONFIG_TYPE^^}${NC}"
+    echo -e "${CYAN}========================================${NC}"
+    echo ""
     echo "Configuration loaded:"
     echo "  Cluster name: $CLUSTER_NAME"
     echo "  Skip system update: $SKIP_SYSTEM_UPDATE"
     echo "  Force reinstall: $FORCE_REINSTALL"
     echo ""
+    
+    if [ "$CONFIG_TYPE" = "advanced" ]; then
+        echo "Advanced mode settings:"
+        echo "  Skip kubeconfig setup: $SKIP_KUBECONFIG_SETUP"
+        echo "  Skip container registry setup: $SKIP_CONTAINER_REGISTRY_SETUP"
+        echo "  Skip certificate setup: $SKIP_CERTIFICATE_SETUP"
+        echo "  Enable Key Vault sync: $ENABLE_KEYVAULT_SYNC"
+        echo ""
+    fi
+    
     echo "Optional tools:"
     echo "  k9s: $K9S_ENABLED"
     echo "  mqtt-viewer: $MQTT_VIEWER_ENABLED"
@@ -792,11 +824,11 @@ install_k3s() {
         echo -e "${CYAN}5. If K3s is healthy but installer timed out:${NC}"
         echo -e "   - Wait for node to show 'Ready' status"
         echo -e "   - Re-run installer WITHOUT --force-reinstall"
-        echo -e "   - ./linux_installer.sh"
+        echo -e "   - ./installer.sh"
         echo ""
         echo -e "${CYAN}6. If K3s is broken or in bad state:${NC}"
         echo -e "   - Re-run installer WITH --force-reinstall"
-        echo -e "   - ./linux_installer.sh --force-reinstall"
+        echo -e "   - ./installer.sh --force-reinstall"
         echo ""
         exit 1
     fi
@@ -805,6 +837,12 @@ install_k3s() {
 }
 
 configure_kubectl() {
+    # Skip if configured in advanced mode
+    if [ "$CONFIG_TYPE" = "advanced" ] && [ "$SKIP_KUBECONFIG_SETUP" = "true" ]; then
+        info "Skipping kubectl configuration (advanced mode: skip_kubeconfig_setup=true)"
+        return 0
+    fi
+    
     log "Configuring kubectl for local access..."
     
     if [ "$DRY_RUN" = "true" ]; then
@@ -829,6 +867,13 @@ configure_kubectl() {
 }
 
 install_csi_secret_store() {
+    # Check if Key Vault sync should be enabled
+    if [ "$CONFIG_TYPE" = "advanced" ] && [ "$ENABLE_KEYVAULT_SYNC" != "true" ]; then
+        info "Skipping CSI Secret Store installation (advanced mode: enable_keyvault_sync=false)"
+        warn "Without Key Vault sync, Fabric RTI dataflows requiring secrets will not work"
+        return 0
+    fi
+    
     log "Installing CSI Secret Store driver for Azure Key Vault integration..."
     
     if [ "$DRY_RUN" = "true" ]; then
@@ -1202,297 +1247,6 @@ EOF
 }
 
 # ============================================================================
-# AZURE ARC ENABLEMENT (OPTIONAL)
-# ============================================================================
-
-setup_azure_arc() {
-    local enable_arc=$(jq -r '.azure.enable_arc_on_install // false' "$CONFIG_FILE")
-    
-    if [ "$enable_arc" != "true" ]; then
-        info "Azure Arc enablement disabled in configuration (azure.enable_arc_on_install=false)"
-        return 0
-    fi
-    
-    log "Setting up Azure Arc and Azure IoT Operations..."
-    
-    # Check if Azure CLI is installed
-    if ! command -v az &> /dev/null; then
-        warn "Azure CLI is not installed. Skipping Arc enablement."
-        echo ""
-        echo "To enable Arc later, install Azure CLI:"
-        echo "  curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash"
-        echo "  Then run: ./arc-enable-from-edge.sh"
-        return 0
-    fi
-    
-    success "Azure CLI is available"
-    
-    # Load Azure configuration
-    local subscription_id=$(jq -r '.azure.subscription_id // empty' "$CONFIG_FILE")
-    local resource_group=$(jq -r '.azure.resource_group // empty' "$CONFIG_FILE")
-    local location=$(jq -r '.azure.location // empty' "$CONFIG_FILE")
-    local namespace_name=$(jq -r '.azure.namespace_name // empty' "$CONFIG_FILE")
-    
-    if [ -z "$subscription_id" ] || [ -z "$resource_group" ] || [ -z "$location" ]; then
-        warn "Azure configuration incomplete in $CONFIG_FILE"
-        echo "Required fields: azure.subscription_id, azure.resource_group, azure.location"
-        return 0
-    fi
-    
-    if [ "$DRY_RUN" = "true" ]; then
-        info "[DRY-RUN] Would Arc-enable cluster with:"
-        info "[DRY-RUN]   Subscription: $subscription_id"
-        info "[DRY-RUN]   Resource Group: $resource_group"
-        info "[DRY-RUN]   Location: $location"
-        info "[DRY-RUN]   Cluster: $CLUSTER_NAME"
-        return 0
-    fi
-    
-    echo ""
-    echo -e "${CYAN}Azure Arc Configuration:${NC}"
-    echo "  Subscription ID: $subscription_id"
-    echo "  Resource Group: $resource_group"
-    echo "  Location: $location"
-    echo "  Cluster Name: $CLUSTER_NAME"
-    echo "  Namespace: $namespace_name"
-    echo ""
-    
-    # Check if already logged in
-    if ! az account show &>/dev/null; then
-        echo "Logging into Azure..."
-        az login || {
-            error "Azure login failed. Skipping Arc enablement."
-            return 1
-        }
-    fi
-    
-    # Set subscription
-    info "Setting Azure subscription..."
-    az account set --subscription "$subscription_id"
-    
-    # Create resource group if not exists
-    info "Checking resource group..."
-    if az group exists --name "$resource_group" | grep -q "true"; then
-        success "Resource group exists: $resource_group"
-    else
-        log "Creating resource group: $resource_group"
-        az group create --location "$location" --resource-group "$resource_group"
-        success "Resource group created"
-    fi
-    
-    # Arc-enable cluster
-    info "Arc-enabling cluster..."
-    
-    # Check if Arc resource exists in Azure
-    local arc_resource_exists=false
-    if az connectedk8s show --name "$CLUSTER_NAME" --resource-group "$resource_group" &>/dev/null; then
-        arc_resource_exists=true
-    fi
-    
-    # Check if Arc agents are running in the cluster
-    local arc_agents_running=false
-    if kubectl get namespace azure-arc &>/dev/null; then
-        arc_agents_running=true
-    fi
-    
-    # Handle different scenarios
-    if [ "$arc_resource_exists" = true ] && [ "$arc_agents_running" = true ]; then
-        # Both Azure resource and cluster agents exist - properly Arc-enabled
-        success "Cluster is already Arc-enabled: $CLUSTER_NAME"
-    elif [ "$arc_resource_exists" = true ] && [ "$arc_agents_running" = false ]; then
-        # Stale registration - Azure resource exists but agents aren't running
-        warn "Detected stale Arc registration (Azure resource exists but agents not running)"
-        info "Cleaning up stale Arc registration..."
-        
-        az connectedk8s delete \
-            --name "$CLUSTER_NAME" \
-            --resource-group "$resource_group" \
-            --yes || warn "Failed to delete stale Arc resource"
-        
-        log "Connecting cluster to Azure Arc (this may take a few minutes)..."
-        az connectedk8s connect \
-            --name "$CLUSTER_NAME" \
-            --resource-group "$resource_group" || {
-            error "Failed to Arc-enable cluster"
-            return 1
-        }
-        success "Cluster Arc-enabled successfully!"
-    else
-        # No Arc resource or fresh install
-        log "Connecting cluster to Azure Arc (this may take a few minutes)..."
-        az connectedk8s connect \
-            --name "$CLUSTER_NAME" \
-            --resource-group "$resource_group" || {
-            error "Failed to Arc-enable cluster"
-            return 1
-        }
-        success "Cluster Arc-enabled successfully!"
-    fi
-    
-    # Enable custom locations, OIDC issuer, and workload identity
-    info "Enabling custom locations, cluster connect, OIDC issuer, and workload identity..."
-    local object_id=$(az ad sp show --id bc313c14-388c-4e7d-a58e-70017303ee3b --query id -o tsv 2>/dev/null)
-    
-    if [ -n "$object_id" ]; then
-        az connectedk8s enable-features \
-            --name "$CLUSTER_NAME" \
-            --resource-group "$resource_group" \
-            --custom-locations-oid "$object_id" \
-            --features cluster-connect custom-locations || warn "Failed to enable some features"
-        success "Features enabled"
-    else
-        warn "Could not retrieve custom locations OID. Skipping feature enablement."
-    fi
-    
-    # Enable OIDC issuer and workload identity (required for Key Vault secret sync)
-    info "Enabling OIDC issuer and workload identity for secret management..."
-    if az connectedk8s update \
-        --name "$CLUSTER_NAME" \
-        --resource-group "$resource_group" \
-        --enable-oidc-issuer \
-        --enable-workload-identity &>/dev/null; then
-        success "OIDC issuer and workload identity enabled"
-        info "⚠️  Note: Automatic secret sync from Key Vault requires additional configuration"
-        info "    See linux_build/KEYVAULT_INTEGRATION.md for manual secret creation workaround"
-    else
-        warn "Failed to enable OIDC issuer/workload identity - secret sync may not work"
-        info "You can enable manually: az connectedk8s update -n $CLUSTER_NAME -g $resource_group --enable-oidc-issuer --enable-workload-identity"
-    fi
-    
-    # Deploy Azure IoT Operations
-    # Note: // operator converts false to true, so check for false explicitly
-    local deploy_aio=$(jq -r 'if .azure.deploy_iot_operations == false then "false" else "true" end' "$CONFIG_FILE")
-    
-    info "Azure IoT Operations deployment setting: '$deploy_aio' (from config)"
-    
-    if [ "$deploy_aio" = "true" ]; then
-        deploy_azure_iot_operations "$subscription_id" "$resource_group" "$location" "$namespace_name"
-    else
-        info "Azure IoT Operations deployment disabled in configuration"
-    fi
-    
-    success "Azure Arc setup completed!"
-}
-
-deploy_azure_iot_operations() {
-    local subscription_id=$1
-    local resource_group=$2
-    local location=$3
-    local namespace_name=$4
-    
-    log "Deploying Azure IoT Operations..."
-    
-    # Initialize cluster
-    info "Initializing cluster for Azure IoT Operations..."
-    az iot ops init \
-        --cluster "$CLUSTER_NAME" \
-        --resource-group "$resource_group" || {
-        warn "Failed to initialize IoT Operations"
-        return 1
-    }
-    
-    # Register providers
-    info "Registering Azure resource providers..."
-    az provider register --namespace Microsoft.Storage
-    az provider register --namespace Microsoft.IoTOperations
-    az provider register --namespace Microsoft.DeviceRegistry
-    
-    # Create schema registry
-    local schema_registry_name="${CLUSTER_NAME}-schema-registry"
-    local storage_account_name=$(echo "${CLUSTER_NAME}storage" | tr '[:upper:]' '[:lower:]' | tr -d '-' | cut -c1-24)
-    
-    info "Setting up schema registry..."
-    
-    # Create storage account
-    if az storage account show --name "$storage_account_name" --resource-group "$resource_group" &>/dev/null; then
-        success "Storage account exists: $storage_account_name"
-    else
-        log "Creating storage account: $storage_account_name"
-        az storage account create \
-            --name "$storage_account_name" \
-            --resource-group "$resource_group" \
-            --location "$location" \
-            --sku Standard_LRS \
-            --kind StorageV2 \
-            --enable-hierarchical-namespace true \
-            --allow-blob-public-access false
-        success "Storage account created"
-    fi
-    
-    # Create container
-    az storage container create \
-        --name schemas \
-        --account-name "$storage_account_name" \
-        --auth-mode login \
-        --only-show-errors &>/dev/null || true
-    
-    # Get storage account resource ID
-    local storage_account_id=$(az storage account show \
-        --name "$storage_account_name" \
-        --resource-group "$resource_group" \
-        --query id -o tsv)
-    
-    # Create schema registry
-    if az iot ops schema registry show --name "$schema_registry_name" --resource-group "$resource_group" &>/dev/null; then
-        success "Schema registry exists: $schema_registry_name"
-    else
-        log "Creating schema registry: $schema_registry_name"
-        az iot ops schema registry create \
-            --name "$schema_registry_name" \
-            --resource-group "$resource_group" \
-            --registry-namespace "$namespace_name" \
-            --sa-resource-id "$storage_account_id"
-        success "Schema registry created"
-    fi
-    
-    # Get schema registry ID
-    local schema_registry_id=$(az iot ops schema registry show \
-        --name "$schema_registry_name" \
-        --resource-group "$resource_group" \
-        --query id -o tsv)
-    
-    # Construct namespace resource ID
-    # Note: The Device Registry namespace will be created automatically during Azure IoT Operations deployment
-    info "Setting up Device Registry namespace..."
-    local namespace_resource_id="/subscriptions/$subscription_id/resourceGroups/$resource_group/providers/Microsoft.DeviceRegistry/namespaces/$namespace_name"
-    log "Using namespace resource ID: $namespace_resource_id"
-    log "The namespace will be created automatically during deployment"
-    
-    # NOTE: Key Vault creation and Secret Management setup moved to External-Configurator.ps1
-    # This follows the separation of concerns: linux_installer.sh handles edge infrastructure only
-    
-    # Deploy Azure IoT Operations instance (without inline Key Vault - that's handled by External-Configurator.ps1)
-    local instance_name="${CLUSTER_NAME}-aio"
-    
-    info "Deploying Azure IoT Operations instance..."
-    if az iot ops show --name "$instance_name" --resource-group "$resource_group" &>/dev/null; then
-        success "Azure IoT Operations instance exists: $instance_name"
-    else
-        log "Creating IoT Operations instance (this may take several minutes)..."
-        log "Note: Secret Management will be configured by External-Configurator.ps1"
-        az iot ops create \
-            --cluster "$CLUSTER_NAME" \
-            --resource-group "$resource_group" \
-            --name "$instance_name" \
-            --sr-resource-id "$schema_registry_id" \
-            --ns-resource-id "$namespace_resource_id" || {
-            error "Failed to deploy Azure IoT Operations"
-            return 1
-        }
-        success "Azure IoT Operations deployed!"
-        info "Run External-Configurator.ps1 to enable Secret Management and deploy modules"
-    fi
-    
-    # Enable resource sync
-    info "Enabling edge-to-cloud asset sync..."
-    az iot ops enable-rsync \
-        --name "$instance_name" \
-        --resource-group "$resource_group" &>/dev/null || warn "Failed to enable asset sync"
-    
-    success "Azure IoT Operations setup completed!"
-}
-
-# ============================================================================
 # NEXT STEPS DISPLAY
 # ============================================================================
 
@@ -1502,10 +1256,30 @@ display_next_steps() {
     echo -e "${CYAN}Edge Device Installation Completed Successfully!${NC}"
     echo -e "${CYAN}============================================================================${NC}"
     echo ""
+    echo -e "Configuration mode: ${GREEN}${CONFIG_TYPE^^}${NC}"
+    echo ""
     echo "Your edge device is now ready with:"
     echo "  ✓ K3s Kubernetes cluster: $CLUSTER_NAME"
-    echo "  ✓ kubectl and Helm configured"
-    echo "  ✓ CSI Secret Store driver (Azure Key Vault integration)"
+    
+    if [ "$CONFIG_TYPE" = "advanced" ] && [ "$SKIP_KUBECONFIG_SETUP" = "true" ]; then
+        echo "  ⚠ kubectl configuration skipped (manual setup required)"
+    else
+        echo "  ✓ kubectl and Helm configured"
+    fi
+    
+    if [ "$CONFIG_TYPE" = "advanced" ] && [ "$ENABLE_KEYVAULT_SYNC" != "true" ]; then
+        echo "  ⚠ CSI Secret Store skipped (Key Vault sync disabled)"
+    else
+        echo "  ✓ CSI Secret Store driver (Azure Key Vault integration)"
+    fi
+    
+    if [ "$CONFIG_TYPE" = "advanced" ] && [ "$SKIP_CONTAINER_REGISTRY_SETUP" = "true" ]; then
+        echo "  ⚠ Container registry setup skipped"
+    fi
+    
+    if [ "$CONFIG_TYPE" = "advanced" ] && [ "$SKIP_CERTIFICATE_SETUP" = "true" ]; then
+        echo "  ⚠ Certificate setup skipped"
+    fi
     
     if [ ${#INSTALLED_TOOLS[@]} -gt 0 ]; then
         echo "  ✓ Optional tools: ${INSTALLED_TOOLS[*]}"
@@ -1518,14 +1292,42 @@ display_next_steps() {
     echo ""
     echo -e "${GREEN}Next Steps:${NC}"
     echo ""
-    echo "1. Review cluster information:"
-    echo "   cat $CLUSTER_INFO_FILE"
-    echo ""
-    echo "2. Connect this cluster to Azure Arc and deploy Azure IoT Operations:"
-    echo "   - Transfer the edge_configs/ folder to your Windows management machine"
-    echo "   - Run: .\External-Configurator.ps1 -ClusterInfo edge_configs/cluster_info.json"
-    echo ""
-    echo "3. Monitor your cluster:"
+    
+    if [ "$CONFIG_TYPE" = "quickstart" ]; then
+        echo "QUICKSTART MODE - Most setup is automated!"
+        echo ""
+        echo "1. Review cluster information:"
+        echo "   cat $CLUSTER_INFO_FILE"
+        echo ""
+        echo "2. Connect this cluster to Azure Arc and deploy IoT Operations:"
+        echo "   - Transfer the configs/ folder to your Windows management machine"
+        echo "   - From the external_configuration/ folder, run:"
+        echo "   - .\\External-Configurator.ps1 -ClusterInfo ..\\configs\\cluster_info.json"
+        echo ""
+        echo "3. Monitor your cluster:"
+    else
+        echo "ADVANCED MODE - Manual control enabled"
+        echo ""
+        echo "1. Review cluster information:"
+        echo "   cat $CLUSTER_INFO_FILE"
+        echo ""
+        
+        if [ "$SKIP_KUBECONFIG_SETUP" = "true" ]; then
+            echo "2. Configure kubectl manually (skipped in installation):"
+            echo "   mkdir -p ~/.kube"
+            echo "   sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config"
+            echo "   sudo chown \$USER:\$USER ~/.kube/config"
+            echo ""
+        fi
+        
+        echo "3. Connect to Azure Arc and deploy IoT Operations:"
+        echo "   - Transfer the configs/ folder to your Windows management machine"
+        echo "   - From the external_configuration/ folder, run:"
+        echo "   - .\External-Configurator.ps1 -ClusterInfo ..\configs\cluster_info.json"
+        echo ""
+        echo "4. Monitor your cluster:"
+    fi
+    
     echo "   kubectl get pods --all-namespaces"
     
     if [[ " ${INSTALLED_TOOLS[@]} " =~ " k9s " ]]; then
@@ -1579,9 +1381,13 @@ main() {
     # Setup logging
     setup_logging
     
+    # Load configuration first to get config_type
+    load_local_config
+    
     # Show banner
     log "Starting Azure IoT Operations - Edge Device Installer"
     log "Version: 2.0.0 (Separation of Concerns)"
+    log "Configuration Mode: ${CONFIG_TYPE^^}"
     
     if [ "$DRY_RUN" = "true" ]; then
         warn "DRY-RUN MODE: No changes will be made to your system"
@@ -1593,9 +1399,6 @@ main() {
     check_root
     check_system_requirements
     check_port_conflicts
-    
-    # Load configuration
-    load_local_config
     
     # System preparation
     update_system
@@ -1627,9 +1430,6 @@ main() {
     
     # Generate output
     generate_cluster_info
-    
-    # Azure Arc enablement (optional)
-    setup_azure_arc
     
     # Display next steps
     display_next_steps

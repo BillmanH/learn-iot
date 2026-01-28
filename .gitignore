@@ -1,17 +1,13 @@
 # Launch configs: 
-linux_build/*.json
-linux_build/edge_configs/*.json
-linux_build/edge_configs/README.txt
+config/*.json
+config/README.txt
+fabric_setup/fabric_config.json
 
 
 # VS Code
 .vscode/settings.json
 .vscode/launch.json
 
-# Configuration files (keep these out of repo for security)
-linux_build/linux_aio_config.json
-iotopps/sputnik/sputnik_config.json
-Fabric_setup/fabric_config.json
 
 
 # Connection strings and keys
@@ -98,4 +94,3 @@ error.json
 *.swp
 *.swo
 *~
-

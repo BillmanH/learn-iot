@@ -25,8 +25,8 @@ The `linux_installer.sh` script automates the full edge infrastructure setup:
 cd linux_build
 
 # Optional: Customize configuration
-cp linux_aio_config.template.json linux_aio_config.json
-# Edit linux_aio_config.json with your settings
+cp linux_aio_config.template.json aio_config.json
+# Edit aio_config.json with your settings
 
 # Run installer
 bash linux_installer.sh
@@ -62,7 +62,7 @@ bash linux_installer.sh
 
 #### Configuration Options
 
-Edit `linux_aio_config.json`:
+Edit `aio_config.json`:
 
 ```json
 {
@@ -1008,7 +1008,7 @@ flux bootstrap github \
 
 # Deploy applications via GitOps
 flux create source git iot-apps \
-  --url=https://github.com/<user>/learn-iothub \
+  --url=https://github.com/<user>/learn-iot \
   --branch=main \
   --interval=1m
 

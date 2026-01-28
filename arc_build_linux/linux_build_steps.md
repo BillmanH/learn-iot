@@ -11,17 +11,17 @@ Two-step installation: (1) Edge setup (2) Azure deployment
 
 **On Linux edge device:**
 ```bash
-cd ~/learn-iothub/linux_build
+cd ~/learn-iot/arc_build_linux
 
 # Edit config (set resource_group, location, cluster_name)
-nano linux_aio_config.json
+nano aio_config.json
 
 # Run installer
-chmod +x linux_installer.sh
-./linux_installer.sh
+chmod +x installer.sh
+./installer.sh
 
 # For clean reinstall:
-./linux_installer.sh --force-reinstall
+./installer.sh --force-reinstall
 
 # To completely remove everything:
 ./linux_aio_cleanup.sh
@@ -40,15 +40,15 @@ This installs:
 **On Windows management machine:**
 
 ```powershell
-cd C:\path\to\learn-iothub\linux_build
+cd C:\path\to\learn-iot\external_configuration
 
 # Deploy Azure IoT Operations
 .\External-Configurator.ps1 -UseArcProxy
 
 # Or specify files explicitly:
 .\External-Configurator.ps1 `
-  -ClusterInfo ".\edge_configs\cluster_info.json" `
-  -ConfigFile ".\linux_aio_config.json" `
+  -ClusterInfo "..\configs\cluster_info.json" `
+  -ConfigFile "..\arc_build_linux\aio_config.json" `
   -UseArcProxy
 ```
 
@@ -61,7 +61,7 @@ This deploys:
 
 ## Configuration File
 
-Edit `linux_aio_config.json`:
+Edit `aio_config.json`:
 ```json
 {
   "azure": {
@@ -90,7 +90,7 @@ az connectedk8s show --name iot-ops-cluster --resource-group IoT-Operations
 k9s
 
 # View logs
-cat /path/to/linux_installer_*.log
+cat /path/to/installer_*.log
 ```
 
 ## Color-Coded Output
@@ -154,8 +154,8 @@ kubectl get pods -n azure-iot-operations
 **Config file cluster name mismatch:**
 ```bash
 # Ensure cluster_name matches in both files
-cat linux_aio_config.json | grep cluster_name
-cat edge_configs/cluster_info.json | grep cluster_name
+cat aio_config.json | grep cluster_name
+cat ../configs/cluster_info.json | grep cluster_name
 ```
 
 **Arc proxy fails:**
@@ -165,12 +165,12 @@ az connectedk8s show --name iot-ops-cluster --resource-group IoT-Operations
 ```
 
 **Stale Arc registration:**
-- Automatically detected and fixed by linux_installer.sh
+- Automatically detected and fixed by installer.sh
 - Use `--force-reinstall` for complete cleanup
 
 **View logs:**
 ```bash
-cat linux_installer_*.log
+cat installer_*.log
 cat external_configurator_*.log
 ```
 
