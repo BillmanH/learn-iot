@@ -213,4 +213,4 @@ After installation:
 
 - [Azure IoT Operations Docs](https://learn.microsoft.com/azure/iot-operations/)
 - [K3s Documentation](https://docs.k3s.io/)
-- [Issue Tracker](https://github.com/yourusername/learn-iothub/issues)
+- [Issue Tracker](https://github.com/yourusername/learn-iot/issues)

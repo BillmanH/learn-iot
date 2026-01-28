@@ -944,7 +944,7 @@ flux bootstrap github \
 
 # Deploy applications via GitOps
 flux create source git iot-apps \
-  --url=https://github.com/<user>/learn-iothub \
+  --url=https://github.com/<user>/learn-iot \
   --branch=main \
   --interval=1m
 

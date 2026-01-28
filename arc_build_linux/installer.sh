@@ -178,7 +178,7 @@ Examples:
     # Use custom config file
     ./linux_installer.sh --config my_config.json
 
-For more information, see: linux_build/docs/edge_installation_guide.md
+For more information, see: arc_build_linux/docs/edge_installation_guide.md
 EOF
     exit 0
 }
@@ -1398,7 +1398,7 @@ setup_azure_arc() {
         --enable-workload-identity &>/dev/null; then
         success "OIDC issuer and workload identity enabled"
         info "⚠️  Note: Automatic secret sync from Key Vault requires additional configuration"
-        info "    See linux_build/KEYVAULT_INTEGRATION.md for manual secret creation workaround"
+        info "    See arc_build_linux/KEYVAULT_INTEGRATION.md for manual secret creation workaround"
     else
         warn "Failed to enable OIDC issuer/workload identity - secret sync may not work"
         info "You can enable manually: az connectedk8s update -n $CLUSTER_NAME -g $resource_group --enable-oidc-issuer --enable-workload-identity"
@@ -1598,7 +1598,8 @@ display_next_steps() {
         else
             echo "2. Connect this cluster to Azure Arc (if enable_arc_on_install was false):"
             echo "   - Transfer the configs/ folder to your Windows management machine"
-            echo "   - Run: .\External-Configurator.ps1 -ClusterInfo configs/cluster_info.json"
+            echo "   - From the external_configuration/ folder, run:"
+            echo "   - .\\External-Configurator.ps1 -ClusterInfo ..\\configs\\cluster_info.json"
             echo ""
             echo "3. Monitor your cluster:"
         fi
@@ -1619,7 +1620,8 @@ display_next_steps() {
         
         echo "3. Connect to Azure Arc and deploy IoT Operations:"
         echo "   - Transfer the configs/ folder to your Windows management machine"
-        echo "   - Run: .\External-Configurator.ps1 -ClusterInfo configs/cluster_info.json"
+        echo "   - From the external_configuration/ folder, run:"
+        echo "   - .\External-Configurator.ps1 -ClusterInfo ..\configs\cluster_info.json"
         echo ""
         echo "4. Monitor your cluster:"
     fi
