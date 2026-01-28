@@ -442,4 +442,4 @@ demohistorian/
 
 ## License
 
-Part of the learn-iothub project - demo/educational purposes.
+Part of the learn-iot project - demo/educational purposes.

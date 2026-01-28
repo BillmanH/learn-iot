@@ -30,7 +30,7 @@ This installer prepares a Windows machine for Azure IoT Operations development b
 ### 2. Navigate to windows_build folder
 
 ```powershell
-cd C:\path\to\learn-iothub\windows_build
+cd C:\path\to\learn-iot\windows_build
 ```
 
 ### 3. (Optional) Create Configuration File

@@ -8,17 +8,17 @@
     and grants user access to Key Vault and IoT resources.
     
 .PARAMETER ResourceGroup
-    Azure resource group name (default: from linux_aio_config.json)
+    Azure resource group name (default: from config/aio_config.json)
     
 .PARAMETER ClusterName
-    Kubernetes cluster name (default: from cluster_info.json)
+    Kubernetes cluster name (default: from config/aio_config.json)
     
 .PARAMETER KeyVaultName
     Azure Key Vault name (default: auto-detected from resource group)
     
 .PARAMETER AddUser
     User email/UPN or Object ID (GUID) to grant full access
-    Examples: wharding@microsoft.com or 12345678-1234-1234-1234-123456789abc
+    Examples: you@mail.com or 12345678-1234-1234-1234-123456789abc
     Optional - if not provided, grants to current signed-in user
 
 .PARAMETER SubscriptionId
@@ -28,7 +28,7 @@
     .\grant_entra_id_roles.ps1
     
 .EXAMPLE
-    .\grant_entra_id_roles.ps1 -AddUser wharding@microsoft.com
+    .\grant_entra_id_roles.ps1 -AddUser you@mail.com or 12345678-1234-1234-1234-123456789abc
     
 .EXAMPLE
     .\grant_entra_id_roles.ps1 -ResourceGroup "IoT-Operations" -ClusterName "iot-ops-cluster" -AddUser <your OID>
@@ -109,9 +109,12 @@ function Write-ErrorMsg {
 function Find-ConfigFile {
     param([string]$FileName)
     
+    $repoRoot = Split-Path -Parent $script:ScriptDir
+    $configDir = Join-Path $repoRoot "config"
+    
     $searchPaths = @(
+        (Join-Path $configDir $FileName),
         (Join-Path $script:ScriptDir $FileName),
-        (Join-Path $script:ScriptDir "edge_configs\$FileName"),
         (Join-Path (Get-Location) $FileName)
     )
     
@@ -127,34 +130,48 @@ function Find-ConfigFile {
 function Load-Configuration {
     Write-SubHeader "Loading Configuration"
     
-    # Try to load cluster_info.json
-    $clusterInfoPath = Find-ConfigFile "cluster_info.json"
-    if ($clusterInfoPath) {
-        Write-Success "Found cluster_info.json: $clusterInfoPath"
-        try {
-            $clusterInfo = Get-Content $clusterInfoPath -Raw | ConvertFrom-Json
-            $script:ClusterName = $clusterInfo.cluster_name
-            Write-Info "  Cluster: $script:ClusterName"
-        } catch {
-            Write-Warning "Could not parse cluster_info.json"
-        }
-    }
-    
-    # Try to load linux_aio_config.json
-    $configPath = Find-ConfigFile "linux_aio_config.json"
+    # Try to load aio_config.json first (primary source for Azure configuration)
+    $configPath = Find-ConfigFile "aio_config.json"
     if ($configPath) {
-        Write-Success "Found linux_aio_config.json: $configPath"
+        Write-Success "Found aio_config.json: $configPath"
         try {
             $config = Get-Content $configPath -Raw | ConvertFrom-Json
             $script:ResourceGroup = $config.azure.resource_group
             $script:SubscriptionId = $config.azure.subscription_id
+            $script:ClusterName = $config.azure.cluster_name
             if ($config.azure.key_vault_name) {
                 $script:KeyVaultName = $config.azure.key_vault_name
             }
             Write-Info "  Resource Group: $script:ResourceGroup"
             Write-Info "  Subscription: $script:SubscriptionId"
+            Write-Info "  Cluster Name: $script:ClusterName"
         } catch {
-            Write-Warning "Could not parse linux_aio_config.json"
+            Write-Warning "Could not parse aio_config.json"
+        }
+    }
+    
+    # Try to load cluster_info.json to validate cluster name consistency
+    $clusterInfoPath = Find-ConfigFile "cluster_info.json"
+    if ($clusterInfoPath) {
+        Write-Success "Found cluster_info.json: $clusterInfoPath"
+        try {
+            $clusterInfo = Get-Content $clusterInfoPath -Raw | ConvertFrom-Json
+            $clusterInfoClusterName = $clusterInfo.cluster_name
+            Write-Info "  Cluster (from edge): $clusterInfoClusterName"
+            
+            # Check for mismatch
+            if ($script:ClusterName -and $clusterInfoClusterName -and ($script:ClusterName -ne $clusterInfoClusterName)) {
+                Write-Host ""
+                Write-Warning "CLUSTER NAME MISMATCH DETECTED!"
+                Write-Host "  aio_config.json:    $script:ClusterName" -ForegroundColor Yellow
+                Write-Host "  cluster_info.json:  $clusterInfoClusterName" -ForegroundColor Yellow
+                Write-Host ""
+                Write-Host "Using aio_config.json value for Azure RBAC operations." -ForegroundColor Cyan
+                Write-Host "If this is wrong, update aio_config.json to match cluster_info.json." -ForegroundColor Gray
+                Write-Host ""
+            }
+        } catch {
+            Write-Warning "Could not parse cluster_info.json"
         }
     }
 }
