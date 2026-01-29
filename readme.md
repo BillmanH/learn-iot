@@ -79,12 +79,12 @@ bash installer.sh
 After installer.sh completes, connect the cluster to Azure Arc:
 
 ```bash
-# Still on the edge device
-./arc_enable.sh
+# Still on the edge device (PowerShell is installed by installer.sh)
+pwsh ./arc_enable.ps1
 ```
 
 **What it does**: 
-- Logs into Azure CLI (interactive)
+- Logs into Azure (interactive device code flow)
 - Creates resource group if needed
 - Connects the K3s cluster to Azure Arc
 - Enables required Arc features (custom-locations, OIDC, workload identity)

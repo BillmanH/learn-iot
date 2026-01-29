@@ -180,7 +180,7 @@ Parameters:
    - Sets up schema registry
    - Deploys IoT Operations components
    
-   > **Note**: Azure Arc connection is handled by `arc_enable.sh` on the edge device
+   > **Note**: Azure Arc connection is handled by `arc_enable.ps1` on the edge device
 
 2. **Resource Group Setup**
    - Creates or validates resource group

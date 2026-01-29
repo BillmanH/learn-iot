@@ -745,7 +745,7 @@ function Deploy-Infrastructure {
 # ============================================================================
 # IOT OPERATIONS DEPLOYMENT (Requires Azure CLI)
 # ============================================================================
-# NOTE: Arc enablement is handled by arc_enable.sh on the edge device
+# NOTE: Arc enablement is handled by arc_enable.ps1 on the edge device
 # This script assumes the cluster is already Arc-enabled
 
 function Deploy-IoTOperations {
@@ -1012,7 +1012,7 @@ function Main {
         Deploy-Infrastructure
         
         # IoT Operations deployment (CLI-based)
-        # Note: Arc enablement is done on the edge device via arc_enable.sh
+        # Note: Arc enablement is done on the edge device via arc_enable.ps1
         Deploy-IoTOperations
         
         # Verification

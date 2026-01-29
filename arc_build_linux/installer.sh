@@ -502,6 +502,98 @@ install_helm() {
     success "Helm installed: $version"
 }
 
+install_powershell() {
+    log "Installing PowerShell for Azure Arc enablement..."
+    
+    if command -v pwsh &> /dev/null && [ "$FORCE_REINSTALL" != "true" ]; then
+        local version=$(pwsh --version 2>/dev/null || echo "unknown")
+        info "PowerShell already installed: $version"
+        return 0
+    fi
+    
+    if [ "$DRY_RUN" = "true" ]; then
+        info "[DRY-RUN] Would install PowerShell"
+        return 0
+    fi
+    
+    # Install PowerShell on Ubuntu
+    # https://learn.microsoft.com/en-us/powershell/scripting/install/install-ubuntu
+    
+    # Get Ubuntu version
+    source /etc/os-release
+    local ubuntu_version="$VERSION_ID"
+    
+    log "Installing PowerShell for Ubuntu $ubuntu_version..."
+    
+    # Install prerequisites
+    sudo apt-get update
+    sudo apt-get install -y wget apt-transport-https software-properties-common
+    
+    # Download Microsoft repository GPG keys
+    wget -q "https://packages.microsoft.com/config/ubuntu/$ubuntu_version/packages-microsoft-prod.deb"
+    
+    # Register the Microsoft repository GPG keys
+    sudo dpkg -i packages-microsoft-prod.deb
+    rm packages-microsoft-prod.deb
+    
+    # Update package list and install PowerShell
+    sudo apt-get update
+    sudo apt-get install -y powershell
+    
+    local version=$(pwsh --version 2>/dev/null || echo "installed")
+    success "PowerShell installed: $version"
+    INSTALLED_TOOLS+=("powershell")
+}
+
+install_az_modules() {
+    log "Installing Azure PowerShell modules for Arc enablement..."
+    
+    if [ "$DRY_RUN" = "true" ]; then
+        info "[DRY-RUN] Would install Az PowerShell modules"
+        return 0
+    fi
+    
+    # Check if modules are already installed
+    local modules_installed=$(pwsh -NoProfile -Command '
+        $modules = @("Az.Accounts", "Az.Resources", "Az.ConnectedKubernetes")
+        $missing = $modules | Where-Object { -not (Get-Module -ListAvailable -Name $_) }
+        if ($missing.Count -eq 0) { "installed" } else { $missing -join "," }
+    ' 2>/dev/null || echo "check-failed")
+    
+    if [ "$modules_installed" = "installed" ]; then
+        info "Azure PowerShell modules already installed"
+        return 0
+    fi
+    
+    log "Installing Az.Accounts, Az.Resources, and Az.ConnectedKubernetes modules..."
+    
+    pwsh -NoProfile -Command '
+        $ErrorActionPreference = "Stop"
+        
+        # Install required modules
+        $modules = @("Az.Accounts", "Az.Resources", "Az.ConnectedKubernetes")
+        
+        foreach ($module in $modules) {
+            if (-not (Get-Module -ListAvailable -Name $module)) {
+                Write-Host "Installing $module..."
+                Install-Module -Name $module -Scope CurrentUser -Force -AllowClobber -Repository PSGallery
+            } else {
+                Write-Host "$module already installed"
+            }
+        }
+        
+        Write-Host "Az modules installation complete"
+    '
+    
+    if [ $? -eq 0 ]; then
+        success "Azure PowerShell modules installed"
+        INSTALLED_TOOLS+=("Az.ConnectedKubernetes")
+    else
+        warn "Failed to install some Az modules - you may need to install manually"
+        echo "Run: pwsh -Command 'Install-Module Az.Accounts, Az.Resources, Az.ConnectedKubernetes -Scope CurrentUser -Force'"
+    fi
+}
+
 install_optional_tools() {
     log "Installing optional tools based on configuration..."
     
@@ -1300,9 +1392,9 @@ display_next_steps() {
         echo "   cat $CLUSTER_INFO_FILE"
         echo ""
         echo "2. Connect this cluster to Azure Arc (run on THIS machine):"
-        echo "   ./arc_enable.sh"
+        echo "   pwsh ./arc_enable.ps1"
         echo ""
-        echo "   This requires Azure CLI login and will:"
+        echo "   This requires Azure login and will:"
         echo "   - Check/create the resource group"
         echo "   - Connect the cluster to Azure Arc"
         echo "   - Enable required Arc features"
@@ -1328,9 +1420,9 @@ display_next_steps() {
         fi
         
         echo "3. Connect to Azure Arc (run on THIS machine):"
-        echo "   ./arc_enable.sh"
+        echo "   pwsh ./arc_enable.ps1"
         echo ""
-        echo "   This requires Azure CLI login and connects your cluster to Azure Arc."
+        echo "   This requires Azure login and connects your cluster to Azure Arc."
         echo ""
         echo "4. Then from your Windows management machine:"
         echo "   - Transfer the config/ folder to Windows"
@@ -1417,6 +1509,8 @@ main() {
     # Install tools
     install_kubectl
     install_helm
+    install_powershell
+    install_az_modules
     install_optional_tools
     
     # K3s installation
