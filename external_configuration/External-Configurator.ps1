@@ -608,8 +608,12 @@ function Deploy-ARMTemplate {
             Write-Host ""
             Write-Host "  .\grant_entra_id_roles.ps1" -ForegroundColor Green
             Write-Host ""
-            Write-Host "This script grants 'Role Based Access Control Administrator' which allows" -ForegroundColor Gray
-            Write-Host "you to create role assignments within your resource group." -ForegroundColor Gray
+            Write-Host "NOTE: If you already ran grant_entra_id_roles.ps1 before, you may need to" -ForegroundColor Magenta
+            Write-Host "run it AGAIN. Some resources (like Schema Registry) didn't exist yet," -ForegroundColor Magenta
+            Write-Host "so the script couldn't grant their role assignments the first time." -ForegroundColor Magenta
+            Write-Host ""
+            Write-Host "This script grants 'Role Based Access Control Administrator' (resource group" -ForegroundColor Gray
+            Write-Host "scope only) which allows you to create role assignments." -ForegroundColor Gray
             Write-Host ""
             Write-Host "After running grant_entra_id_roles.ps1, run this script again." -ForegroundColor Yellow
             Write-Host "============================================================================" -ForegroundColor Yellow
