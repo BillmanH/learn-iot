@@ -68,7 +68,7 @@ $script:RepoRoot = Split-Path -Parent $script:ScriptDir
 $script:ConfigDir = Join-Path $script:RepoRoot "config"
 $script:ArmTemplatesDir = Join-Path $script:RepoRoot "arm_templates"
 $script:LogFile = Join-Path $script:ScriptDir "external_configurator_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
-$script:DeploymentSummaryFile = Join-Path $script:ConfigDir "deployment_summary.json"
+$script:DeploymentSummaryFile = Join-Path $script:ConfigDir "deployment_summary.yaml"
 
 # Configuration variables (loaded from files)
 $script:ClusterData = $null
@@ -782,18 +782,83 @@ function Deploy-IoTOperations {
     
     # Check Arc cluster connectivity
     Write-Log "Checking Arc cluster connectivity..."
-    $clusterStatus = az connectedk8s show `
+    $clusterResult = az connectedk8s show `
         --name $script:ClusterName `
         --resource-group $script:ResourceGroup `
-        --query "connectivityStatus" -o tsv 2>$null
+        --output json 2>&1
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host ""
+        Write-Host "============================================================================" -ForegroundColor Red
+        Write-Host "ARC CLUSTER NOT FOUND" -ForegroundColor Red
+        Write-Host "============================================================================" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "The Arc-enabled cluster '$script:ClusterName' was not found in resource group '$script:ResourceGroup'." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "This means Arc enablement has not been completed yet." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "To fix this:" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "  1. On your EDGE DEVICE (Linux), run:" -ForegroundColor Green
+        Write-Host "     pwsh ./arc_enable.ps1" -ForegroundColor White
+        Write-Host ""
+        Write-Host "  2. Wait for it to complete, then run this script again." -ForegroundColor Green
+        Write-Host ""
+        Write-Host "If you already ran arc_enable.ps1, check:" -ForegroundColor Cyan
+        Write-Host "  - Did it complete successfully?" -ForegroundColor Gray
+        Write-Host "  - Is the cluster name correct? Expected: $script:ClusterName" -ForegroundColor Gray
+        Write-Host "  - Is the resource group correct? Expected: $script:ResourceGroup" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "To verify Arc status from the edge device:" -ForegroundColor Cyan
+        Write-Host "  kubectl get pods -n azure-arc" -ForegroundColor White
+        Write-Host ""
+        Write-Host "============================================================================" -ForegroundColor Red
+        Write-ErrorLog "Arc cluster not found - cannot deploy IoT Operations" -Fatal
+    }
+    
+    $clusterData = $clusterResult | ConvertFrom-Json
+    $clusterStatus = $clusterData.connectivityStatus
     
     if ($clusterStatus -ne "Connected") {
-        Write-ErrorLog "Arc cluster is not connected (status: $clusterStatus)"
         Write-Host ""
-        Write-Host "The cluster needs to be fully connected before IoT Operations can be deployed." -ForegroundColor Yellow
-        Write-Host "Wait a few minutes and check: az connectedk8s show --name $script:ClusterName --resource-group $script:ResourceGroup --query connectivityStatus" -ForegroundColor Gray
+        Write-Host "============================================================================" -ForegroundColor Red
+        Write-Host "ARC CLUSTER NOT CONNECTED" -ForegroundColor Red
+        Write-Host "============================================================================" -ForegroundColor Red
         Write-Host ""
-        return
+        Write-Host "The Arc cluster exists but is not connected." -ForegroundColor Yellow
+        Write-Host "  Cluster: $script:ClusterName" -ForegroundColor Gray
+        Write-Host "  Status:  $clusterStatus" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "The cluster must be 'Connected' before IoT Operations can be deployed." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Troubleshooting steps (run on the EDGE DEVICE):" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "  1. Check if K3s is running:" -ForegroundColor Green
+        Write-Host "     sudo systemctl status k3s" -ForegroundColor White
+        Write-Host ""
+        Write-Host "  2. Check Arc agent pods:" -ForegroundColor Green
+        Write-Host "     kubectl get pods -n azure-arc" -ForegroundColor White
+        Write-Host ""
+        Write-Host "  3. Check Arc agent logs:" -ForegroundColor Green
+        Write-Host "     kubectl logs -n azure-arc -l app.kubernetes.io/component=connect-agent --tail=50" -ForegroundColor White
+        Write-Host ""
+        Write-Host "  4. If pods are not running, restart K3s:" -ForegroundColor Green
+        Write-Host "     sudo systemctl restart k3s" -ForegroundColor White
+        Write-Host ""
+        Write-Host "  5. Check network connectivity from edge device:" -ForegroundColor Green
+        Write-Host "     curl -s https://management.azure.com" -ForegroundColor White
+        Write-Host ""
+        Write-Host "Common issues:" -ForegroundColor Cyan
+        Write-Host "  - Network/firewall blocking outbound connections to Azure" -ForegroundColor Gray
+        Write-Host "  - DNS resolution issues on the edge device" -ForegroundColor Gray
+        Write-Host "  - K3s service not running" -ForegroundColor Gray
+        Write-Host "  - Arc agents crashed (check pod status)" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "After fixing the issue, check status with:" -ForegroundColor Cyan
+        Write-Host "  az connectedk8s show --name $script:ClusterName --resource-group $script:ResourceGroup --query connectivityStatus" -ForegroundColor White
+        Write-Host ""
+        Write-Host "============================================================================" -ForegroundColor Red
+        Write-ErrorLog "Arc cluster not connected (status: $clusterStatus) - cannot deploy IoT Operations" -Fatal
     }
     
     Write-Success "Arc cluster status: Connected"
@@ -937,7 +1002,39 @@ function Export-DeploymentSummary {
         dry_run = $DryRun.IsPresent
     }
     
-    $summary | ConvertTo-Json -Depth 10 | Set-Content -Path $script:DeploymentSummaryFile
+    # Convert to YAML format
+    $yamlContent = @()
+    $yamlContent += "# Azure IoT Operations Deployment Summary"
+    $yamlContent += "# Generated: $($summary.deployment_timestamp)"
+    $yamlContent += ""
+    $yamlContent += "deployment_timestamp: `"$($summary.deployment_timestamp)`""
+    $yamlContent += "subscription_id: `"$($summary.subscription_id)`""
+    $yamlContent += "subscription_name: `"$($summary.subscription_name)`""
+    $yamlContent += "resource_group: `"$($summary.resource_group)`""
+    $yamlContent += "location: `"$($summary.location)`""
+    $yamlContent += "cluster_name: `"$($summary.cluster_name)`""
+    $yamlContent += "iot_operations_instance: `"$($summary.iot_operations_instance)`""
+    $yamlContent += "storage_account: `"$($summary.storage_account)`""
+    $yamlContent += "schema_registry: `"$($summary.schema_registry)`""
+    $yamlContent += "key_vault: `"$($summary.key_vault)`""
+    $yamlContent += "namespace: `"$($summary.namespace)`""
+    $yamlContent += "dry_run: $($summary.dry_run.ToString().ToLower())"
+    $yamlContent += ""
+    $yamlContent += "deployed_resources:"
+    foreach ($resource in $script:DeployedResources) {
+        $yamlContent += "  - `"$resource`""
+    }
+    $yamlContent += ""
+    $yamlContent += "errors:"
+    if ($script:Errors.Count -eq 0) {
+        $yamlContent += "  []"
+    } else {
+        foreach ($err in $script:Errors) {
+            $yamlContent += "  - `"$err`""
+        }
+    }
+    
+    $yamlContent -join "`n" | Set-Content -Path $script:DeploymentSummaryFile -Encoding UTF8
     
     Write-Success "Deployment summary saved to: $script:DeploymentSummaryFile"
 }
