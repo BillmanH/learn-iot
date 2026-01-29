@@ -464,8 +464,10 @@ function Connect-ToAzure {
     }
     
     if (-not $script:KeyVaultName) {
-        $randomSuffix = -join ((48..57) + (97..122) | Get-Random -Count 4 | ForEach-Object { [char]$_ })
-        $script:KeyVaultName = ($clusterNameClean + "kv" + $randomSuffix).Substring(0, [Math]::Min(24, ($clusterNameClean + "kv" + $randomSuffix).Length))
+        # Generate deterministic Key Vault name from resource group (for idempotency)
+        # Key Vault names must be 3-24 chars, alphanumeric and hyphens only
+        $rgClean = $script:ResourceGroup.ToLower() -replace '[^a-z0-9]', ''
+        $script:KeyVaultName = ("kv" + $rgClean).Substring(0, [Math]::Min(24, ("kv" + $rgClean).Length))
         Write-InfoLog "Using auto-generated Key Vault name: $script:KeyVaultName"
     }
     

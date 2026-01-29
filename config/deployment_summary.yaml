@@ -1,0 +1,25 @@
+﻿# Azure IoT Operations Deployment Summary
+# Generated: 2026-01-29T13:48:12.3591215-08:00
+
+deployment_timestamp: "2026-01-29T13:48:12.3591215-08:00"
+subscription_id: "5c043aac-3d88-43d5-aec8-cd02ee6c914a"
+subscription_name: "Microsoft Work Account"
+resource_group: "IoT-Operations-Work-Edge-bel-aio"
+location: "eastus"
+cluster_name: "bel-aio-work-cluster"
+iot_operations_instance: "bel-aio-work-cluster-aio"
+storage_account: "belaioworkclusterstorage"
+schema_registry: "bel-aio-work-cluster-schema-registry"
+key_vault: "kviotoperationsworkedgeb"
+namespace: "bel-aio-work-cluster-ns"
+dry_run: false
+
+deployed_resources:
+  - "storageAccount"
+  - "keyVault"
+  - "deviceRegistryNamespace"
+  - "schemaRegistry"
+  - "managedIdentity"
+
+errors:
+  []

@@ -121,6 +121,14 @@ cd external_configuration
 > **⚠️ IMPORTANT: You may need to run `grant_entra_id_roles.ps1` multiple times!**  
 > The script grants permissions to resources that exist at the time it runs. If `External-Configurator.ps1` creates new resources (like Schema Registry) and then fails on role assignments, simply run `grant_entra_id_roles.ps1` again to grant permissions to the newly created resources, then re-run `External-Configurator.ps1`.
 
+> **💡 MOST COMMON ISSUE: Moving to the next step before clusters are ready**  
+> If you get errors, don't just re-run the script immediately. The error messages include troubleshooting steps - **read them carefully**. Common issues include:
+> - Arc cluster showing "Not Connected" (check Arc agent pods on edge device)
+> - Role assignment failures (run `grant_entra_id_roles.ps1` first)
+> - IoT Operations deployment failing (ensure Arc is fully connected)
+>
+> Always verify the previous step completed successfully before moving on. Use `kubectl get pods -n azure-arc` on the edge device to confirm Arc agents are running.
+
 **WARNING** the field `kubeconfig_base64` in cluster_info.json contains a secret. Be careful with that. 
 
 **What it does**: Deploys AIO infrastructure (storage, Key Vault, schema registry) and IoT Operations  
