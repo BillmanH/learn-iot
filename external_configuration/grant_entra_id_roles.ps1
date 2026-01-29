@@ -492,6 +492,15 @@ if ($arcCluster) {
         --scope $arcCluster.id `
         --output none 2>$null
     Write-Success "Granted Arc Kubernetes Viewer"
+    
+    # Azure Arc Kubernetes Cluster Admin - Required for kubectl access via az connectedk8s proxy
+    Write-Info "Granting 'Azure Arc Kubernetes Cluster Admin' (required for kubectl proxy access)..."
+    az role assignment create `
+        --role "Azure Arc Kubernetes Cluster Admin" `
+        --assignee $userObjectId `
+        --scope $arcCluster.id `
+        --output none 2>$null
+    Write-Success "Granted Arc Kubernetes Cluster Admin"
 }
 
 # ============================================================================
