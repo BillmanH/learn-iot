@@ -168,7 +168,6 @@ Parameters:
     -ClusterInfo      Path to cluster_info.json (default: cluster_info.json)
     -ConfigFile       Path to azure config file (default: searches for linux_aio_config.json)
     -DryRun           Validate configuration without making changes
-    -SkipArcEnable    Skip Arc-enabling (if already Arc-enabled)
     -SkipVerification Skip post-deployment verification
     -UseArcProxy      Use Azure Arc proxy for kubectl (for remote networks)
     -SkipKeyVault     Skip Key Vault creation
@@ -176,11 +175,12 @@ Parameters:
 
 #### What External-Configurator.ps1 Does
 
-1. **Azure Arc Connection**
-   - Registers cluster with Azure Arc
-   - Enables OIDC issuer and workload identity
-   - Enables custom locations and cluster-connect features
-   - Creates Arc extensions namespace
+1. **Infrastructure Deployment**
+   - Creates storage account and Key Vault
+   - Sets up schema registry
+   - Deploys IoT Operations components
+   
+   > **Note**: Azure Arc connection is handled by `arc_enable.sh` on the edge device
 
 2. **Resource Group Setup**
    - Creates or validates resource group

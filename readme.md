@@ -73,6 +73,25 @@ bash installer.sh
 **Output**: `config/cluster_info.json` (needed for next step)
 
 > **Note**: System may restart during installation. This is normal. Rerun the script after restart to continue.
+
+### 3b. Arc-Enable Cluster (On Ubuntu Device)
+
+After installer.sh completes, connect the cluster to Azure Arc:
+
+```bash
+# Still on the edge device
+./arc_enable.sh
+```
+
+**What it does**: 
+- Logs into Azure CLI (interactive)
+- Creates resource group if needed
+- Connects the K3s cluster to Azure Arc
+- Enables required Arc features (custom-locations, OIDC, workload identity)
+
+**Time**: ~5 minutes  
+**Why on the edge device?**: Arc enablement requires kubectl access to the cluster, which isn't available remotely.
+
 ![k9s pre iot](docs/img/k9s-pre-iot.jpg)
 After this you should see the core arc-kubernetes components on your nuc device. 
 You can also use the proxy service at:
@@ -90,16 +109,23 @@ You'll need this when you get to troubleshooting later.
 Transfer the `config/` folder to your Windows management machine, then:
 
 ```powershell
-# Configure Azure resources and connect edge cluster
 cd external_configuration
-.\External-Configurator.ps1 -ClusterInfo "..\config\cluster_info.json"
+
+# First, grant yourself the required Azure permissions
+.\grant_entra_id_roles.ps1
+
+# Deploy Azure IoT Operations
+.\External-Configurator.ps1
 ```
 
-**WARNING** the field `kubeconfig_base64` contains a secret. Be careful with that. 
+> **⚠️ IMPORTANT: You may need to run `grant_entra_id_roles.ps1` multiple times!**  
+> The script grants permissions to resources that exist at the time it runs. If `External-Configurator.ps1` creates new resources (like Schema Registry) and then fails on role assignments, simply run `grant_entra_id_roles.ps1` again to grant permissions to the newly created resources, then re-run `External-Configurator.ps1`.
 
-**What it does**: Azure Arc enablement, AIO deployment, asset synchronization  
+**WARNING** the field `kubeconfig_base64` in cluster_info.json contains a secret. Be careful with that. 
+
+**What it does**: Deploys AIO infrastructure (storage, Key Vault, schema registry) and IoT Operations  
 **Time**: ~15-20 minutes  
-**Benefit**: No Azure credentials needed on edge device
+**Note**: Arc enablement was already done on the edge device in step 3b
 
 ![k9s post iot](docs/img/k9s-post-iot.jpg)
 ![reosources post iot](docs/img/azure-resources-post-iot.png)

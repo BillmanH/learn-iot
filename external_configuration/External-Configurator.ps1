@@ -23,9 +23,6 @@
 .PARAMETER DryRun
     Validate configuration and show what-if without making changes
     
-.PARAMETER SkipArcEnable
-    Skip Arc-enabling the cluster (useful if already Arc-enabled)
-    
 .PARAMETER SkipIoTOps
     Skip Azure IoT Operations deployment (deploy infrastructure only)
 
@@ -37,9 +34,6 @@
     
 .EXAMPLE
     .\External-Configurator.ps1 -DryRun
-    
-.EXAMPLE
-    .\External-Configurator.ps1 -ConfigFile ..\config\aio_config.json -SkipArcEnable
     
 .NOTES
     Author: Azure IoT Operations Team
@@ -57,9 +51,6 @@ param(
     
     [Parameter(Mandatory=$false)]
     [switch]$DryRun,
-    
-    [Parameter(Mandatory=$false)]
-    [switch]$SkipArcEnable,
     
     [Parameter(Mandatory=$false)]
     [switch]$SkipIoTOps,
@@ -638,7 +629,6 @@ function Deploy-ARMTemplate {
             Write-Host "============================================================================" -ForegroundColor Yellow
         } else {
             Write-Host "Please fix the issue above and run the script again." -ForegroundColor Yellow
-            Write-Host "Tip: You can use -SkipArcEnable if infrastructure is already deployed." -ForegroundColor Gray
         }
         
         Write-ErrorLog "ARM deployment failed - cannot continue" -Fatal
@@ -724,39 +714,27 @@ function Deploy-Infrastructure {
         location = $script:Location
     }
     
-    # Assign roles (requires principal IDs from previous deployments)
-    if (-not $DryRun) {
-        Write-Log "Configuring role assignments..."
-        
-        # Get schema registry principal ID
-        $srPrincipalId = az resource show `
-            --resource-group $script:ResourceGroup `
-            --resource-type "Microsoft.DeviceRegistry/schemaRegistries" `
-            --name $script:SchemaRegistryName `
-            --query "identity.principalId" -o tsv 2>$null
-        
-        if ($srPrincipalId) {
-            Write-InfoLog "Assigning Storage Blob Data Contributor to schema registry..."
-            Deploy-ARMTemplate -TemplateName "storageRoleAssignment" -Parameters @{
-                storageAccountName = $script:StorageAccountName
-                principalId = $srPrincipalId
-            }
-        }
-        
-        # Get managed identity principal ID
-        $miPrincipalId = az identity show `
-            --name $miName `
-            --resource-group $script:ResourceGroup `
-            --query "principalId" -o tsv 2>$null
-        
-        if ($miPrincipalId) {
-            Write-InfoLog "Assigning Key Vault Secrets User to managed identity..."
-            Deploy-ARMTemplate -TemplateName "keyVaultRoleAssignment" -Parameters @{
-                keyVaultName = $script:KeyVaultName
-                principalId = $miPrincipalId
-            }
-        }
-    }
+    # Role assignments are handled by grant_entra_id_roles.ps1
+    # This separation allows different people (admin vs developer) to run different scripts
+    Write-Host ""
+    Write-Host "============================================================================" -ForegroundColor Cyan
+    Write-Host "ROLE ASSIGNMENTS REMINDER" -ForegroundColor Cyan
+    Write-Host "============================================================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Infrastructure resources have been created. Role assignments (RBAC) are" -ForegroundColor Yellow
+    Write-Host "handled separately by grant_entra_id_roles.ps1 to allow separation of duties." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "If this is your first run, or if new resources were created, run:" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  .\grant_entra_id_roles.ps1" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "This grants permissions like:" -ForegroundColor Gray
+    Write-Host "  - Schema Registry -> Storage Blob Data Contributor" -ForegroundColor Gray
+    Write-Host "  - Managed Identity -> Key Vault Secrets User" -ForegroundColor Gray
+    Write-Host "  - AIO Instance -> Event Hubs permissions for Fabric" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "============================================================================" -ForegroundColor Cyan
+    Write-Host ""
     
     Write-Success "Infrastructure deployment completed"
 }
@@ -764,112 +742,11 @@ function Deploy-Infrastructure {
 # ============================================================================
 # ARC ENABLEMENT (Requires Azure CLI - no ARM template available)
 # ============================================================================
-
-function Enable-ArcForCluster {
-    if ($SkipArcEnable) {
-        Write-InfoLog "Skipping Arc enablement (-SkipArcEnable flag)"
-        return
-    }
-    
-    Write-Log "Connecting cluster to Azure Arc..."
-    Write-InfoLog "Note: Arc enablement requires Azure CLI (no ARM template available)"
-    
-    if ($DryRun) {
-        Write-InfoLog "[DRY-RUN] Would execute: az connectedk8s connect"
-        return
-    }
-    
-    # Check if cluster is already Arc-enabled
-    $arcCluster = az connectedk8s show --name $script:ClusterName --resource-group $script:ResourceGroup 2>$null
-    
-    if ($arcCluster) {
-        Write-Success "Cluster $script:ClusterName is already Arc-enabled"
-    } else {
-        Write-Log "Connecting cluster to Azure Arc..."
-        Write-InfoLog "This command must have access to the cluster via kubeconfig"
-        Write-InfoLog "If running remotely, ensure KUBECONFIG is set or use --kube-config parameter"
-        
-        # Check if kubeconfig is available
-        $kubeConfig = $null
-        if ($script:ClusterData.kubeconfig_base64) {
-            # Decode and save kubeconfig temporarily
-            $kubeconfigBytes = [System.Convert]::FromBase64String($script:ClusterData.kubeconfig_base64)
-            $kubeconfigContent = [System.Text.Encoding]::UTF8.GetString($kubeconfigBytes)
-            
-            # Update server address if it's localhost
-            if ($kubeconfigContent -match 'server:\s*https?://127\.0\.0\.1:') {
-                if ($script:ClusterData.node_ip) {
-                    $kubeconfigContent = $kubeconfigContent -replace 'server:\s*https?://127\.0\.0\.1:', "server: https://$($script:ClusterData.node_ip):"
-                    Write-InfoLog "Updated kubeconfig to use node IP: $($script:ClusterData.node_ip)"
-                }
-            }
-            
-            $kubeConfig = Join-Path $env:TEMP "kubeconfig_$($script:ClusterName).yaml"
-            Set-Content -Path $kubeConfig -Value $kubeconfigContent -NoNewline
-            Write-InfoLog "Using kubeconfig from cluster_info.json"
-        }
-        
-        if ($kubeConfig) {
-            $env:KUBECONFIG = $kubeConfig
-            az connectedk8s connect --name $script:ClusterName --resource-group $script:ResourceGroup
-        } else {
-            Write-WarnLog "No kubeconfig found in cluster_info.json"
-            Write-Host ""
-            Write-Host "To Arc-enable the cluster, you need kubectl access." -ForegroundColor Yellow
-            Write-Host "Options:" -ForegroundColor Cyan
-            Write-Host "  1. Run this script ON the edge device with kubectl access" -ForegroundColor Gray
-            Write-Host "  2. Set KUBECONFIG environment variable before running" -ForegroundColor Gray
-            Write-Host "  3. Run on edge device:" -ForegroundColor Gray
-            Write-Host "     az connectedk8s connect --name $($script:ClusterName) --resource-group $($script:ResourceGroup)" -ForegroundColor Yellow
-            Write-Host ""
-            
-            $continue = Read-Host "Do you have kubectl access on this machine? (y/N)"
-            if ($continue -eq 'y' -or $continue -eq 'Y') {
-                az connectedk8s connect --name $script:ClusterName --resource-group $script:ResourceGroup
-            } else {
-                Write-WarnLog "Skipping Arc enablement - run manually on edge device"
-                return
-            }
-        }
-        
-        if ($LASTEXITCODE -ne 0) {
-            Write-ErrorLog "Failed to Arc-enable cluster"
-            Write-Host "This may need to be run on the edge device with kubectl access." -ForegroundColor Yellow
-            return
-        }
-        
-        Write-Success "Cluster Arc-enabled successfully"
-        $script:DeployedResources += "ConnectedCluster:$script:ClusterName"
-    }
-    
-    # Enable custom locations
-    Write-Log "Enabling custom locations and cluster connect features..."
-    $objectId = az ad sp show --id bc313c14-388c-4e7d-a58e-70017303ee3b --query id -o tsv 2>$null
-    
-    if ($objectId) {
-        az connectedk8s enable-features `
-            --name $script:ClusterName `
-            --resource-group $script:ResourceGroup `
-            --custom-locations-oid $objectId `
-            --features cluster-connect custom-locations 2>$null
-        
-        Write-Success "Custom locations enabled"
-    }
-    
-    # Enable OIDC issuer and workload identity
-    Write-Log "Enabling OIDC issuer and workload identity..."
-    az connectedk8s update `
-        --name $script:ClusterName `
-        --resource-group $script:ResourceGroup `
-        --enable-oidc-issuer `
-        --enable-workload-identity 2>$null
-    
-    Write-Success "OIDC and workload identity enabled"
-}
-
 # ============================================================================
 # IOT OPERATIONS DEPLOYMENT (Requires Azure CLI)
 # ============================================================================
+# NOTE: Arc enablement is handled by arc_enable.sh on the edge device
+# This script assumes the cluster is already Arc-enabled
 
 function Deploy-IoTOperations {
     if ($SkipIoTOps) {
@@ -1134,8 +1011,8 @@ function Main {
         # Deploy infrastructure via ARM templates
         Deploy-Infrastructure
         
-        # Arc enablement and IoT Operations (CLI-based)
-        Enable-ArcForCluster
+        # IoT Operations deployment (CLI-based)
+        # Note: Arc enablement is done on the edge device via arc_enable.sh
         Deploy-IoTOperations
         
         # Verification
