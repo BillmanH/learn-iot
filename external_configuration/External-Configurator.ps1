@@ -595,7 +595,25 @@ function Deploy-ARMTemplate {
         Write-Host "Stopping deployment due to ARM template failure." -ForegroundColor Red
         
         # Check for authorization error and provide specific guidance
-        if ($result -match "AuthorizationFailed|does not have authorization") {
+        if ($result -match "roleAssignments/write") {
+            Write-Host ""
+            Write-Host "============================================================================" -ForegroundColor Yellow
+            Write-Host "ROLE ASSIGNMENT PERMISSION ERROR" -ForegroundColor Yellow
+            Write-Host "============================================================================" -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "Your account cannot create role assignments (RBAC permissions)." -ForegroundColor Yellow
+            Write-Host "This is needed to grant the Schema Registry access to the Storage Account." -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "To fix this, run the grant_entra_id_roles.ps1 script:" -ForegroundColor Cyan
+            Write-Host ""
+            Write-Host "  .\grant_entra_id_roles.ps1" -ForegroundColor Green
+            Write-Host ""
+            Write-Host "This script grants 'Role Based Access Control Administrator' which allows" -ForegroundColor Gray
+            Write-Host "you to create role assignments within your resource group." -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "After running grant_entra_id_roles.ps1, run this script again." -ForegroundColor Yellow
+            Write-Host "============================================================================" -ForegroundColor Yellow
+        } elseif ($result -match "AuthorizationFailed|does not have authorization") {
             Write-Host ""
             Write-Host "============================================================================" -ForegroundColor Yellow
             Write-Host "AUTHORIZATION ERROR DETECTED" -ForegroundColor Yellow
@@ -606,7 +624,7 @@ function Deploy-ARMTemplate {
             Write-Host ""
             Write-Host "To grant the required permissions, run:" -ForegroundColor Cyan
             Write-Host ""
-            Write-Host "  .\grant_entra_id_roles.ps1 -AddUser $($script:SubscriptionName)" -ForegroundColor Green
+            Write-Host "  .\grant_entra_id_roles.ps1" -ForegroundColor Green
             Write-Host ""
             Write-Host "Or ask your Azure admin to grant you one of these roles:" -ForegroundColor Gray
             Write-Host "  - Contributor (can deploy resources)" -ForegroundColor Gray
@@ -630,20 +648,38 @@ function Deploy-ARMTemplate {
 function Deploy-Infrastructure {
     Write-Log "Deploying Azure infrastructure via ARM templates..."
     
-    # Step 1: Create Resource Group
-    Write-Log "Step 1/6: Creating resource group..."
-    $rgResult = Deploy-ARMTemplate -TemplateName "resourceGroup" -SubscriptionLevel -Parameters @{
-        resourceGroupName = $script:ResourceGroup
-        location = $script:Location
-    }
+    # Step 1: Create Resource Group (check if exists first to minimize permission requirements)
+    Write-Log "Step 1/6: Checking resource group..."
     
-    if (-not $rgResult -and -not $DryRun) {
-        # Resource group might already exist, check
-        $rgExists = az group exists --name $script:ResourceGroup 2>$null
-        if ($rgExists -eq "true") {
-            Write-Success "Resource group already exists: $script:ResourceGroup"
+    $rgExists = az group exists --name $script:ResourceGroup 2>$null
+    if ($rgExists -eq "true") {
+        Write-Success "Resource group already exists: $script:ResourceGroup"
+    } else {
+        Write-Log "Resource group does not exist, creating via Azure CLI..."
+        
+        if ($DryRun) {
+            Write-InfoLog "[DRY-RUN] Would create resource group: $script:ResourceGroup in $script:Location"
         } else {
-            Write-ErrorLog "Failed to create resource group" -Fatal
+            # Use az group create instead of ARM template - requires fewer permissions
+            $rgResult = az group create `
+                --name $script:ResourceGroup `
+                --location $script:Location `
+                --tags project=azure-iot-operations cluster=$script:ClusterName `
+                --output json 2>&1
+            
+            if ($LASTEXITCODE -eq 0) {
+                Write-Success "Resource group created: $script:ResourceGroup"
+                $script:DeployedResources += "ResourceGroup:$script:ResourceGroup"
+            } else {
+                Write-ErrorLog "Failed to create resource group"
+                Write-ErrorLog "Error: $rgResult"
+                Write-Host ""
+                Write-Host "You may need 'Contributor' role at the subscription level to create resource groups." -ForegroundColor Yellow
+                Write-Host "Alternatively, ask your Azure admin to create the resource group for you:" -ForegroundColor Gray
+                Write-Host "  az group create --name $script:ResourceGroup --location $script:Location" -ForegroundColor Cyan
+                Write-Host ""
+                Write-ErrorLog "Cannot continue without resource group" -Fatal
+            }
         }
     }
     

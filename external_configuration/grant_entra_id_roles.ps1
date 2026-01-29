@@ -563,7 +563,60 @@ az role assignment create `
     --output none 2>$null
 Write-Success "Granted Reader at subscription level"
 
-Write-Info "Note: If user needs to create resources, grant 'Contributor' at subscription level manually"
+# Check if Contributor at subscription level is needed
+Write-Host ""
+Write-Host "============================================================================" -ForegroundColor Yellow
+Write-Host "OPTIONAL: Subscription-Level Contributor Role" -ForegroundColor Yellow
+Write-Host "============================================================================" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "The 'Contributor' role at subscription level allows:" -ForegroundColor Cyan
+Write-Host "  - Creating new resource groups" -ForegroundColor Gray
+Write-Host "  - Deploying ARM templates at subscription scope" -ForegroundColor Gray
+Write-Host "  - Full resource management across all resource groups" -ForegroundColor Gray
+Write-Host ""
+Write-Host "This is a BROAD permission. Only grant if necessary." -ForegroundColor Yellow
+Write-Host ""
+
+$grantContributor = Read-Host "Grant 'Contributor' role at subscription level? (y/N)"
+
+if ($grantContributor -eq 'y' -or $grantContributor -eq 'Y') {
+    Write-Info "Granting 'Contributor' role at subscription level..."
+    az role assignment create `
+        --role "Contributor" `
+        --assignee $userObjectId `
+        --scope $subscriptionScope `
+        --output none 2>$null
+    Write-Success "Granted Contributor at subscription level"
+} else {
+    Write-Host ""
+    Write-Host "Skipping Contributor role at subscription level." -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "ALTERNATIVE: If you need to create a resource group, run this manually:" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  az group create --name $script:ResourceGroup --location eastus" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "Or ask your Azure admin to create the resource group for you." -ForegroundColor Gray
+    Write-Host "Once the resource group exists, External-Configurator.ps1 will skip creation." -ForegroundColor Gray
+    Write-Host ""
+}
+
+# ============================================================================
+# GRANT ROLES - ROLE ASSIGNMENT PERMISSIONS
+# ============================================================================
+
+Write-Header "Role Assignment Permissions (for External-Configurator.ps1)"
+
+Write-SubHeader "User: $AddUser"
+
+# This role allows the user to create role assignments within the resource group
+# Required by External-Configurator.ps1 to assign Storage Blob Data Contributor to Schema Registry
+Write-Info "Granting 'Role Based Access Control Administrator' on resource group..."
+az role assignment create `
+    --role "Role Based Access Control Administrator" `
+    --assignee $userObjectId `
+    --scope $rgScope `
+    --output none 2>$null
+Write-Success "Granted Role Based Access Control Administrator"
 
 # ============================================================================
 # GRANT ROLES - DATA PLANE (Schema Registry, Device Registry)
@@ -580,6 +633,35 @@ az role assignment create `
     --scope $rgScope `
     --output none 2>$null
 Write-Success "Granted Schema Registry Contributor"
+
+# Pre-grant Storage Blob Data Contributor to any existing schema registries
+# This is also done by External-Configurator.ps1, but we do it here proactively
+Write-SubHeader "Schema Registry Storage Access"
+$schemaRegistries = az resource list --resource-group $script:ResourceGroup --resource-type "Microsoft.DeviceRegistry/schemaRegistries" --query "[].name" -o tsv 2>$null
+if ($schemaRegistries) {
+    foreach ($srName in $schemaRegistries -split "`n") {
+        if ($srName) {
+            Write-Info "Found schema registry: $srName"
+            $srPrincipalId = az resource show `
+                --resource-group $script:ResourceGroup `
+                --resource-type "Microsoft.DeviceRegistry/schemaRegistries" `
+                --name $srName `
+                --query "identity.principalId" -o tsv 2>$null
+            
+            if ($srPrincipalId) {
+                Write-Info "Granting 'Storage Blob Data Contributor' to schema registry..."
+                az role assignment create `
+                    --role "Storage Blob Data Contributor" `
+                    --assignee $srPrincipalId `
+                    --scope $rgScope `
+                    --output none 2>$null
+                Write-Success "Granted Storage Blob Data Contributor to: $srName"
+            }
+        }
+    }
+} else {
+    Write-Info "No schema registries found yet (will be created by External-Configurator.ps1)"
+}
 
 # Device Registry roles
 Write-SubHeader "Device Registry"  

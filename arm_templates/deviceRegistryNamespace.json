@@ -28,7 +28,7 @@
   "resources": [
     {
       "type": "Microsoft.DeviceRegistry/namespaces",
-      "apiVersion": "2024-11-01",
+      "apiVersion": "2025-10-01",
       "name": "[parameters('namespaceName')]",
       "location": "[parameters('location')]",
       "tags": "[parameters('tags')]",

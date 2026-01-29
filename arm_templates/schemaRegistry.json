@@ -40,12 +40,13 @@
   },
   "variables": {
     "storageAccountResourceId": "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]",
-    "containerResourceId": "[concat(variables('storageAccountResourceId'), '/blobServices/default/containers/', parameters('containerName'))]"
+    "containerResourceId": "[concat(variables('storageAccountResourceId'), '/blobServices/default/containers/', parameters('containerName'))]",
+    "blobEndpoint": "[concat('https://', parameters('storageAccountName'), '.blob.core.windows.net/', parameters('containerName'))]"
   },
   "resources": [
     {
       "type": "Microsoft.DeviceRegistry/schemaRegistries",
-      "apiVersion": "2024-11-01",
+      "apiVersion": "2025-10-01",
       "name": "[parameters('schemaRegistryName')]",
       "location": "[parameters('location')]",
       "tags": "[parameters('tags')]",
@@ -53,8 +54,8 @@
         "type": "SystemAssigned"
       },
       "properties": {
-        "namespace": "[parameters('schemaRegistryName')]",
-        "storageAccountContainerUrl": "[concat(reference(variables('storageAccountResourceId'), '2023-05-01').primaryEndpoints.blob, parameters('containerName'))]"
+        "namespace": "[take(parameters('schemaRegistryName'), 32)]",
+        "storageAccountContainerUrl": "[variables('blobEndpoint')]"
       }
     }
   ],
@@ -69,7 +70,7 @@
     },
     "schemaRegistryPrincipalId": {
       "type": "string",
-      "value": "[reference(resourceId('Microsoft.DeviceRegistry/schemaRegistries', parameters('schemaRegistryName')), '2024-11-01', 'Full').identity.principalId]"
+      "value": "[reference(resourceId('Microsoft.DeviceRegistry/schemaRegistries', parameters('schemaRegistryName')), '2025-10-01', 'Full').identity.principalId]"
     }
   }
 }
