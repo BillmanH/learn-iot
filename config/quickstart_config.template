@@ -6,6 +6,7 @@
     "resource_group": "rg-iot-quickstart",
     "location": "eastus",
     "cluster_name": "iot-ops-cluster",
+    "key_vault_name": "",
     "enable_arc_on_install": false,
     "deploy_iot_operations": false
   },
@@ -25,6 +26,7 @@
     "resource_group": "Name of Azure resource group (will be created if it doesn't exist)",
     "location": "Azure region (e.g., eastus, westus2, westeurope, northeurope)",
     "cluster_name": "Name for your Arc-enabled Kubernetes cluster",
+    "key_vault_name": "Name for your Azure Key Vault (3-24 chars, alphanumeric and hyphens only, must be globally unique). Used for AIO secret sync.",
     "enable_arc_on_install": "Set to true to Arc-enable cluster during installation (requires Azure CLI and login)",
     "deploy_iot_operations": "Set to true to deploy Azure IoT Operations automatically with default settings",
     "deployment_mode": "Options: 'test' for development, 'secure' for production (future)",
