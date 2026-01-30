@@ -45,6 +45,13 @@
         "description": "Use RBAC for authorization instead of access policies (default: false - use access policies)"
       }
     },
+    "userObjectId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Object ID of the user to grant full access to the Key Vault. Leave empty to skip user access policy."
+      }
+    },
     "enableSoftDelete": {
       "type": "bool",
       "defaultValue": true,
@@ -68,6 +75,20 @@
       }
     }
   },
+  "variables": {
+    "emptyAccessPolicies": [],
+    "userAccessPolicy": [
+      {
+        "tenantId": "[parameters('tenantId')]",
+        "objectId": "[parameters('userObjectId')]",
+        "permissions": {
+          "secrets": ["get", "list", "set", "delete", "backup", "restore", "recover", "purge"],
+          "keys": ["get", "list", "create", "delete", "backup", "restore", "recover", "purge"],
+          "certificates": ["get", "list", "create", "delete", "backup", "restore", "recover", "purge"]
+        }
+      }
+    ]
+  },
   "resources": [
     {
       "type": "Microsoft.KeyVault/vaults",
@@ -87,7 +108,7 @@
         "enabledForDeployment": true,
         "enabledForTemplateDeployment": true,
         "enabledForDiskEncryption": false,
-        "accessPolicies": [],
+        "accessPolicies": "[if(empty(parameters('userObjectId')), variables('emptyAccessPolicies'), variables('userAccessPolicy'))]",
         "publicNetworkAccess": "Enabled",
         "networkAcls": {
           "defaultAction": "Allow",

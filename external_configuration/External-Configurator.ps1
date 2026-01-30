@@ -83,6 +83,7 @@ $script:NamespaceName = $null
 $script:KeyVaultName = $null
 $script:StorageAccountName = $null
 $script:SchemaRegistryName = $null
+$script:UserObjectId = $null  # Current user's Entra ID object ID for Key Vault access
 
 # Deployment tracking
 $script:DeployedResources = @()
@@ -484,6 +485,15 @@ function Connect-ToAzure {
     Write-Host "  Key Vault: $script:KeyVaultName" -ForegroundColor Gray
     Write-Host ""
     
+    # Get current user's object ID for Key Vault access policy
+    Write-Log "Getting current user's object ID..."
+    $script:UserObjectId = az ad signed-in-user show --query id -o tsv 2>$null
+    if ($script:UserObjectId) {
+        Write-InfoLog "Current user object ID: $script:UserObjectId"
+    } else {
+        Write-Warning "Could not get current user's object ID. Key Vault access policy will need to be set manually."
+    }
+    
     Write-Success "Azure authentication configured"
 }
 
@@ -688,10 +698,16 @@ function Deploy-Infrastructure {
     
     # Step 3: Create Key Vault
     Write-Log "Step 3/6: Creating Key Vault..."
-    $kvResult = Deploy-ARMTemplate -TemplateName "keyVault" -Parameters @{
+    $kvParams = @{
         keyVaultName = $script:KeyVaultName
         location = $script:Location
     }
+    # Add user access policy if we have the user's object ID
+    if ($script:UserObjectId) {
+        $kvParams.userObjectId = $script:UserObjectId
+        Write-InfoLog "Adding access policy for current user to Key Vault"
+    }
+    $kvResult = Deploy-ARMTemplate -TemplateName "keyVault" -Parameters $kvParams
     
     # Step 4: Create Device Registry Namespace
     Write-Log "Step 4/6: Creating Device Registry namespace..."
@@ -714,6 +730,57 @@ function Deploy-Infrastructure {
     $miResult = Deploy-ARMTemplate -TemplateName "managedIdentity" -Parameters @{
         managedIdentityName = $miName
         location = $script:Location
+    }
+    
+    # Configure Key Vault access policies for managed identities
+    Write-Log "Configuring Key Vault access policies for AIO dataflows..."
+    
+    if (-not $DryRun) {
+        # Get the managed identity's principal ID
+        $miPrincipalId = az identity show --name $miName --resource-group $script:ResourceGroup --query "principalId" -o tsv 2>$null
+        
+        if ($miPrincipalId) {
+            Write-InfoLog "Setting Key Vault access policy for $miName..."
+            az keyvault set-policy `
+                --name $script:KeyVaultName `
+                --object-id $miPrincipalId `
+                --secret-permissions get list `
+                --output none 2>$null
+            
+            if ($LASTEXITCODE -eq 0) {
+                Write-Success "Granted Key Vault secret access to $miName"
+            } else {
+                Write-WarnLog "Failed to set Key Vault access policy for $miName"
+            }
+        } else {
+            Write-WarnLog "Could not get principal ID for $miName"
+        }
+        
+        # Also check for any other managed identities in the resource group and grant them access
+        $allManagedIdentities = az identity list --resource-group $script:ResourceGroup --query "[].{name:name, principalId:principalId}" 2>$null | ConvertFrom-Json
+        
+        if ($allManagedIdentities) {
+            foreach ($identity in $allManagedIdentities) {
+                # Skip the one we just configured
+                if ($identity.name -eq $miName) { continue }
+                
+                # Only configure identities that look like they're for secret sync or AIO
+                if ($identity.name -match "secretsync|aio|iot") {
+                    Write-InfoLog "Setting Key Vault access policy for $($identity.name)..."
+                    az keyvault set-policy `
+                        --name $script:KeyVaultName `
+                        --object-id $identity.principalId `
+                        --secret-permissions get list `
+                        --output none 2>$null
+                    
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-Success "Granted Key Vault secret access to $($identity.name)"
+                    }
+                }
+            }
+        }
+    } else {
+        Write-InfoLog "[DRY RUN] Would configure Key Vault access policies for managed identities"
     }
     
     # Role assignments are handled by grant_entra_id_roles.ps1
@@ -915,6 +982,43 @@ function Deploy-IoTOperations {
         
         Write-Success "Secret sync enabled"
     }
+    
+    # Configure Key Vault access policies for Arc cluster and AIO instance
+    Write-Log "Configuring Key Vault access policies for AIO identities..."
+    
+    # Grant Arc cluster identity access to Key Vault
+    $arcIdentity = az connectedk8s show --name $script:ClusterName --resource-group $script:ResourceGroup --query "identity.principalId" -o tsv 2>$null
+    if ($arcIdentity) {
+        Write-InfoLog "Setting Key Vault access policy for Arc cluster identity..."
+        az keyvault set-policy `
+            --name $script:KeyVaultName `
+            --object-id $arcIdentity `
+            --secret-permissions get list `
+            --output none 2>$null
+        
+        if ($LASTEXITCODE -eq 0) {
+            Write-Success "Granted Key Vault secret access to Arc cluster identity"
+        } else {
+            Write-WarnLog "Failed to set Key Vault access policy for Arc cluster identity"
+        }
+    }
+    
+    # Grant AIO instance identity access to Key Vault
+    $aioIdentity = az iot ops show --name $instanceName --resource-group $script:ResourceGroup --query "identity.principalId" -o tsv 2>$null
+    if ($aioIdentity) {
+        Write-InfoLog "Setting Key Vault access policy for AIO instance identity..."
+        az keyvault set-policy `
+            --name $script:KeyVaultName `
+            --object-id $aioIdentity `
+            --secret-permissions get list `
+            --output none 2>$null
+        
+        if ($LASTEXITCODE -eq 0) {
+            Write-Success "Granted Key Vault secret access to AIO instance identity"
+        } else {
+            Write-WarnLog "Failed to set Key Vault access policy for AIO instance identity"
+        }
+    }
 }
 
 # ============================================================================
@@ -954,6 +1058,117 @@ function Test-Deployment {
     $kv = az keyvault show --name $script:KeyVaultName --resource-group $script:ResourceGroup 2>$null
     if ($kv) {
         Write-Success "Key Vault verified: $script:KeyVaultName"
+        
+        # Check Key Vault configuration for AIO dataflows
+        $kvData = $kv | ConvertFrom-Json
+        $kvIssues = @()
+        
+        # Check RBAC vs Access Policies
+        if ($kvData.properties.enableRbacAuthorization -eq $true) {
+            Write-InfoLog "Key Vault is using RBAC authorization (check role assignments manually)"
+        } else {
+            Write-InfoLog "Key Vault is using Access Policies"
+            
+            # Get access policies
+            $accessPolicies = $kvData.properties.accessPolicies
+            
+            if ($accessPolicies -and $accessPolicies.Count -gt 0) {
+                Write-InfoLog "Found $($accessPolicies.Count) access policy/policies"
+                
+                # Check for current user's access policy
+                if ($script:UserObjectId) {
+                    $userPolicy = $accessPolicies | Where-Object { $_.objectId -eq $script:UserObjectId }
+                    if ($userPolicy) {
+                        Write-Success "  User access policy found"
+                    } else {
+                        $kvIssues += "Current user has no access policy"
+                    }
+                }
+            } else {
+                $kvIssues += "No access policies configured"
+            }
+            
+            # Check for AIO-related identities
+            # Get Arc cluster identity
+            $arcIdentity = az connectedk8s show --name $script:ClusterName --resource-group $script:ResourceGroup --query "identity.principalId" -o tsv 2>$null
+            if ($arcIdentity) {
+                $arcPolicy = $accessPolicies | Where-Object { $_.objectId -eq $arcIdentity }
+                if ($arcPolicy) {
+                    $hasSecretGet = $arcPolicy.permissions.secrets -contains "get"
+                    $hasSecretList = $arcPolicy.permissions.secrets -contains "list"
+                    if ($hasSecretGet -and $hasSecretList) {
+                        Write-Success "  Arc cluster identity has secret access (get, list)"
+                    } else {
+                        $kvIssues += "Arc cluster identity missing required secret permissions (get, list)"
+                    }
+                } else {
+                    $kvIssues += "Arc cluster identity has no access policy"
+                }
+            }
+            
+            # Get AIO instance identity
+            $instanceName = "$($script:ClusterName)-aio"
+            $aioIdentity = az iot ops show --name $instanceName --resource-group $script:ResourceGroup --query "identity.principalId" -o tsv 2>$null
+            if ($aioIdentity) {
+                $aioPolicy = $accessPolicies | Where-Object { $_.objectId -eq $aioIdentity }
+                if ($aioPolicy) {
+                    $hasSecretGet = $aioPolicy.permissions.secrets -contains "get"
+                    $hasSecretList = $aioPolicy.permissions.secrets -contains "list"
+                    if ($hasSecretGet -and $hasSecretList) {
+                        Write-Success "  AIO instance identity has secret access (get, list)"
+                    } else {
+                        $kvIssues += "AIO instance identity missing required secret permissions (get, list)"
+                    }
+                } else {
+                    $kvIssues += "AIO instance identity has no access policy"
+                }
+            }
+            
+            # Check for secretsync managed identity
+            $miName = "$($script:ClusterName)-secretsync-mi"
+            $secretSyncMi = az identity show --name $miName --resource-group $script:ResourceGroup --query "principalId" -o tsv 2>$null
+            if ($secretSyncMi) {
+                $miPolicy = $accessPolicies | Where-Object { $_.objectId -eq $secretSyncMi }
+                if ($miPolicy) {
+                    $hasSecretGet = $miPolicy.permissions.secrets -contains "get"
+                    $hasSecretList = $miPolicy.permissions.secrets -contains "list"
+                    if ($hasSecretGet -and $hasSecretList) {
+                        Write-Success "  Secret sync managed identity has secret access (get, list)"
+                    } else {
+                        $kvIssues += "Secret sync identity missing required secret permissions (get, list)"
+                    }
+                } else {
+                    $kvIssues += "Secret sync managed identity ($miName) has no access policy"
+                }
+            }
+        }
+        
+        # Check soft delete (required for production)
+        if ($kvData.properties.enableSoftDelete -eq $true) {
+            Write-Success "  Soft delete is enabled"
+        } else {
+            $kvIssues += "Soft delete is not enabled (recommended for production)"
+        }
+        
+        # Check template deployment enabled (needed for ARM deployments)
+        if ($kvData.properties.enabledForTemplateDeployment -eq $true) {
+            Write-Success "  Template deployment is enabled"
+        } else {
+            $kvIssues += "Template deployment is not enabled"
+        }
+        
+        # Report issues
+        if ($kvIssues.Count -gt 0) {
+            Write-Host ""
+            Write-WarnLog "Key Vault configuration issues found for AIO dataflows:"
+            foreach ($issue in $kvIssues) {
+                Write-WarnLog "  - $issue"
+            }
+            Write-Host ""
+            Write-InfoLog "Run grant_entra_id_roles.ps1 to fix access policy issues"
+        } else {
+            Write-Success "Key Vault is properly configured for AIO dataflows"
+        }
     } else {
         Write-WarnLog "Key Vault not found: $script:KeyVaultName"
     }
