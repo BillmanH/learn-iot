@@ -6,7 +6,7 @@
     to the Kubernetes cluster using kubectl through Azure Arc proxy. Runs remotely from Windows
     to edge device on different network.
 .PARAMETER ConfigPath
-    Path to linux_aio_config.json. If not specified, searches in edge_configs/ or current directory.
+    Path to aio_config.json. If not specified, searches in edge_configs/ or current directory.
 .PARAMETER ModuleName
     Specific module to deploy. If not specified, deploys all modules marked true in config.
 .PARAMETER Force
@@ -92,12 +92,12 @@ function Write-InfoLog {
 #region Configuration Functions
 
 function Find-ConfigFile {
-    Write-InfoLog "Searching for linux_aio_config.json..."
+    Write-InfoLog "Searching for aio_config.json..."
     
     $searchPaths = @(
         $ConfigPath,
-        (Join-Path $script:ScriptDir "edge_configs\linux_aio_config.json"),
-        (Join-Path $script:ScriptDir "linux_aio_config.json")
+        (Join-Path $script:ScriptDir "edge_configs\aio_config.json"),
+        (Join-Path $script:ScriptDir "aio_config.json")
     )
     
     foreach ($path in $searchPaths) {
@@ -108,7 +108,7 @@ function Find-ConfigFile {
         }
     }
     
-    throw "Configuration file linux_aio_config.json not found in any search location"
+    throw "Configuration file aio_config.json not found in any search location"
 }
 
 function Find-ClusterInfoFile {
@@ -567,7 +567,7 @@ function Update-DeploymentRegistry {
         Write-Host "============================================================" -ForegroundColor Red
         Write-Host "The deployment file requires a container registry, but none is configured." -ForegroundColor Yellow
         Write-Host ""
-        Write-Host "To fix this, add the following to your linux_aio_config.json:" -ForegroundColor Cyan
+        Write-Host "To fix this, add the following to your aio_config.json:" -ForegroundColor Cyan
         Write-Host ""
         Write-Host '  "azure": {' -ForegroundColor White
         Write-Host '    "subscription_id": "...",'
@@ -587,7 +587,7 @@ function Update-DeploymentRegistry {
         Write-Host "  .\Deploy-EdgeModules.ps1 -ModuleName $Module -Force"
         Write-Host "============================================================" -ForegroundColor Red
         Write-Host ""
-        throw "Container registry not configured in linux_aio_config.json"
+        throw "Container registry not configured in aio_config.json"
     }
     
     if (-not $script:ContainerRegistry) {
@@ -723,13 +723,13 @@ function Deploy-Module {
         $deployResult | ForEach-Object { Write-Host "  $_" -ForegroundColor Gray }
         Write-Host ""
         Write-Host "Common causes:" -ForegroundColor Cyan
-        Write-Host "  1. Container registry not configured in linux_aio_config.json"
+        Write-Host "  1. Container registry not configured in aio_config.json"
         Write-Host "  2. Image name contains invalid characters or placeholders"
         Write-Host "  3. Image does not exist in the specified registry"
         Write-Host "  4. Registry authentication required but not configured"
         Write-Host ""
         Write-Host "To fix:" -ForegroundColor Cyan
-        Write-Host "  1. Add 'container_registry' to azure section in linux_aio_config.json"
+        Write-Host "  1. Add 'container_registry' to azure section in aio_config.json"
         Write-Host "  2. Build and push the container: .\Deploy-EdgeModules.ps1 -ModuleName $Module"
         Write-Host "  3. Verify image exists: docker images | grep $Module"
         Write-Host "============================================================" -ForegroundColor Red
@@ -916,7 +916,7 @@ function Main {
         
         if ($modulesToDeploy.Count -eq 0) {
             Write-WarnLog "No modules to deploy"
-            Write-Host "Update linux_aio_config.json modules section to enable modules"
+            Write-Host "Update aio_config.json modules section to enable modules"
             exit 0
         }
         

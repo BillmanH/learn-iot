@@ -268,8 +268,8 @@ function Import-LocalConfig {
         $searchPaths = @(
             (Join-Path $script:ScriptDir "edge_configs\windows_aio_config.json"),
             (Join-Path $script:ScriptDir "windows_aio_config.json"),
-            (Join-Path $script:ScriptDir "..\linux_build\edge_configs\linux_aio_config.json"),
-            (Join-Path $script:ScriptDir "..\linux_build\linux_aio_config.json")
+            (Join-Path $script:ScriptDir "..\linux_build\edge_configs\aio_config.json"),
+            (Join-Path $script:ScriptDir "..\linux_build\aio_config.json")
         )
         
         foreach ($path in $searchPaths) {
@@ -282,7 +282,7 @@ function Import-LocalConfig {
     
     if (-not $configPath -or -not (Test-Path $configPath)) {
         Write-WarnLog "Configuration file not found. Using defaults."
-        Write-InfoLog "Create windows_aio_config.json or copy from linux_build/linux_aio_config.template.json"
+        Write-InfoLog "Create windows_aio_config.json or copy from linux_build/aio_config.template.json"
         
         # Use defaults
         $script:ClusterName = "windows-aio-$(hostname)"

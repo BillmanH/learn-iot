@@ -6,7 +6,7 @@ The modular deployment system allows you to selectively deploy edge applications
 
 ## Configuration Location
 
-Modules and tools are configured in the `linux_aio_config.json` file:
+Modules and tools are configured in the `aio_config.json` file:
 
 ```json
 {
@@ -466,7 +466,7 @@ or
 
 When you run `linux_installer.sh`, the `deploy_modules()` function:
 
-1. **Reads Configuration**: Parses `linux_aio_config.json` modules section
+1. **Reads Configuration**: Parses `aio_config.json` modules section
 2. **Validates Availability**: Checks if deployment files exist in `iotopps/`
 3. **Iterates Through Modules**: For each module set to `true`:
    - Locates the deployment YAML file
@@ -538,7 +538,7 @@ The deployment script handles these dependencies automatically by:
 ls -la iotopps/edgemqttsim/deployment.yaml
 
 # Check for typos in module name
-cat linux_aio_config.json | jq '.modules'
+cat aio_config.json | jq '.modules'
 
 # Check K3s cluster status
 kubectl get pods -n azure-iot-operations

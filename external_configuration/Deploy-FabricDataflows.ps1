@@ -6,7 +6,7 @@
     to Microsoft Fabric Real-Time Intelligence. Can be run remotely from Windows using
     Azure Arc proxy connectivity.
 .PARAMETER ConfigPath
-    Path to linux_aio_config.json. If not specified, searches in edge_configs/ or current directory.
+    Path to aio_config.json. If not specified, searches in edge_configs/ or current directory.
 .PARAMETER Strategy
     Deployment strategy: 'Aggregated' (default, all data in one stream) or 'PerMachine' (separate streams per machine type)
 .PARAMETER ResourceGroup
@@ -88,12 +88,12 @@ function Write-InfoLog {
 #region Configuration Functions
 
 function Find-ConfigFile {
-    Write-InfoLog "Searching for linux_aio_config.json..."
+    Write-InfoLog "Searching for aio_config.json..."
     
     $searchPaths = @(
         $ConfigPath,
-        (Join-Path $script:ScriptDir "edge_configs\linux_aio_config.json"),
-        (Join-Path $script:ScriptDir "linux_aio_config.json")
+        (Join-Path $script:ScriptDir "edge_configs\aio_config.json"),
+        (Join-Path $script:ScriptDir "aio_config.json")
     )
     
     foreach ($path in $searchPaths) {
@@ -104,7 +104,7 @@ function Find-ConfigFile {
         }
     }
     
-    throw "Configuration file linux_aio_config.json not found in any search location"
+    throw "Configuration file aio_config.json not found in any search location"
 }
 
 function Load-Configuration {
@@ -200,7 +200,7 @@ function Get-CustomLocation {
         Write-Host "`nAvailable custom locations:" -ForegroundColor Yellow
         az customlocation list -g $Config.azure.resource_group -o table
         
-        throw "Please add custom_location_name to linux_aio_config.json in the azure section"
+        throw "Please add custom_location_name to aio_config.json in the azure section"
     }
     
     Write-Success "Custom Location: $customLocation"
@@ -237,7 +237,7 @@ function Get-FabricConfiguration {
         Write-Host "  1. Go to https://app.fabric.microsoft.com"
         Write-Host "  2. Create or open your Eventstream"
         Write-Host "  3. Copy the topic ID (format: es_aaaaaaaa-0000-1111-2222-bbbbbbbbbbbb)"
-        Write-Host "  4. Update linux_build/linux_aio_config.json:"
+        Write-Host "  4. Update linux_build/aio_config.json:"
         Write-Host '     "eventstream_topic_id": "es_YOUR_ACTUAL_TOPIC_ID"'
         Write-Host ""
         
@@ -432,9 +432,9 @@ function Show-Summary {
     
     if ($FabricTopicId -eq "es_YOUR_FABRIC_TOPIC_ID") {
         Write-Host "⚠ IMPORTANT: You used placeholder topic IDs." -ForegroundColor Yellow
-        Write-Host "   Update linux_build/linux_aio_config.json with actual topic IDs:"
+        Write-Host "   Update linux_build/aio_config.json with actual topic IDs:"
         Write-Host "   1. Get topic ID from Fabric portal: https://app.fabric.microsoft.com"
-        Write-Host "   2. Edit: linux_build/linux_aio_config.json"
+        Write-Host "   2. Edit: linux_build/aio_config.json"
         Write-Host '   3. Update: "eventstream_topic_id": "es_YOUR_ACTUAL_TOPIC_ID"'
         Write-Host "   4. Re-run: .\Deploy-FabricDataflows.ps1"
         Write-Host ""

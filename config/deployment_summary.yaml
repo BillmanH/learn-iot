@@ -1,7 +1,7 @@
 ﻿# Azure IoT Operations Deployment Summary
-# Generated: 2026-01-30T10:14:13.6366718-08:00
+# Generated: 2026-01-30T10:36:02.1277328-08:00
 
-deployment_timestamp: "2026-01-30T10:14:13.6366718-08:00"
+deployment_timestamp: "2026-01-30T10:36:02.1277328-08:00"
 subscription_id: "5c043aac-3d88-43d5-aec8-cd02ee6c914a"
 subscription_name: "Microsoft Work Account"
 resource_group: "IoT-Operations-Work-Edge-bel-aio"

@@ -844,14 +844,15 @@ function Deploy-IoTOperations {
     # Check if already deployed
     $existingInstance = az iot ops show --name $instanceName --resource-group $script:ResourceGroup 2>&1
     
-    if ($LASTEXITCODE -eq 0) {
-        Write-Success "Azure IoT Operations instance $instanceName already exists"
-        return
-    }
+    $aioAlreadyExists = $LASTEXITCODE -eq 0
     
-    # Check Arc cluster connectivity
-    Write-Log "Checking Arc cluster connectivity..."
-    $clusterResult = az connectedk8s show `
+    if ($aioAlreadyExists) {
+        Write-Success "Azure IoT Operations instance $instanceName already exists"
+        Write-InfoLog "Verifying Key Vault access policies are configured..."
+    } else {
+        # Check Arc cluster connectivity
+        Write-Log "Checking Arc cluster connectivity..."
+        $clusterResult = az connectedk8s show `
         --name $script:ClusterName `
         --resource-group $script:ResourceGroup `
         --output json 2>&1
@@ -974,6 +975,25 @@ function Deploy-IoTOperations {
         --query "id" -o tsv 2>$null
     
     if ($miResourceId) {
+        # IMPORTANT: Key Vault access policy must be set BEFORE enabling secretsync
+        Write-InfoLog "Setting Key Vault access policy for secret sync managed identity (required before secretsync)..."
+        $miPrincipalId = az identity show --name $miName --resource-group $script:ResourceGroup --query "principalId" -o tsv 2>$null
+        
+        if ($miPrincipalId) {
+            az keyvault set-policy `
+                --name $script:KeyVaultName `
+                --object-id $miPrincipalId `
+                --secret-permissions get list `
+                --output none 2>$null
+            
+            if ($LASTEXITCODE -eq 0) {
+                Write-Success "Granted Key Vault secret access to $miName"
+            } else {
+                Write-WarnLog "Failed to set Key Vault access policy for $miName - secretsync may fail"
+            }
+        }
+        
+        # Now enable secretsync
         az iot ops secretsync enable `
             --name $instanceName `
             --resource-group $script:ResourceGroup `
@@ -981,9 +1001,11 @@ function Deploy-IoTOperations {
             --kv-resource-id "/subscriptions/$script:SubscriptionId/resourceGroups/$script:ResourceGroup/providers/Microsoft.KeyVault/vaults/$script:KeyVaultName" 2>$null
         
         Write-Success "Secret sync enabled"
-    }
+        }
+    }  # End of else block (AIO deployment)
     
     # Configure Key Vault access policies for Arc cluster and AIO instance
+    # This runs whether AIO was just deployed or already existed
     Write-Log "Configuring Key Vault access policies for AIO identities..."
     
     # Grant Arc cluster identity access to Key Vault

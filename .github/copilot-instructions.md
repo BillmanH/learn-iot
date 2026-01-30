@@ -16,7 +16,7 @@ This repository is focused on learning and implementing Azure IoT Operations (AI
   - `wasm-quality-filter-python/` - WebAssembly quality control module
 - **`linux_build/`** - Azure IoT Operations automated installation system
   - `linuxAIO.sh` - Main installation script with comprehensive error handling
-  - `linux_aio_config.json` - Configuration file for customized deployments
+  - `aio_config.json` - Configuration file for customized deployments
   - Diagnostic scripts for K3s troubleshooting (`k3s_troubleshoot.sh`, `diagnose-orchestrator.sh`)
   - Network and port configuration utilities
 - **`operations/`** - Azure operations and integration configurationsl
@@ -102,8 +102,8 @@ This repository is focused on learning and implementing Azure IoT Operations (AI
 ```bash
 # Configure installation (optional but recommended)
 cd linux_build
-cp linux_aio_config.template.json linux_aio_config.json
-# Edit linux_aio_config.json with your Azure settings
+cp aio_config.template.json aio_config.json
+# Edit aio_config.json with your Azure settings
 
 # Run automated installation
 chmod +x linuxAIO.sh

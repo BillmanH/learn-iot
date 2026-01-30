@@ -111,19 +111,19 @@ function Load-ConfigurationFiles {
         Write-Warning "cluster_info.json not found in common locations"
     }
     
-    # Try to find linux_aio_config.json
-    $linuxConfigPath = Find-ConfigFile "linux_aio_config.json"
-    if ($linuxConfigPath) {
-        Write-Success "Found linux_aio_config.json: $linuxConfigPath"
+    # Try to find aio_config.json
+    $aioConfigPath = Find-ConfigFile "aio_config.json"
+    if ($aioConfigPath) {
+        Write-Success "Found aio_config.json: $aioConfigPath"
         try {
-            $linuxConfig = Get-Content $linuxConfigPath -Raw | ConvertFrom-Json
-            $script:ResourceGroup = $linuxConfig.azure.resource_group
+            $aioConfig = Get-Content $aioConfigPath -Raw | ConvertFrom-Json
+            $script:ResourceGroup = $aioConfig.azure.resource_group
             Write-Info "  Loaded resource_group: $script:ResourceGroup"
         } catch {
-            Write-Warning "Could not parse linux_aio_config.json: $_"
+            Write-Warning "Could not parse aio_config.json: $_"
         }
     } else {
-        Write-Warning "linux_aio_config.json not found in common locations"
+        Write-Warning "aio_config.json not found in common locations"
     }
 }
 

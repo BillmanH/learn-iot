@@ -166,7 +166,7 @@ cd external_configuration
 
 Parameters:
     -ClusterInfo      Path to cluster_info.json (default: cluster_info.json)
-    -ConfigFile       Path to azure config file (default: searches for linux_aio_config.json)
+    -ConfigFile       Path to azure config file (default: searches for aio_config.json)
     -DryRun           Validate configuration without making changes
     -SkipVerification Skip post-deployment verification
     -UseArcProxy      Use Azure Arc proxy for kubectl (for remote networks)

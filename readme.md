@@ -193,7 +193,7 @@ Customize edge deployment via `arc_build_linux/aio_config.json`:
 - Optional tools (k9s, MQTT viewers, SSH)
 - Azure AD principal for Arc proxy access
 
-Customize Azure deployment via `config/linux_aio_config.json`:
+Customize Azure deployment via `config/aio_config.json`:
 - Azure subscription and resource group settings
 - Location and namespace configuration
 - Key Vault settings for secret management
