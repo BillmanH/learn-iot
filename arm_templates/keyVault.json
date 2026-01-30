@@ -40,9 +40,9 @@
     },
     "enableRbacAuthorization": {
       "type": "bool",
-      "defaultValue": true,
+      "defaultValue": false,
       "metadata": {
-        "description": "Use RBAC for authorization instead of access policies"
+        "description": "Use RBAC for authorization instead of access policies (default: false - use access policies)"
       }
     },
     "enableSoftDelete": {
@@ -87,6 +87,7 @@
         "enabledForDeployment": true,
         "enabledForTemplateDeployment": true,
         "enabledForDiskEncryption": false,
+        "accessPolicies": [],
         "publicNetworkAccess": "Enabled",
         "networkAcls": {
           "defaultAction": "Allow",

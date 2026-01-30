@@ -50,14 +50,13 @@ cd learn-iot
 **Before running any installation scripts**, create and configure `aio_config.json`:
 
 ```bash
-cd arc_build_linux
+cd config
 cp aio_config.json.template aio_config.json
 ```
 
 Edit `aio_config.json` with your settings:
 - Cluster name for your edge device
-- Optional tools to install (k9s, mqtt-viewer, ssh)
-- Azure AD principal for remote access (optional but recommended)
+- Optional tools to install (k9s, mqtt-viewer, ssh, and powershell)
 
 **This config file controls the edge deployment.** Review it carefully before proceeding.
 
@@ -93,12 +92,8 @@ pwsh ./arc_enable.ps1
 **Why on the edge device?**: Arc enablement requires kubectl access to the cluster, which isn't available remotely.
 
 ![k9s pre iot](docs/img/k9s-pre-iot.jpg)
-After this you should see the core arc-kubernetes components on your nuc device. 
-You can also use the proxy service at:
-```
-az connectedk8s proxy --name <your-cluster> --resource-group <your resource group>
-```
-You'll need this when you get to troubleshooting later. 
+After this you should see the core arc-kubernetes components on your edge device. 
+
 
 > **Note**: If you need remote access via Arc proxy, see [README_ADVANCED.md](README_ADVANCED.md#azure-arc-rbac-issues) for RBAC setup.
 
@@ -113,6 +108,8 @@ cd external_configuration
 
 # First, grant yourself the required Azure permissions
 .\grant_entra_id_roles.ps1
+
+This is separate because it may be that the person who has ability to assign permissions is different thatn the person who will be building the resource.
 
 # Deploy Azure IoT Operations
 .\External-Configurator.ps1

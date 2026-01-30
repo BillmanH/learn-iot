@@ -382,61 +382,63 @@ if ($AddUser -match $guidPattern) {
 }
 
 # ============================================================================
-# GRANT ROLES - KEY VAULT
+# GRANT ROLES - KEY VAULT (Access Policies)
 # ============================================================================
 
-Write-Header "Granting Key Vault Permissions"
+Write-Header "Granting Key Vault Permissions (Access Policies)"
 
 if ($keyVault) {
-    $kvScope = $keyVault.id
+    $kvName = $script:KeyVaultName
     
-    # Grant to user
+    # Grant to user - full admin access
     Write-SubHeader "User: $AddUser"
     
-    Write-Info "Granting 'Key Vault Administrator' role..."
-    az role assignment create `
-        --role "Key Vault Administrator" `
-        --assignee $userObjectId `
-        --scope $kvScope `
+    Write-Info "Setting Key Vault access policy for user (get, list, set, delete secrets)..."
+    az keyvault set-policy `
+        --name $kvName `
+        --object-id $userObjectId `
+        --secret-permissions get list set delete backup restore recover purge `
+        --key-permissions get list create delete backup restore recover purge `
+        --certificate-permissions get list create delete backup restore recover purge `
         --output none 2>$null
-    Write-Success "Granted Key Vault Administrator"
+    Write-Success "Granted full Key Vault access to user"
     
-    # Grant to Arc cluster identity
+    # Grant to Arc cluster identity - secrets read access
     if ($arcClusterIdentity.principalId) {
         Write-SubHeader "Arc Cluster Identity"
         
-        Write-Info "Granting 'Key Vault Secrets User' role..."
-        az role assignment create `
-            --role "Key Vault Secrets User" `
-            --assignee $arcClusterIdentity.principalId `
-            --scope $kvScope `
+        Write-Info "Setting Key Vault access policy for Arc cluster (get, list secrets)..."
+        az keyvault set-policy `
+            --name $kvName `
+            --object-id $arcClusterIdentity.principalId `
+            --secret-permissions get list `
             --output none 2>$null
-        Write-Success "Granted Key Vault Secrets User to Arc cluster"
+        Write-Success "Granted Key Vault secrets access to Arc cluster"
     }
     
-    # Grant to AIO instance identity
+    # Grant to AIO instance identity - secrets read access
     if ($aioIdentity.principalId) {
         Write-SubHeader "AIO Instance Identity"
         
-        Write-Info "Granting 'Key Vault Secrets User' role..."
-        az role assignment create `
-            --role "Key Vault Secrets User" `
-            --assignee $aioIdentity.principalId `
-            --scope $kvScope `
+        Write-Info "Setting Key Vault access policy for AIO instance (get, list secrets)..."
+        az keyvault set-policy `
+            --name $kvName `
+            --object-id $aioIdentity.principalId `
+            --secret-permissions get list `
             --output none 2>$null
-        Write-Success "Granted Key Vault Secrets User to AIO instance"
+        Write-Success "Granted Key Vault secrets access to AIO instance"
     }
     
-    # Grant to all managed identities
+    # Grant to all managed identities - secrets read access
     if ($managedIdentities -and $managedIdentities.Count -gt 0) {
         Write-SubHeader "All Managed Identities"
         
         foreach ($identity in $managedIdentities) {
-            Write-Info "Granting 'Key Vault Secrets User' to: $($identity.name)"
-            az role assignment create `
-                --role "Key Vault Secrets User" `
-                --assignee $identity.principalId `
-                --scope $kvScope `
+            Write-Info "Setting Key Vault access policy for: $($identity.name) (get, list secrets)..."
+            az keyvault set-policy `
+                --name $kvName `
+                --object-id $identity.principalId `
+                --secret-permissions get list `
                 --output none 2>$null
             Write-Success "  Granted to: $($identity.name)"
         }
@@ -689,12 +691,12 @@ Write-Success "Granted Device Registry access via Contributor"
 Write-Header "Summary - Permissions Granted"
 
 Write-Host ""
-Write-Success "Key Vault Permissions:"
+Write-Success "Key Vault Permissions (Access Policies):"
 if ($keyVault) {
-    Write-Info "  [OK] User '$AddUser': Key Vault Administrator"
-    Write-Info "  [OK] Arc Cluster: Key Vault Secrets User"
-    Write-Info "  [OK] AIO Instance: Key Vault Secrets User"
-    Write-Info "  [OK] All Managed Identities: Key Vault Secrets User"
+    Write-Info "  [OK] User '$AddUser': Full access (get, list, set, delete secrets/keys/certs)"
+    Write-Info "  [OK] Arc Cluster: Secrets read access (get, list)"
+    Write-Info "  [OK] AIO Instance: Secrets read access (get, list)"
+    Write-Info "  [OK] All Managed Identities: Secrets read access (get, list)"
 } else {
     Write-Warning "  (No Key Vault found - permissions skipped)"
 }
