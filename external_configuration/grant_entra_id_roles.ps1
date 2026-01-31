@@ -312,6 +312,7 @@ if ([string]::IsNullOrEmpty($script:KeyVaultName)) {
 }
 
 $keyVault = $null
+$keyVaultUsesRbac = $false
 if ($script:KeyVaultName) {
     $keyVault = az keyvault show --name $script:KeyVaultName --resource-group $script:ResourceGroup 2>$null | ConvertFrom-Json
     
@@ -319,6 +320,14 @@ if ($script:KeyVaultName) {
         Write-Success "Key Vault: $script:KeyVaultName"
         Write-Info "  Resource ID: $($keyVault.id)"
         Write-Info "  Vault URI: $($keyVault.properties.vaultUri)"
+        
+        # Check if Key Vault uses RBAC or access policies
+        $keyVaultUsesRbac = $keyVault.properties.enableRbacAuthorization -eq $true
+        if ($keyVaultUsesRbac) {
+            Write-Info "  Authorization: RBAC (Role-Based Access Control)"
+        } else {
+            Write-Info "  Authorization: Access Policies"
+        }
     } else {
         Write-Warning "Key Vault not found: $script:KeyVaultName"
     }
@@ -382,51 +391,94 @@ if ($AddUser -match $guidPattern) {
 }
 
 # ============================================================================
-# GRANT ROLES - KEY VAULT (Access Policies)
+# GRANT ROLES - KEY VAULT (RBAC or Access Policies)
 # ============================================================================
 
-Write-Header "Granting Key Vault Permissions (Access Policies)"
+if ($keyVaultUsesRbac) {
+    Write-Header "Granting Key Vault Permissions (RBAC)"
+} else {
+    Write-Header "Granting Key Vault Permissions (Access Policies)"
+}
 
 if ($keyVault) {
     $kvName = $script:KeyVaultName
+    $kvResourceId = $keyVault.id
+    
+    # Key Vault RBAC role IDs
+    $kvSecretsUserRoleId = "4633458b-17de-408a-b874-0445c86b69e6"      # Key Vault Secrets User (read secrets)
+    $kvSecretsOfficerRoleId = "b86a8fe4-44ce-4948-aee5-eccb2c155cd7"  # Key Vault Secrets Officer (full secrets access)
+    $kvAdminRoleId = "00482a5a-887f-4fb3-b363-3b7fe8e74483"           # Key Vault Administrator (full access)
     
     # Grant to user - full admin access
     Write-SubHeader "User: $AddUser"
     
-    Write-Info "Setting Key Vault access policy for user (get, list, set, delete secrets)..."
-    az keyvault set-policy `
-        --name $kvName `
-        --object-id $userObjectId `
-        --secret-permissions get list set delete backup restore recover purge `
-        --key-permissions get list create delete backup restore recover purge `
-        --certificate-permissions get list create delete backup restore recover purge `
-        --output none 2>$null
-    Write-Success "Granted full Key Vault access to user"
+    if ($keyVaultUsesRbac) {
+        Write-Info "Assigning Key Vault Administrator role to user..."
+        az role assignment create `
+            --role $kvAdminRoleId `
+            --assignee-object-id $userObjectId `
+            --assignee-principal-type User `
+            --scope $kvResourceId `
+            --output none 2>$null
+        Write-Success "Granted Key Vault Administrator role to user"
+    } else {
+        Write-Info "Setting Key Vault access policy for user (get, list, set, delete secrets)..."
+        az keyvault set-policy `
+            --name $kvName `
+            --object-id $userObjectId `
+            --secret-permissions get list set delete backup restore recover purge `
+            --key-permissions get list create delete backup restore recover purge `
+            --certificate-permissions get list create delete backup restore recover purge `
+            --output none 2>$null
+        Write-Success "Granted full Key Vault access to user"
+    }
     
     # Grant to Arc cluster identity - secrets read access
     if ($arcClusterIdentity.principalId) {
         Write-SubHeader "Arc Cluster Identity"
         
-        Write-Info "Setting Key Vault access policy for Arc cluster (get, list secrets)..."
-        az keyvault set-policy `
-            --name $kvName `
-            --object-id $arcClusterIdentity.principalId `
-            --secret-permissions get list `
-            --output none 2>$null
-        Write-Success "Granted Key Vault secrets access to Arc cluster"
+        if ($keyVaultUsesRbac) {
+            Write-Info "Assigning Key Vault Secrets User role to Arc cluster..."
+            az role assignment create `
+                --role $kvSecretsUserRoleId `
+                --assignee-object-id $arcClusterIdentity.principalId `
+                --assignee-principal-type ServicePrincipal `
+                --scope $kvResourceId `
+                --output none 2>$null
+            Write-Success "Granted Key Vault Secrets User role to Arc cluster"
+        } else {
+            Write-Info "Setting Key Vault access policy for Arc cluster (get, list secrets)..."
+            az keyvault set-policy `
+                --name $kvName `
+                --object-id $arcClusterIdentity.principalId `
+                --secret-permissions get list `
+                --output none 2>$null
+            Write-Success "Granted Key Vault secrets access to Arc cluster"
+        }
     }
     
     # Grant to AIO instance identity - secrets read access
     if ($aioIdentity.principalId) {
         Write-SubHeader "AIO Instance Identity"
         
-        Write-Info "Setting Key Vault access policy for AIO instance (get, list secrets)..."
-        az keyvault set-policy `
-            --name $kvName `
-            --object-id $aioIdentity.principalId `
-            --secret-permissions get list `
-            --output none 2>$null
-        Write-Success "Granted Key Vault secrets access to AIO instance"
+        if ($keyVaultUsesRbac) {
+            Write-Info "Assigning Key Vault Secrets User role to AIO instance..."
+            az role assignment create `
+                --role $kvSecretsUserRoleId `
+                --assignee-object-id $aioIdentity.principalId `
+                --assignee-principal-type ServicePrincipal `
+                --scope $kvResourceId `
+                --output none 2>$null
+            Write-Success "Granted Key Vault Secrets User role to AIO instance"
+        } else {
+            Write-Info "Setting Key Vault access policy for AIO instance (get, list secrets)..."
+            az keyvault set-policy `
+                --name $kvName `
+                --object-id $aioIdentity.principalId `
+                --secret-permissions get list `
+                --output none 2>$null
+            Write-Success "Granted Key Vault secrets access to AIO instance"
+        }
     }
     
     # Grant to all managed identities - secrets read access
@@ -434,13 +486,24 @@ if ($keyVault) {
         Write-SubHeader "All Managed Identities"
         
         foreach ($identity in $managedIdentities) {
-            Write-Info "Setting Key Vault access policy for: $($identity.name) (get, list secrets)..."
-            az keyvault set-policy `
-                --name $kvName `
-                --object-id $identity.principalId `
-                --secret-permissions get list `
-                --output none 2>$null
-            Write-Success "  Granted to: $($identity.name)"
+            if ($keyVaultUsesRbac) {
+                Write-Info "Assigning Key Vault Secrets User role to: $($identity.name)..."
+                az role assignment create `
+                    --role $kvSecretsUserRoleId `
+                    --assignee-object-id $identity.principalId `
+                    --assignee-principal-type ServicePrincipal `
+                    --scope $kvResourceId `
+                    --output none 2>$null
+                Write-Success "  Granted Key Vault Secrets User role to: $($identity.name)"
+            } else {
+                Write-Info "Setting Key Vault access policy for: $($identity.name) (get, list secrets)..."
+                az keyvault set-policy `
+                    --name $kvName `
+                    --object-id $identity.principalId `
+                    --secret-permissions get list `
+                    --output none 2>$null
+                Write-Success "  Granted to: $($identity.name)"
+            }
         }
     }
 } else {

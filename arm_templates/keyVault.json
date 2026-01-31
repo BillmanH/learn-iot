@@ -40,9 +40,9 @@
     },
     "enableRbacAuthorization": {
       "type": "bool",
-      "defaultValue": false,
+      "defaultValue": true,
       "metadata": {
-        "description": "Use RBAC for authorization instead of access policies (default: false - use access policies)"
+        "description": "Use RBAC for authorization instead of access policies (default: true - use RBAC)"
       }
     },
     "userObjectId": {
@@ -108,7 +108,7 @@
         "enabledForDeployment": true,
         "enabledForTemplateDeployment": true,
         "enabledForDiskEncryption": false,
-        "accessPolicies": "[if(empty(parameters('userObjectId')), variables('emptyAccessPolicies'), variables('userAccessPolicy'))]",
+        "accessPolicies": "[if(parameters('enableRbacAuthorization'), variables('emptyAccessPolicies'), if(empty(parameters('userObjectId')), variables('emptyAccessPolicies'), variables('userAccessPolicy')))]",
         "publicNetworkAccess": "Enabled",
         "networkAcls": {
           "defaultAction": "Allow",
