@@ -74,14 +74,14 @@ The Edge Historian is a containerized service that:
 
 ### Prerequisites
 1. Azure IoT Operations cluster with Arc connectivity
-2. `linux_aio_config.json` configured
+2. `aio_config.json` configured
 3. BrokerAuthorization with wildcard subscription permission
 
 ### Quick Deploy
 
 ```powershell
 # 1. Enable in configuration
-# Edit: linux_build/linux_aio_config.json
+# Edit: linux_build/aio_config.json
 # Set: "demohistorian": true in modules section
 
 # 2. Deploy using automation script

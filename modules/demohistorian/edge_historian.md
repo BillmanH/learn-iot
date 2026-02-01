@@ -323,7 +323,7 @@ The demohistorian is deployed using the existing deployment infrastructure:
 - **Deploy-EdgeModules.ps1** - PowerShell script for remote deployment
 - **Azure Arc Proxy** - kubectl through Azure connectedk8s proxy
 - **Cross-network deployment** - Windows development machine → Linux edge server
-- **Configuration-driven** - Controlled via `linux_aio_config.json`
+- **Configuration-driven** - Controlled via `aio_config.json`
 
 ### Deployment Architecture
 ```
@@ -338,7 +338,7 @@ Windows Dev Machine                    Azure Arc                    Linux Edge S
 
 ### Configuration File
 
-Add `demohistorian` to `linux_build/linux_aio_config.json`:
+Add `demohistorian` to `linux_build/aio_config.json`:
 
 ```json
 {
@@ -398,7 +398,7 @@ volumes:
 
 **Prerequisites:**
 1. Azure Arc proxy connection established
-2. `linux_aio_config.json` configured with `"demohistorian": true`
+2. `aio_config.json` configured with `"demohistorian": true`
 3. Container registry credentials configured (Docker Hub or ACR)
 
 **Deployment Command:**
@@ -417,7 +417,7 @@ cd linux_build
 ```
 
 **What the script does:**
-1. Reads configuration from `linux_aio_config.json`
+1. Reads configuration from `aio_config.json`
 2. Starts Azure Arc proxy (`az connectedk8s proxy`)
 3. Builds Docker image locally (if not skipped)
 4. Pushes image to configured registry
@@ -1119,13 +1119,13 @@ spec:
 - **Connectivity**: Azure Arc proxy (`az connectedk8s proxy`)
 - **Registry**: Docker Hub or Azure Container Registry
 - **Remote execution**: Windows dev machine → Linux edge server (cross-network)
-- **Configuration-driven**: Controlled by `linux_aio_config.json`
+- **Configuration-driven**: Controlled by `aio_config.json`
 - **Module integration**: Follows standard iotopps pattern
 
 ### Quick Start
 ```powershell
 # 1. Add to config
-# Edit linux_build/linux_aio_config.json
+# Edit linux_build/aio_config.json
 # Set "demohistorian": true in modules section
 
 # 2. Deploy

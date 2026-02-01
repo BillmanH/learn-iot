@@ -298,7 +298,7 @@ The `hello_flask_config.json` file supports these settings:
   },
   "azure": {
     "useArcConnection": true,      // Use Azure Arc for remote deployment
-    "configPath": "../../linux_build/linux_aio_config.json"
+    "configPath": "../../config/aio_config.json"
   }
 }
 ```

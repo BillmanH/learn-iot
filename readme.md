@@ -8,13 +8,13 @@ Automated deployment of Azure IoT Operations (AIO) on edge devices with industri
 - 🏭 **Industrial IoT apps** - Factory simulator, MQTT historian, data processors
 - ☁️ **Cloud integration** - Microsoft Fabric Real-Time Intelligence connectivity
 - 🔧 **Production-ready** - Separation of edge and cloud configuration for security
-- TBD - Windowns AIO installer - comming soon
+- TBD - Windows AIO installer - coming soon
 
 > **For detailed technical information, see [README_ADVANCED.md](README_ADVANCED.md)**
 
-## Why not use codespaces form the docs? 
+## Why not use codespaces from the docs? 
 The docs have a very clean "one click" deployment in the MSFT docs. It's a great first step, especially if you just want to see the tools. 
-* That will live in it's own environment and you won't be able to connect it to your signals or your devices. 
+* That will live in its own environment and you won't be able to connect it to your signals or your devices. 
 * This version will help you set up AIO in the actual environment where you do your IoT operations.
 * This is much closer to a production-level deployment.
 * This instance will last as long as you want to keep it.
@@ -23,7 +23,7 @@ As the end-goal is an IoT solution, this repo has a preference for installing on
 
 
 # Quick Start
-The goal here is to install AIO on a Ubuntu machine (like a local NUC, PC or a VM). So that you can get working quickly on your datflow pipelines and get data in fabric quickly. 
+The goal here is to install AIO on an Ubuntu machine (like a local NUC, PC, or a VM) so that you can get working quickly on your dataflow pipelines and get data into Fabric quickly. 
 
 Once you have setup AIO via this process, you should be able to do everything that you want in the cloud without touching the Ubuntu machine again.
 
@@ -50,14 +50,13 @@ cd learn-iot
 **Before running any installation scripts**, create and configure `aio_config.json`:
 
 ```bash
-cd arc_build_linux
+cd config
 cp aio_config.json.template aio_config.json
 ```
 
 Edit `aio_config.json` with your settings:
 - Cluster name for your edge device
-- Optional tools to install (k9s, mqtt-viewer, ssh)
-- Azure AD principal for remote access (optional but recommended)
+- Optional tools to install (k9s, mqtt-viewer, ssh, and powershell)
 
 **This config file controls the edge deployment.** Review it carefully before proceeding.
 
@@ -93,16 +92,12 @@ pwsh ./arc_enable.ps1
 **Why on the edge device?**: Arc enablement requires kubectl access to the cluster, which isn't available remotely.
 
 ![k9s pre iot](docs/img/k9s-pre-iot.jpg)
-After this you should see the core arc-kubernetes components on your nuc device. 
-You can also use the proxy service at:
-```
-az connectedk8s proxy --name <your-cluster> --resource-group <your resource group>
-```
-You'll need this when you get to troubleshooting later. 
+After this you should see the core arc-kubernetes components on your edge device. 
+
 
 > **Note**: If you need remote access via Arc proxy, see [README_ADVANCED.md](README_ADVANCED.md#azure-arc-rbac-issues) for RBAC setup.
 
-![reosources pre iot](docs/img/azure-resources-pre-iot.png)
+![resources pre iot](docs/img/azure-resources-pre-iot.png)
 
 ### 4. Azure Configuration (From Windows Machine)
 
@@ -113,6 +108,8 @@ cd external_configuration
 
 # First, grant yourself the required Azure permissions
 .\grant_entra_id_roles.ps1
+
+This is separate because it may be that the person who has the ability to assign permissions is different than the person who will be building the resource.
 
 # Deploy Azure IoT Operations
 .\External-Configurator.ps1
@@ -136,7 +133,7 @@ cd external_configuration
 **Note**: Arc enablement was already done on the edge device in step 3b
 
 ![k9s post iot](docs/img/k9s-post-iot.jpg)
-![reosources post iot](docs/img/azure-resources-post-iot.png)
+![resources post iot](docs/img/azure-resources-post-iot.png)
 
 ### 5. Verify Installation
 
@@ -196,7 +193,7 @@ Customize edge deployment via `arc_build_linux/aio_config.json`:
 - Optional tools (k9s, MQTT viewers, SSH)
 - Azure AD principal for Arc proxy access
 
-Customize Azure deployment via `config/linux_aio_config.json`:
+Customize Azure deployment via `config/aio_config.json`:
 - Azure subscription and resource group settings
 - Location and namespace configuration
 - Key Vault settings for secret management

@@ -43,7 +43,7 @@ Before Key Vault integration works, you MUST have:
 
 ```powershell
 # Runs full deployment including Key Vault integration
-.\External-Configurator.ps1 -ClusterInfo edge_configs\cluster_info.json -ConfigFile edge_configs\linux_aio_config.json
+.\External-Configurator.ps1 -ClusterInfo edge_configs\cluster_info.json -ConfigFile edge_configs\aio_config.json
 ```
 
 ### Skip Key Vault Setup
@@ -55,7 +55,7 @@ Before Key Vault integration works, you MUST have:
 
 ### Custom Key Vault Name
 
-Add to your `linux_aio_config.json`:
+Add to your `aio_config.json`:
 
 ```json
 {
@@ -347,7 +347,7 @@ For Fabric Real-Time Intelligence dataflows:
 
 ### Configuration File Support
 
-Add to `linux_aio_config.json`:
+Add to `aio_config.json`:
 
 ```json
 {

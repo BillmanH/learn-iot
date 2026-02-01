@@ -79,7 +79,7 @@ cd external_configuration
 .\External-Configurator.ps1
 ```
 
-The script reads configuration from `config/linux_aio_config.json` and cluster info from `config/cluster_info.json`.
+The script reads configuration from `config/aio_config.json` and cluster info from `config/cluster_info.json`.
 
 ## Notes
 

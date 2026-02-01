@@ -120,7 +120,7 @@ The script will detect if Docker is missing and provide instructions for manual 
 ### Remote Deployment (Windows → Edge Device)
 Deploy applications from your Windows development machine to remote IoT Operations clusters:
 
-1. Configure your cluster in `../linux_build/linux_aio_config.json`
+1. Configure your cluster in `../config/aio_config.json`
 2. From the `iotopps` folder, run the deployment script:
    ```powershell
    .\Deploy-ToIoTEdge.ps1 -AppFolder "hello-flask" -RegistryName "your-registry"
@@ -193,7 +193,7 @@ iotopps/
 ### Cluster Configuration
 Your IoT Operations cluster configuration is stored in:
 ```
-../linux_build/linux_aio_config.json
+../config/aio_config.json
 ```
 
 This file contains:

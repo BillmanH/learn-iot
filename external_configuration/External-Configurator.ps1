@@ -83,6 +83,7 @@ $script:NamespaceName = $null
 $script:KeyVaultName = $null
 $script:StorageAccountName = $null
 $script:SchemaRegistryName = $null
+$script:UserObjectId = $null  # Current user's Entra ID object ID for Key Vault access
 
 # Deployment tracking
 $script:DeployedResources = @()
@@ -484,6 +485,15 @@ function Connect-ToAzure {
     Write-Host "  Key Vault: $script:KeyVaultName" -ForegroundColor Gray
     Write-Host ""
     
+    # Get current user's object ID for Key Vault access policy
+    Write-Log "Getting current user's object ID..."
+    $script:UserObjectId = az ad signed-in-user show --query id -o tsv 2>$null
+    if ($script:UserObjectId) {
+        Write-InfoLog "Current user object ID: $script:UserObjectId"
+    } else {
+        Write-Warning "Could not get current user's object ID. Key Vault access policy will need to be set manually."
+    }
+    
     Write-Success "Azure authentication configured"
 }
 
@@ -688,10 +698,16 @@ function Deploy-Infrastructure {
     
     # Step 3: Create Key Vault
     Write-Log "Step 3/6: Creating Key Vault..."
-    $kvResult = Deploy-ARMTemplate -TemplateName "keyVault" -Parameters @{
+    $kvParams = @{
         keyVaultName = $script:KeyVaultName
         location = $script:Location
     }
+    # Add user access policy if we have the user's object ID
+    if ($script:UserObjectId) {
+        $kvParams.userObjectId = $script:UserObjectId
+        Write-InfoLog "Adding access policy for current user to Key Vault"
+    }
+    $kvResult = Deploy-ARMTemplate -TemplateName "keyVault" -Parameters $kvParams
     
     # Step 4: Create Device Registry Namespace
     Write-Log "Step 4/6: Creating Device Registry namespace..."
@@ -714,6 +730,64 @@ function Deploy-Infrastructure {
     $miResult = Deploy-ARMTemplate -TemplateName "managedIdentity" -Parameters @{
         managedIdentityName = $miName
         location = $script:Location
+    }
+    
+    # Configure Key Vault RBAC role assignments for managed identities
+    # Using RBAC instead of access policies for better security and management
+    Write-Log "Configuring Key Vault RBAC role assignments for AIO dataflows..."
+    
+    # Key Vault Secrets User role ID (built-in role for reading secrets)
+    $kvSecretsUserRoleId = "4633458b-17de-408a-b874-0445c86b69e6"
+    $kvResourceId = "/subscriptions/$script:SubscriptionId/resourceGroups/$script:ResourceGroup/providers/Microsoft.KeyVault/vaults/$script:KeyVaultName"
+    
+    if (-not $DryRun) {
+        # Get the managed identity's principal ID
+        $miPrincipalId = az identity show --name $miName --resource-group $script:ResourceGroup --query "principalId" -o tsv 2>$null
+        
+        if ($miPrincipalId) {
+            Write-InfoLog "Assigning Key Vault Secrets User role to $miName..."
+            az role assignment create `
+                --role $kvSecretsUserRoleId `
+                --assignee-object-id $miPrincipalId `
+                --assignee-principal-type ServicePrincipal `
+                --scope $kvResourceId `
+                --output none 2>$null
+            
+            if ($LASTEXITCODE -eq 0) {
+                Write-Success "Granted Key Vault Secrets User role to $miName"
+            } else {
+                Write-WarnLog "Failed to assign Key Vault role for $miName (may already exist)"
+            }
+        } else {
+            Write-WarnLog "Could not get principal ID for $miName"
+        }
+        
+        # Also check for any other managed identities in the resource group and grant them access
+        $allManagedIdentities = az identity list --resource-group $script:ResourceGroup --query "[].{name:name, principalId:principalId}" 2>$null | ConvertFrom-Json
+        
+        if ($allManagedIdentities) {
+            foreach ($identity in $allManagedIdentities) {
+                # Skip the one we just configured
+                if ($identity.name -eq $miName) { continue }
+                
+                # Only configure identities that look like they're for secret sync or AIO
+                if ($identity.name -match "secretsync|aio|iot") {
+                    Write-InfoLog "Assigning Key Vault Secrets User role to $($identity.name)..."
+                    az role assignment create `
+                        --role $kvSecretsUserRoleId `
+                        --assignee-object-id $identity.principalId `
+                        --assignee-principal-type ServicePrincipal `
+                        --scope $kvResourceId `
+                        --output none 2>$null
+                    
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-Success "Granted Key Vault Secrets User role to $($identity.name)"
+                    }
+                }
+            }
+        }
+    } else {
+        Write-InfoLog "[DRY RUN] Would configure Key Vault RBAC role assignments for managed identities"
     }
     
     # Role assignments are handled by grant_entra_id_roles.ps1
@@ -777,14 +851,15 @@ function Deploy-IoTOperations {
     # Check if already deployed
     $existingInstance = az iot ops show --name $instanceName --resource-group $script:ResourceGroup 2>&1
     
-    if ($LASTEXITCODE -eq 0) {
-        Write-Success "Azure IoT Operations instance $instanceName already exists"
-        return
-    }
+    $aioAlreadyExists = $LASTEXITCODE -eq 0
     
-    # Check Arc cluster connectivity
-    Write-Log "Checking Arc cluster connectivity..."
-    $clusterResult = az connectedk8s show `
+    if ($aioAlreadyExists) {
+        Write-Success "Azure IoT Operations instance $instanceName already exists"
+        Write-InfoLog "Verifying Key Vault access policies are configured..."
+    } else {
+        # Check Arc cluster connectivity
+        Write-Log "Checking Arc cluster connectivity..."
+        $clusterResult = az connectedk8s show `
         --name $script:ClusterName `
         --resource-group $script:ResourceGroup `
         --output json 2>&1
@@ -907,13 +982,82 @@ function Deploy-IoTOperations {
         --query "id" -o tsv 2>$null
     
     if ($miResourceId) {
+        # IMPORTANT: Key Vault RBAC role must be assigned BEFORE enabling secretsync
+        Write-InfoLog "Assigning Key Vault Secrets User role to secret sync managed identity (required before secretsync)..."
+        $miPrincipalId = az identity show --name $miName --resource-group $script:ResourceGroup --query "principalId" -o tsv 2>$null
+        
+        # Key Vault Secrets User role ID
+        $kvSecretsUserRoleId = "4633458b-17de-408a-b874-0445c86b69e6"
+        $kvResourceId = "/subscriptions/$script:SubscriptionId/resourceGroups/$script:ResourceGroup/providers/Microsoft.KeyVault/vaults/$script:KeyVaultName"
+        
+        if ($miPrincipalId) {
+            az role assignment create `
+                --role $kvSecretsUserRoleId `
+                --assignee-object-id $miPrincipalId `
+                --assignee-principal-type ServicePrincipal `
+                --scope $kvResourceId `
+                --output none 2>$null
+            
+            if ($LASTEXITCODE -eq 0) {
+                Write-Success "Granted Key Vault Secrets User role to $miName"
+            } else {
+                Write-WarnLog "Failed to assign Key Vault role for $miName - secretsync may fail (role may already exist)"
+            }
+        }
+        
+        # Now enable secretsync
         az iot ops secretsync enable `
             --name $instanceName `
             --resource-group $script:ResourceGroup `
             --mi-user-assigned $miResourceId `
-            --kv-resource-id "/subscriptions/$script:SubscriptionId/resourceGroups/$script:ResourceGroup/providers/Microsoft.KeyVault/vaults/$script:KeyVaultName" 2>$null
+            --kv-resource-id $kvResourceId 2>$null
         
         Write-Success "Secret sync enabled"
+        }
+    }  # End of else block (AIO deployment)
+    
+    # Configure Key Vault RBAC role assignments for Arc cluster and AIO instance
+    # This runs whether AIO was just deployed or already existed
+    Write-Log "Configuring Key Vault RBAC role assignments for AIO identities..."
+    
+    # Key Vault Secrets User role ID
+    $kvSecretsUserRoleId = "4633458b-17de-408a-b874-0445c86b69e6"
+    $kvResourceId = "/subscriptions/$script:SubscriptionId/resourceGroups/$script:ResourceGroup/providers/Microsoft.KeyVault/vaults/$script:KeyVaultName"
+    
+    # Grant Arc cluster identity access to Key Vault
+    $arcIdentity = az connectedk8s show --name $script:ClusterName --resource-group $script:ResourceGroup --query "identity.principalId" -o tsv 2>$null
+    if ($arcIdentity) {
+        Write-InfoLog "Assigning Key Vault Secrets User role to Arc cluster identity..."
+        az role assignment create `
+            --role $kvSecretsUserRoleId `
+            --assignee-object-id $arcIdentity `
+            --assignee-principal-type ServicePrincipal `
+            --scope $kvResourceId `
+            --output none 2>$null
+        
+        if ($LASTEXITCODE -eq 0) {
+            Write-Success "Granted Key Vault Secrets User role to Arc cluster identity"
+        } else {
+            Write-WarnLog "Failed to assign Key Vault role for Arc cluster identity (may already exist)"
+        }
+    }
+    
+    # Grant AIO instance identity access to Key Vault
+    $aioIdentity = az iot ops show --name $instanceName --resource-group $script:ResourceGroup --query "identity.principalId" -o tsv 2>$null
+    if ($aioIdentity) {
+        Write-InfoLog "Assigning Key Vault Secrets User role to AIO instance identity..."
+        az role assignment create `
+            --role $kvSecretsUserRoleId `
+            --assignee-object-id $aioIdentity `
+            --assignee-principal-type ServicePrincipal `
+            --scope $kvResourceId `
+            --output none 2>$null
+        
+        if ($LASTEXITCODE -eq 0) {
+            Write-Success "Granted Key Vault Secrets User role to AIO instance identity"
+        } else {
+            Write-WarnLog "Failed to assign Key Vault role for AIO instance identity (may already exist)"
+        }
     }
 }
 
@@ -954,6 +1098,87 @@ function Test-Deployment {
     $kv = az keyvault show --name $script:KeyVaultName --resource-group $script:ResourceGroup 2>$null
     if ($kv) {
         Write-Success "Key Vault verified: $script:KeyVaultName"
+        
+        # Check Key Vault configuration for AIO dataflows
+        $kvData = $kv | ConvertFrom-Json
+        $kvIssues = @()
+        
+        # Key Vault Secrets User role ID
+        $kvSecretsUserRoleId = "4633458b-17de-408a-b874-0445c86b69e6"
+        $kvResourceId = "/subscriptions/$script:SubscriptionId/resourceGroups/$script:ResourceGroup/providers/Microsoft.KeyVault/vaults/$script:KeyVaultName"
+        
+        # Check RBAC vs Access Policies
+        if ($kvData.properties.enableRbacAuthorization -eq $true) {
+            Write-InfoLog "Key Vault is using RBAC authorization"
+            
+            # Verify role assignments for AIO identities
+            Write-InfoLog "Checking Key Vault RBAC role assignments..."
+            
+            # Get Arc cluster identity
+            $arcIdentity = az connectedk8s show --name $script:ClusterName --resource-group $script:ResourceGroup --query "identity.principalId" -o tsv 2>$null
+            if ($arcIdentity) {
+                $arcRoleAssignment = az role assignment list --scope $kvResourceId --assignee $arcIdentity --query "[?roleDefinitionId contains '$kvSecretsUserRoleId']" 2>$null | ConvertFrom-Json
+                if ($arcRoleAssignment -and $arcRoleAssignment.Count -gt 0) {
+                    Write-Success "  Arc cluster identity has Key Vault Secrets User role"
+                } else {
+                    $kvIssues += "Arc cluster identity missing Key Vault Secrets User role"
+                }
+            }
+            
+            # Get AIO instance identity
+            $instanceName = "$($script:ClusterName)-aio"
+            $aioIdentity = az iot ops show --name $instanceName --resource-group $script:ResourceGroup --query "identity.principalId" -o tsv 2>$null
+            if ($aioIdentity) {
+                $aioRoleAssignment = az role assignment list --scope $kvResourceId --assignee $aioIdentity --query "[?roleDefinitionId contains '$kvSecretsUserRoleId']" 2>$null | ConvertFrom-Json
+                if ($aioRoleAssignment -and $aioRoleAssignment.Count -gt 0) {
+                    Write-Success "  AIO instance identity has Key Vault Secrets User role"
+                } else {
+                    $kvIssues += "AIO instance identity missing Key Vault Secrets User role"
+                }
+            }
+            
+            # Check for secretsync managed identity
+            $miName = "$($script:ClusterName)-secretsync-mi"
+            $secretSyncMi = az identity show --name $miName --resource-group $script:ResourceGroup --query "principalId" -o tsv 2>$null
+            if ($secretSyncMi) {
+                $miRoleAssignment = az role assignment list --scope $kvResourceId --assignee $secretSyncMi --query "[?roleDefinitionId contains '$kvSecretsUserRoleId']" 2>$null | ConvertFrom-Json
+                if ($miRoleAssignment -and $miRoleAssignment.Count -gt 0) {
+                    Write-Success "  Secret sync managed identity has Key Vault Secrets User role"
+                } else {
+                    $kvIssues += "Secret sync managed identity ($miName) missing Key Vault Secrets User role"
+                }
+            }
+        } else {
+            Write-WarnLog "Key Vault is using Access Policies instead of RBAC"
+            $kvIssues += "Key Vault should use RBAC authorization for better security"
+        }
+        
+        # Check soft delete (required for production)
+        if ($kvData.properties.enableSoftDelete -eq $true) {
+            Write-Success "  Soft delete is enabled"
+        } else {
+            $kvIssues += "Soft delete is not enabled (recommended for production)"
+        }
+        
+        # Check template deployment enabled (needed for ARM deployments)
+        if ($kvData.properties.enabledForTemplateDeployment -eq $true) {
+            Write-Success "  Template deployment is enabled"
+        } else {
+            $kvIssues += "Template deployment is not enabled"
+        }
+        
+        # Report issues
+        if ($kvIssues.Count -gt 0) {
+            Write-Host ""
+            Write-WarnLog "Key Vault configuration issues found for AIO dataflows:"
+            foreach ($issue in $kvIssues) {
+                Write-WarnLog "  - $issue"
+            }
+            Write-Host ""
+            Write-InfoLog "Run grant_entra_id_roles.ps1 to fix access policy issues"
+        } else {
+            Write-Success "Key Vault is properly configured for AIO dataflows"
+        }
     } else {
         Write-WarnLog "Key Vault not found: $script:KeyVaultName"
     }

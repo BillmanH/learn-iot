@@ -8,7 +8,7 @@
 # Files backed up:
 #   - linux_installer*.log (all installation logs)
 #   - cluster_info.json
-#   - linux_aio_config.json
+#   - aio_config.json
 #
 # Usage:
 #   ./backup_aio_configs.sh
@@ -40,7 +40,7 @@ echo "=========================================="
 echo ""
 
 # Configuration files to backup
-CONFIG_FILE="linux_aio_config.json"
+CONFIG_FILE="aio_config.json"
 CLUSTER_INFO="cluster_info.json"
 
 echo "Looking for configuration files..."
@@ -74,7 +74,7 @@ if [ -z "$CLUSTER_INFO_PATH" ]; then
 fi
 
 echo ""
-echo "Searching for linux_aio_config.json..."
+echo "Searching for aio_config.json..."
 for dir in "${SEARCH_DIRS[@]}"; do
     if [ -f "$dir/$CONFIG_FILE" ]; then
         CONFIG_PATH="$dir/$CONFIG_FILE"
@@ -111,7 +111,7 @@ if [ -z "$CLUSTER_INFO_PATH" ] && [ -z "$CONFIG_PATH" ] && [ ${#LOG_FILES[@]} -e
     echo -e "${RED}ERROR: No configuration files found!${NC}"
     echo ""
     echo "Please ensure you have run the installer and the following files exist:"
-    echo "  - linux_aio_config.json"
+    echo "  - aio_config.json"
     echo "  - cluster_info.json"
     echo "  - linux_installer*.log"
     echo ""
@@ -124,7 +124,7 @@ if [ -z "$CLUSTER_INFO_PATH" ]; then
 fi
 
 if [ -z "$CONFIG_PATH" ]; then
-    echo -e "${YELLOW}WARNING: linux_aio_config.json not found. Configuration may be using defaults.${NC}"
+    echo -e "${YELLOW}WARNING: aio_config.json not found. Configuration may be using defaults.${NC}"
 fi
 
 if [ ${#LOG_FILES[@]} -eq 0 ]; then
@@ -281,7 +281,7 @@ if [ -n "$CLUSTER_INFO_PATH" ]; then
     fi
 fi
 
-# Copy linux_aio_config.json
+# Copy aio_config.json
 if [ -n "$CONFIG_PATH" ]; then
     echo "Copying $(basename "$CONFIG_PATH")..."
     if sudo cp "$CONFIG_PATH" "$BACKUP_SUBDIR/"; then
@@ -326,7 +326,7 @@ if [ -n "$CLUSTER_INFO_PATH" ]; then
 fi
 
 if [ -n "$CONFIG_PATH" ]; then
-    echo "  - linux_aio_config.json (installation configuration)" | sudo tee -a "$README_FILE" > /dev/null
+    echo "  - aio_config.json (installation configuration)" | sudo tee -a "$README_FILE" > /dev/null
 fi
 
 if [ ${#LOG_FILES[@]} -gt 0 ]; then

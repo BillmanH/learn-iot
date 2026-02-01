@@ -65,7 +65,7 @@ aio-akv-sp   <time>
 **If missing, recreate it:**
 ```powershell
 cd linux_build
-.\External-Configurator.ps1 -ClusterInfo edge_configs\cluster_info.json -ConfigFile edge_configs\linux_aio_config.json
+.\External-Configurator.ps1 -ClusterInfo edge_configs\cluster_info.json -ConfigFile edge_configs\aio_config.json
 ```
 
 Or delete existing one manually if you need to recreate:
@@ -102,7 +102,7 @@ if ($PRINCIPAL_ID) {
 ❌ **If secret sync managed identity is missing, run the External-Configurator:**
 ```powershell
 cd linux_build
-.\External-Configurator.ps1 -ClusterInfo edge_configs\cluster_info.json -ConfigFile edge_configs\linux_aio_config.json
+.\External-Configurator.ps1 -ClusterInfo edge_configs\cluster_info.json -ConfigFile edge_configs\aio_config.json
 ```
 
 The configurator will:
