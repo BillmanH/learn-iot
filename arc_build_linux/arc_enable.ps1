@@ -301,6 +301,32 @@ function Enable-ArcForCluster {
         Write-InfoLog "Custom Locations RP Object ID: $customLocationsOid"
     } catch {
         Write-WarnLog "Could not retrieve Custom Locations RP object ID: $_"
+        Write-Host ""
+        Write-Host "============================================================================" -ForegroundColor Yellow
+        Write-Host "WARNING: CUSTOM LOCATIONS OID NOT AVAILABLE" -ForegroundColor Yellow
+        Write-Host "============================================================================" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "The Custom Locations Resource Provider object ID could not be retrieved."
+        Write-Host "This is required for Azure IoT Operations to work properly."
+        Write-Host ""
+        Write-Host "Possible causes:" -ForegroundColor Cyan
+        Write-Host "  - Your account doesn't have permission to read service principals"
+        Write-Host "  - The Custom Locations RP is not registered in your tenant"
+        Write-Host "  - grant_entra_id_roles.ps1 hasn't been run yet"
+        Write-Host ""
+        Write-Host "What happens next:" -ForegroundColor Cyan
+        Write-Host "  - The cluster will be Arc-connected WITHOUT custom-locations enabled"
+        Write-Host "  - IoT Operations deployment will FAIL until this is fixed"
+        Write-Host ""
+        Write-Host "To fix:" -ForegroundColor Green
+        Write-Host "  1. Run grant_entra_id_roles.ps1 from Windows (or get elevated permissions)"
+        Write-Host "  2. Delete the Arc connection:"
+        Write-Host "       kubectl delete ns azure-arc"
+        Write-Host "       Remove-AzResource -ResourceGroupName $script:ResourceGroup -ResourceName $script:ClusterName -ResourceType 'Microsoft.Kubernetes/connectedClusters' -Force"
+        Write-Host "  3. Re-run this script (it's safe to run multiple times)"
+        Write-Host ""
+        Write-Host "This script is IDEMPOTENT - you can safely run it again after fixing permissions." -ForegroundColor Green
+        Write-Host ""
     }
     
     # Check if already Arc-enabled
@@ -320,6 +346,38 @@ function Enable-ArcForCluster {
             Write-Host "  To delete Arc connection:" -ForegroundColor Yellow
             Write-Host "    kubectl delete ns azure-arc" -ForegroundColor White
             Write-Host "    Remove-AzResource -ResourceGroupName $script:ResourceGroup -ResourceName $script:ClusterName -ResourceType 'Microsoft.Kubernetes/connectedClusters' -Force" -ForegroundColor White
+            Write-Host ""
+        }
+        
+        # Check if custom-locations was enabled (idempotency check)
+        $hasCustomLocations = $false
+        if ($existingArc.Feature) {
+            foreach ($feature in $existingArc.Feature) {
+                if ($feature.Name -eq "custom-locations" -and ($feature.State -eq "Installed" -or $feature.State -eq "Enabled")) {
+                    $hasCustomLocations = $true
+                    Write-Success "Custom-locations feature is enabled"
+                }
+            }
+        }
+        
+        if (-not $hasCustomLocations -and -not [string]::IsNullOrEmpty($customLocationsOid)) {
+            # Cluster exists but custom-locations not enabled, and we now have the OID
+            # Need to reconnect to enable the feature
+            Write-WarnLog "Cluster is Arc-connected but custom-locations feature is NOT enabled"
+            Write-Host ""
+            Write-Host "============================================================================" -ForegroundColor Yellow
+            Write-Host "ACTION REQUIRED: RECONNECT TO ENABLE CUSTOM-LOCATIONS" -ForegroundColor Yellow
+            Write-Host "============================================================================" -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "The cluster was previously connected without custom-locations enabled."
+            Write-Host "Custom-locations can only be enabled during initial Arc connection."
+            Write-Host ""
+            Write-Host "To fix, delete the Arc connection and re-run this script:" -ForegroundColor Green
+            Write-Host "  kubectl delete ns azure-arc" -ForegroundColor White
+            Write-Host "  Remove-AzResource -ResourceGroupName $script:ResourceGroup -ResourceName $script:ClusterName -ResourceType 'Microsoft.Kubernetes/connectedClusters' -Force" -ForegroundColor White
+            Write-Host "  ./arc_enable.ps1" -ForegroundColor White
+            Write-Host ""
+            Write-Host "This script is IDEMPOTENT - it's safe to run multiple times." -ForegroundColor Green
             Write-Host ""
         }
         
@@ -349,6 +407,16 @@ function Enable-ArcForCluster {
             if (-not [string]::IsNullOrEmpty($customLocationsOid)) {
                 $connectParams['CustomLocationsOid'] = $customLocationsOid
                 Write-InfoLog "Including CustomLocationsOid in connection"
+            } else {
+                Write-WarnLog "Connecting WITHOUT custom-locations (OID not available)"
+                Write-WarnLog "IoT Operations will NOT work until you reconnect with custom-locations enabled"
+                Write-Host ""
+                Write-Host "After fixing permissions, you can re-run this script:" -ForegroundColor Yellow
+                Write-Host "  1. Delete the Arc connection:" -ForegroundColor White
+                Write-Host "       kubectl delete ns azure-arc" -ForegroundColor White
+                Write-Host "       Remove-AzResource -ResourceGroupName $script:ResourceGroup -ResourceName $script:ClusterName -ResourceType 'Microsoft.Kubernetes/connectedClusters' -Force" -ForegroundColor White
+                Write-Host "  2. Re-run: ./arc_enable.ps1" -ForegroundColor White
+                Write-Host ""
             }
             
             New-AzConnectedKubernetes @connectParams
