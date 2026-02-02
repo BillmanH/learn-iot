@@ -940,6 +940,60 @@ function Deploy-IoTOperations {
     
     Write-Success "Arc cluster status: Connected"
     
+    # Enable custom-locations feature (required for IoT Operations)
+    Write-Log "Enabling custom-locations feature on Arc cluster..."
+    
+    # Get the Custom Locations Resource Provider object ID for this tenant
+    # The Application ID bc313c14-388c-4e7d-a58e-70017303ee3b is fixed globally for the Custom Locations RP
+    $customLocationsAppId = "bc313c14-388c-4e7d-a58e-70017303ee3b"
+    $customLocationsOid = az ad sp show --id $customLocationsAppId --query id -o tsv 2>$null
+    
+    if ([string]::IsNullOrEmpty($customLocationsOid)) {
+        Write-ErrorLog "Could not retrieve Custom Locations Resource Provider object ID"
+        Write-InfoLog "This may indicate a permissions issue with your Azure AD tenant"
+        Write-ErrorLog "Cannot proceed without custom-locations feature" -Fatal
+    }
+    
+    Write-InfoLog "Custom Locations RP Object ID: $customLocationsOid"
+    
+    # Check if custom-locations is already enabled
+    $clusterFeatures = az connectedk8s show `
+        --name $script:ClusterName `
+        --resource-group $script:ResourceGroup `
+        --query "features" -o json 2>$null | ConvertFrom-Json
+    
+    $customLocationsEnabled = $false
+    if ($clusterFeatures) {
+        foreach ($feature in $clusterFeatures) {
+            if ($feature.name -eq "custom-locations" -and $feature.state -eq "Installed") {
+                $customLocationsEnabled = $true
+                break
+            }
+        }
+    }
+    
+    if ($customLocationsEnabled) {
+        Write-Success "Custom-locations feature is already enabled"
+    } else {
+        Write-InfoLog "Enabling cluster-connect and custom-locations features..."
+        Write-InfoLog "This may take a few minutes..."
+        
+        az connectedk8s enable-features `
+            --name $script:ClusterName `
+            --resource-group $script:ResourceGroup `
+            --features cluster-connect custom-locations `
+            --custom-locations-oid $customLocationsOid 2>&1
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-ErrorLog "Failed to enable custom-locations feature"
+            Write-InfoLog "You may need to manually run:"
+            Write-Host "  az connectedk8s enable-features --name $script:ClusterName --resource-group $script:ResourceGroup --features cluster-connect custom-locations --custom-locations-oid $customLocationsOid" -ForegroundColor Yellow
+            Write-ErrorLog "Cannot proceed without custom-locations feature" -Fatal
+        }
+        
+        Write-Success "Custom-locations feature enabled successfully"
+    }
+    
     # Initialize cluster
     Write-Log "Initializing cluster for Azure IoT Operations..."
     az iot ops init --cluster $script:ClusterName --resource-group $script:ResourceGroup

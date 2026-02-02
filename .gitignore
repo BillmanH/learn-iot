@@ -2,6 +2,8 @@
 config/*.json
 config/README.txt
 fabric_setup/fabric_config.json
+# config/deployment_summary.yaml
+
 
 # ARM template parameters (contain secrets)
 arm_templates/parameters.json
