@@ -296,19 +296,33 @@ function Enable-ArcForCluster {
     if ($existingArc) {
         Write-Success "Cluster '$script:ClusterName' is already Arc-enabled"
         Write-InfoLog "Connectivity status: $($existingArc.ConnectivityStatus)"
+        
+        # Check if private link is enabled (incompatible with custom-locations)
+        if ($existingArc.PrivateLinkState -eq "Enabled") {
+            Write-WarnLog "Cluster is connected with Private Link enabled"
+            Write-WarnLog "Custom-locations and cluster-connect features are NOT compatible with Private Link"
+            Write-WarnLog "To fix: Delete the Arc connection and re-run this script"
+            Write-Host ""
+            Write-Host "  To delete Arc connection:" -ForegroundColor Yellow
+            Write-Host "    kubectl delete ns azure-arc" -ForegroundColor White
+            Write-Host "    Remove-AzConnectedKubernetes -ResourceGroupName $script:ResourceGroup -ClusterName $script:ClusterName" -ForegroundColor White
+            Write-Host ""
+        }
     } else {
         Write-Log "Arc-enabling cluster: $script:ClusterName"
         
         if ($DryRun) {
-            Write-InfoLog "[DRY-RUN] Would run: New-AzConnectedKubernetes -ResourceGroupName $script:ResourceGroup -ClusterName $script:ClusterName -Location $script:Location"
+            Write-InfoLog "[DRY-RUN] Would run: New-AzConnectedKubernetes -ResourceGroupName $script:ResourceGroup -ClusterName $script:ClusterName -Location $script:Location -PrivateLinkState Disabled"
         } else {
             # New-AzConnectedKubernetes uses the current kubectl context
+            # Explicitly disable Private Link to ensure custom-locations compatibility
             New-AzConnectedKubernetes `
                 -ResourceGroupName $script:ResourceGroup `
                 -ClusterName $script:ClusterName `
-                -Location $script:Location
+                -Location $script:Location `
+                -PrivateLinkState "Disabled"
             
-            Write-Success "Cluster connected to Azure Arc"
+            Write-Success "Cluster connected to Azure Arc (Private Link disabled)"
         }
     }
 }
