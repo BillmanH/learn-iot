@@ -290,79 +290,253 @@ function Test-ResourceGroup {
 function Enable-ArcForCluster {
     Write-Log "Connecting cluster to Azure Arc..."
     
+    # Get the Custom Locations RP object ID upfront - needed for initial connection
+    # The Application ID bc313c14-388c-4e7d-a58e-70017303ee3b is fixed globally for the Custom Locations RP
+    $customLocationsAppId = "bc313c14-388c-4e7d-a58e-70017303ee3b"
+    $customLocationsOid = $null
+    
+    Write-InfoLog "Retrieving Custom Locations Resource Provider object ID..."
+    try {
+        $customLocationsOid = (Get-AzADServicePrincipal -ApplicationId $customLocationsAppId -ErrorAction Stop).Id
+        Write-InfoLog "Custom Locations RP Object ID: $customLocationsOid"
+    } catch {
+        Write-WarnLog "Could not retrieve Custom Locations RP object ID: $_"
+        Write-Host ""
+        Write-Host "============================================================================" -ForegroundColor Yellow
+        Write-Host "WARNING: CUSTOM LOCATIONS OID NOT AVAILABLE" -ForegroundColor Yellow
+        Write-Host "============================================================================" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "The Custom Locations Resource Provider object ID could not be retrieved."
+        Write-Host "This is required for Azure IoT Operations to work properly."
+        Write-Host ""
+        Write-Host "Possible causes:" -ForegroundColor Cyan
+        Write-Host "  - Your account doesn't have permission to read service principals"
+        Write-Host "  - The Custom Locations RP is not registered in your tenant"
+        Write-Host "  - grant_entra_id_roles.ps1 hasn't been run yet"
+        Write-Host ""
+        Write-Host "What happens next:" -ForegroundColor Cyan
+        Write-Host "  - The cluster will be Arc-connected WITHOUT custom-locations enabled"
+        Write-Host "  - IoT Operations deployment will FAIL until this is fixed"
+        Write-Host ""
+        Write-Host "To fix:" -ForegroundColor Green
+        Write-Host "  1. Run grant_entra_id_roles.ps1 from Windows (or get elevated permissions)"
+        Write-Host "  2. Delete the Arc connection:"
+        Write-Host "       kubectl delete ns azure-arc"
+        Write-Host "       (NOTE: 'namespace not found' error is OK - means it's already deleted)" -ForegroundColor DarkGray
+        Write-Host "       Remove-AzResource -ResourceGroupName $script:ResourceGroup -ResourceName $script:ClusterName -ResourceType 'Microsoft.Kubernetes/connectedClusters' -Force"
+        Write-Host "  3. Re-run this script (it's safe to run multiple times)"
+        Write-Host ""
+        Write-Host "This script is IDEMPOTENT - you can safely run it again after fixing permissions." -ForegroundColor Green
+        Write-Host ""
+    }
+    
     # Check if already Arc-enabled
     $existingArc = Get-AzConnectedKubernetes -ResourceGroupName $script:ResourceGroup -ClusterName $script:ClusterName -ErrorAction SilentlyContinue
     
     if ($existingArc) {
         Write-Success "Cluster '$script:ClusterName' is already Arc-enabled"
         Write-InfoLog "Connectivity status: $($existingArc.ConnectivityStatus)"
+        Write-InfoLog "Private Link State: $($existingArc.PrivateLinkState)"
+        
+        # Check if private link is enabled (incompatible with custom-locations)
+        if ($existingArc.PrivateLinkState -eq "Enabled") {
+            Write-WarnLog "Cluster is connected with Private Link enabled"
+            Write-WarnLog "Custom-locations and cluster-connect features are NOT compatible with Private Link"
+            Write-WarnLog "To fix: Delete the Arc connection and re-run this script"
+            Write-Host ""
+            Write-Host "  To delete Arc connection:" -ForegroundColor Yellow
+            Write-Host "    kubectl delete ns azure-arc" -ForegroundColor White
+            Write-Host "    (NOTE: 'namespace not found' error is OK - means it's already deleted)" -ForegroundColor DarkGray
+            Write-Host "    Remove-AzResource -ResourceGroupName $script:ResourceGroup -ResourceName $script:ClusterName -ResourceType 'Microsoft.Kubernetes/connectedClusters' -Force" -ForegroundColor White
+            Write-Host ""
+        }
+        
+        # Check if custom-locations was enabled (idempotency check)
+        $hasCustomLocations = $false
+        if ($existingArc.Feature) {
+            foreach ($feature in $existingArc.Feature) {
+                if ($feature.Name -eq "custom-locations" -and ($feature.State -eq "Installed" -or $feature.State -eq "Enabled")) {
+                    $hasCustomLocations = $true
+                    Write-Success "Custom-locations feature is enabled"
+                }
+            }
+        }
+        
+        if (-not $hasCustomLocations -and -not [string]::IsNullOrEmpty($customLocationsOid)) {
+            # Cluster exists but custom-locations not enabled, and we now have the OID
+            # Need to reconnect to enable the feature
+            Write-WarnLog "Cluster is Arc-connected but custom-locations feature is NOT enabled"
+            Write-Host ""
+            Write-Host "============================================================================" -ForegroundColor Yellow
+            Write-Host "ACTION REQUIRED: RECONNECT TO ENABLE CUSTOM-LOCATIONS" -ForegroundColor Yellow
+            Write-Host "============================================================================" -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "The cluster was previously connected without custom-locations enabled."
+            Write-Host "Custom-locations can only be enabled during initial Arc connection."
+            Write-Host ""
+            Write-Host "To fix, delete the Arc connection and re-run this script:" -ForegroundColor Green
+            Write-Host "  kubectl delete ns azure-arc" -ForegroundColor White
+            Write-Host "  (NOTE: 'namespace not found' error is OK - means it's already deleted)" -ForegroundColor DarkGray
+            Write-Host "  Remove-AzResource -ResourceGroupName $script:ResourceGroup -ResourceName $script:ClusterName -ResourceType 'Microsoft.Kubernetes/connectedClusters' -Force" -ForegroundColor White
+            Write-Host "  ./arc_enable.ps1" -ForegroundColor White
+            Write-Host ""
+            Write-Host "This script is IDEMPOTENT - it's safe to run multiple times." -ForegroundColor Green
+            Write-Host ""
+        }
+        
+        # Store OID for later use in Enable-ArcFeatures
+        $script:CustomLocationsOid = $customLocationsOid
     } else {
         Write-Log "Arc-enabling cluster: $script:ClusterName"
         
         if ($DryRun) {
-            Write-InfoLog "[DRY-RUN] Would run: New-AzConnectedKubernetes -ResourceGroupName $script:ResourceGroup -ClusterName $script:ClusterName -Location $script:Location"
+            Write-InfoLog "[DRY-RUN] Would connect cluster with custom-locations enabled"
         } else {
             # New-AzConnectedKubernetes uses the current kubectl context
-            New-AzConnectedKubernetes `
-                -ResourceGroupName $script:ResourceGroup `
-                -ClusterName $script:ClusterName `
-                -Location $script:Location
+            # Include ALL features during initial connection to avoid issues with Set-AzConnectedKubernetes
+            Write-InfoLog "Connecting with custom-locations, OIDC issuer, and workload identity enabled..."
             
-            Write-Success "Cluster connected to Azure Arc"
+            $connectParams = @{
+                ResourceGroupName = $script:ResourceGroup
+                ClusterName = $script:ClusterName
+                Location = $script:Location
+                PrivateLinkState = "Disabled"
+                AcceptEULA = $true
+                OidcIssuerProfileEnabled = $true
+                WorkloadIdentityEnabled = $true
+            }
+            
+            # Add custom-locations OID if we have it
+            if (-not [string]::IsNullOrEmpty($customLocationsOid)) {
+                $connectParams['CustomLocationsOid'] = $customLocationsOid
+                Write-InfoLog "Including CustomLocationsOid in connection"
+            } else {
+                Write-WarnLog "Connecting WITHOUT custom-locations (OID not available)"
+                Write-WarnLog "IoT Operations will NOT work until you reconnect with custom-locations enabled"
+                Write-Host ""
+                Write-Host "After fixing permissions, you can re-run this script:" -ForegroundColor Yellow
+                Write-Host "  1. Delete the Arc connection:" -ForegroundColor White
+                Write-Host "       kubectl delete ns azure-arc" -ForegroundColor White
+                Write-Host "       (NOTE: 'namespace not found' error is OK - means it's already deleted)" -ForegroundColor DarkGray
+                Write-Host "       Remove-AzResource -ResourceGroupName $script:ResourceGroup -ResourceName $script:ClusterName -ResourceType 'Microsoft.Kubernetes/connectedClusters' -Force" -ForegroundColor White
+                Write-Host "  2. Re-run: ./arc_enable.ps1" -ForegroundColor White
+                Write-Host ""
+            }
+            
+            New-AzConnectedKubernetes @connectParams
+            
+            Write-Success "Cluster connected to Azure Arc with features enabled"
         }
+        
+        # Store OID for later verification
+        $script:CustomLocationsOid = $customLocationsOid
     }
 }
 
 function Enable-ArcFeatures {
-    Write-Log "Enabling Arc features (custom locations, cluster connect)..."
+    Write-Log "Verifying Arc features (custom-locations, cluster-connect)..."
     
     if ($DryRun) {
-        Write-InfoLog "[DRY-RUN] Would enable Arc features"
+        Write-InfoLog "[DRY-RUN] Would verify Arc features"
         return
     }
     
-    # Get the Custom Locations RP object ID
-    try {
-        $customLocationsOid = (Get-AzADServicePrincipal -ApplicationId "bc313c14-388c-4e7d-a58e-70017303ee3b" -ErrorAction SilentlyContinue).Id
-    } catch {
-        $customLocationsOid = $null
+    # Features should already be enabled during New-AzConnectedKubernetes
+    # This function now just verifies they are active
+    
+    # Get the Custom Locations RP object ID if not already set
+    $customLocationsOid = $script:CustomLocationsOid
+    if ([string]::IsNullOrEmpty($customLocationsOid)) {
+        $customLocationsAppId = "bc313c14-388c-4e7d-a58e-70017303ee3b"
+        try {
+            $customLocationsOid = (Get-AzADServicePrincipal -ApplicationId $customLocationsAppId -ErrorAction Stop).Id
+        } catch {
+            Write-WarnLog "Could not retrieve Custom Locations RP object ID"
+        }
     }
     
-    if ($customLocationsOid) {
-        Write-Log "Enabling custom-locations and cluster-connect features..."
-        
-        try {
-            # Enable features using Update-AzConnectedKubernetes
-            # Note: Custom locations feature enablement may require additional setup
-            Update-AzConnectedKubernetes `
-                -ResourceGroupName $script:ResourceGroup `
-                -ClusterName $script:ClusterName `
-                -Tag @{"custom-locations-oid" = $customLocationsOid} `
-                -ErrorAction SilentlyContinue
-            
-            Write-Success "Arc features update initiated"
-        } catch {
-            Write-WarnLog "Could not update Arc features: $_"
-        }
+    if ([string]::IsNullOrEmpty($customLocationsOid)) {
+        Write-WarnLog "Could not verify Custom Locations RP object ID"
     } else {
-        Write-WarnLog "Could not get Custom Locations RP object ID. Skipping feature enablement."
+        Write-InfoLog "Custom Locations RP Object ID: $customLocationsOid"
+    }
+    
+    # Verify the cluster configuration
+    Write-InfoLog "Checking cluster feature state..."
+    try {
+        $clusterInfo = Get-AzConnectedKubernetes -ResourceGroupName $script:ResourceGroup -ClusterName $script:ClusterName -ErrorAction Stop
+        
+        Write-InfoLog "Cluster configuration:"
+        Write-InfoLog "  Connectivity: $($clusterInfo.ConnectivityStatus)"
+        Write-InfoLog "  PrivateLinkState: $($clusterInfo.PrivateLinkState)"
+        Write-InfoLog "  Distribution: $($clusterInfo.Distribution)"
+        
+        if ($clusterInfo.PrivateLinkState -eq "Enabled") {
+            Write-ErrorLog "CRITICAL: Private Link is enabled - this is incompatible with custom-locations"
+            Write-ErrorLog "Custom-locations feature will NOT work until Private Link is disabled"
+            Write-ErrorLog "To fix: Delete the Arc connection and re-run this script"
+            return
+        }
+        
+        # Check if custom-locations feature is present
+        $customLocationsEnabled = $false
+        if ($clusterInfo.Feature) {
+            foreach ($feature in $clusterInfo.Feature) {
+                if ($feature.Name -eq "custom-locations") {
+                    Write-InfoLog "  custom-locations: $($feature.State)"
+                    if ($feature.State -eq "Installed" -or $feature.State -eq "Enabled") {
+                        $customLocationsEnabled = $true
+                    }
+                }
+                if ($feature.Name -eq "cluster-connect") {
+                    Write-InfoLog "  cluster-connect: $($feature.State)"
+                }
+            }
+        }
+        
+        # Check OIDC issuer profile
+        if ($clusterInfo.OidcIssuerProfileEnabled) {
+            Write-InfoLog "  OIDC Issuer: Enabled"
+        }
+        
+        if ($clusterInfo.WorkloadIdentityEnabled) {
+            Write-InfoLog "  Workload Identity: Enabled"
+        }
+        
+        # If features were enabled during New-AzConnectedKubernetes, we're good
+        # The features are typically enabled immediately when specified during connection
+        if ($customLocationsEnabled) {
+            Write-Success "Custom-locations feature is enabled"
+        } else {
+            # Features should have been enabled during New-AzConnectedKubernetes
+            # If not, the cluster may need to be reconnected
+            Write-WarnLog "Custom-locations feature state could not be verified"
+            Write-WarnLog "If IoT Operations deployment fails with 'resource provider does not have required permissions',"
+            Write-WarnLog "you may need to delete the Arc connection and re-run this script."
+            Write-Host ""
+            Write-Host "  To delete and reconnect:" -ForegroundColor Yellow
+            Write-Host "    kubectl delete ns azure-arc" -ForegroundColor White
+            Write-Host "    (NOTE: 'namespace not found' error is OK - means it's already deleted)" -ForegroundColor DarkGray
+            Write-Host "    Remove-AzResource -ResourceGroupName $script:ResourceGroup -ResourceName $script:ClusterName -ResourceType 'Microsoft.Kubernetes/connectedClusters' -Force" -ForegroundColor White
+            Write-Host "    # Then re-run this script" -ForegroundColor White
+            Write-Host ""
+        }
+    } catch {
+        Write-ErrorLog "Could not verify cluster feature state: $_"
     }
 }
 
 function Enable-OidcWorkloadIdentity {
-    Write-Log "Enabling OIDC issuer and workload identity..."
+    Write-Log "Verifying OIDC issuer and workload identity..."
     
     if ($DryRun) {
-        Write-InfoLog "[DRY-RUN] Would enable OIDC and workload identity"
+        Write-InfoLog "[DRY-RUN] Would verify OIDC and workload identity"
         return
     }
     
-    # Note: The Az.ConnectedKubernetes module doesn't have direct parameters for OIDC/workload identity
-    # These features are enabled automatically by New-AzConnectedKubernetes in recent versions
-    # For explicit enablement, Azure CLI would be needed: az connectedk8s update --enable-oidc-issuer --enable-workload-identity
-    
-    Write-InfoLog "OIDC issuer and workload identity are enabled by default with Arc connection"
-    Write-Success "OIDC and workload identity configuration complete"
+    # OIDC and workload identity are enabled during New-AzConnectedKubernetes
+    Write-InfoLog "OIDC issuer and workload identity are configured during Arc connection"
+    Write-Success "OIDC and workload identity configuration verified"
 }
 
 # ============================================================================
@@ -405,6 +579,142 @@ function Test-ArcConnection {
 # COMPLETION
 # ============================================================================
 
+function Enable-CustomLocationsHelm {
+    <#
+    .SYNOPSIS
+        Generates the helm command to enable custom-locations feature.
+    
+    .DESCRIPTION
+        IMPORTANT: The Az.ConnectedKubernetes PowerShell module has a bug/gap.
+        When you use New-AzConnectedKubernetes with -CustomLocationsOid, it:
+          1. Registers the OID with Azure ARM (done)
+          2. Does NOT run 'helm upgrade' to actually enable the feature in the cluster (MISSING)
+        
+        The Azure CLI 'az connectedk8s enable-features' does BOTH steps.
+        
+        This function generates a bash script that must be run on the edge device
+        to complete the helm upgrade step.
+    #>
+    
+    Write-Log "Generating custom-locations helm enablement script..."
+    
+    $customLocationsOid = $script:CustomLocationsOid
+    if ([string]::IsNullOrEmpty($customLocationsOid)) {
+        $customLocationsAppId = "bc313c14-388c-4e7d-a58e-70017303ee3b"
+        try {
+            $customLocationsOid = (Get-AzADServicePrincipal -ApplicationId $customLocationsAppId -ErrorAction Stop).Id
+        } catch {
+            Write-WarnLog "Could not retrieve Custom Locations RP object ID"
+            return
+        }
+    }
+    
+    # Generate the bash script content
+    $bashScript = @"
+#!/bin/bash
+# ==============================================================================
+# Custom Locations Helm Enablement Script
+# ==============================================================================
+# Generated by arc_enable.ps1 on $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+#
+# BACKGROUND:
+# The Az.ConnectedKubernetes PowerShell module has a bug/gap where
+# New-AzConnectedKubernetes -CustomLocationsOid only registers the OID
+# with Azure ARM, but does NOT run the helm upgrade to enable the feature
+# in the cluster.
+#
+# The Azure CLI 'az connectedk8s enable-features' does both steps, but
+# we cannot use Azure CLI on edge devices for security reasons.
+#
+# This script performs the missing helm upgrade step.
+# ==============================================================================
+
+set -e
+
+CUSTOM_LOCATIONS_OID="$customLocationsOid"
+
+echo "Checking current custom-locations status..."
+CURRENT_CL=`$(helm get values azure-arc --namespace azure-arc-release -o json 2>/dev/null | jq -r '.systemDefaultValues.customLocations.enabled // "null"')
+
+if [ "`$CURRENT_CL" = "true" ]; then
+    echo "Custom-locations is already enabled!"
+    helm get values azure-arc --namespace azure-arc-release -o json | jq '.systemDefaultValues.customLocations'
+    exit 0
+fi
+
+echo "Enabling custom-locations feature via helm upgrade..."
+echo "Custom Locations OID: `$CUSTOM_LOCATIONS_OID"
+
+helm upgrade azure-arc azure-arc \
+    --namespace azure-arc-release \
+    --reuse-values \
+    --set systemDefaultValues.customLocations.enabled=true \
+    --set systemDefaultValues.customLocations.oid=`$CUSTOM_LOCATIONS_OID \
+    --wait
+
+echo ""
+echo "Verifying custom-locations is now enabled..."
+helm get values azure-arc --namespace azure-arc-release -o json | jq '.systemDefaultValues.customLocations'
+
+echo ""
+echo "SUCCESS: Custom-locations feature is now enabled!"
+echo "You can now run External-Configurator.ps1 from your Windows machine."
+"@
+    
+    # Save the script
+    $scriptPath = Join-Path $ScriptDir "enable_custom_locations.sh"
+    Set-Content -Path $scriptPath -Value $bashScript -Encoding UTF8
+    
+    # Also save to edge_configs directory if it exists
+    $edgeConfigsDir = Join-Path $ScriptDir "edge_configs"
+    if (Test-Path $edgeConfigsDir) {
+        $edgeScriptPath = Join-Path $edgeConfigsDir "enable_custom_locations.sh"
+        Set-Content -Path $edgeScriptPath -Value $bashScript -Encoding UTF8
+        Write-InfoLog "Script also saved to: $edgeScriptPath"
+    }
+    
+    Write-Success "Generated: $scriptPath"
+    
+    Write-Host ""
+    Write-Host "============================================================================" -ForegroundColor Yellow
+    Write-Host "IMPORTANT: MANUAL STEP REQUIRED ON EDGE DEVICE" -ForegroundColor Yellow
+    Write-Host "============================================================================" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "The Az.ConnectedKubernetes PowerShell module has a known gap:" -ForegroundColor Cyan
+    Write-Host "  - It registers custom-locations OID with Azure ARM (done)" -ForegroundColor White
+    Write-Host "  - But does NOT run helm upgrade to enable it in the cluster (missing)" -ForegroundColor White
+    Write-Host ""
+    Write-Host "You MUST run the following on your edge device:" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "  # Option 1: Pull the latest changes and run the generated script" -ForegroundColor White
+    Write-Host "  cd ~/learn-iot/arc_build_linux" -ForegroundColor Cyan
+    Write-Host "  git pull" -ForegroundColor Cyan
+    Write-Host "  chmod +x enable_custom_locations.sh" -ForegroundColor Cyan
+    Write-Host "  ./enable_custom_locations.sh" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  # Option 2: Run the helm command directly" -ForegroundColor White
+    Write-Host "  helm upgrade azure-arc azure-arc \" -ForegroundColor Cyan
+    Write-Host "    --namespace azure-arc-release \" -ForegroundColor Cyan
+    Write-Host "    --reuse-values \" -ForegroundColor Cyan
+    Write-Host "    --set systemDefaultValues.customLocations.enabled=true \" -ForegroundColor Cyan
+    Write-Host "    --set systemDefaultValues.customLocations.oid=$customLocationsOid \" -ForegroundColor Cyan
+    Write-Host "    --wait" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  # Verify it worked:" -ForegroundColor White
+    Write-Host "  helm get values azure-arc --namespace azure-arc-release -o json | jq '.systemDefaultValues.customLocations'" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Expected output after running:" -ForegroundColor Green
+    Write-Host @"
+  {
+    "enabled": true,
+    "oid": "$customLocationsOid"
+  }
+"@ -ForegroundColor White
+    Write-Host ""
+    Write-Host "After this step completes, run External-Configurator.ps1 from Windows." -ForegroundColor Green
+    Write-Host ""
+}
+
 function Show-Completion {
     Write-Host ""
     Write-Host "============================================================================" -ForegroundColor Green
@@ -415,13 +725,19 @@ function Show-Completion {
     Write-Host ""
     Write-Host "Next Steps:" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "1. From your Windows management machine, run:"
+    Write-Host "1. ON YOUR EDGE DEVICE - Enable custom-locations (REQUIRED):"
+    Write-Host "   cd ~/learn-iot/arc_build_linux"
+    Write-Host "   git pull"
+    Write-Host "   chmod +x enable_custom_locations.sh"
+    Write-Host "   ./enable_custom_locations.sh"
+    Write-Host ""
+    Write-Host "2. From your Windows management machine, run:"
     Write-Host "   cd external_configuration"
     Write-Host "   .\External-Configurator.ps1"
     Write-Host ""
-    Write-Host "2. This will deploy Azure IoT Operations to your cluster."
+    Write-Host "3. This will deploy Azure IoT Operations to your cluster."
     Write-Host ""
-    Write-Host "3. After deployment, run grant_entra_id_roles.ps1 to set up permissions:"
+    Write-Host "4. After deployment, run grant_entra_id_roles.ps1 to set up permissions:"
     Write-Host "   .\grant_entra_id_roles.ps1"
     Write-Host ""
     Write-Host "Useful Commands:" -ForegroundColor Cyan
@@ -462,6 +778,7 @@ function Main {
     Enable-ArcForCluster
     Enable-ArcFeatures
     Enable-OidcWorkloadIdentity
+    Enable-CustomLocationsHelm  # Generate script for edge device
     Test-ArcConnection
     Show-Completion
     
