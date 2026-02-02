@@ -362,13 +362,14 @@ function Enable-ArcFeatures {
         Write-WarnLog "Could not check current feature state: $_"
     }
     
-    # Enable features using PowerShell Set-AzConnectedKubernetes
-    # This requires getting current cluster config first to preserve all existing settings
+    # Enable features using PowerShell Set-AzConnectedKubernetes with InputObject
+    # Using InputObject (piping) preserves all existing cluster properties
     Write-Log "Enabling custom-locations feature..."
     Write-InfoLog "This may take several minutes..."
     
     try {
-        # Get current cluster configuration to preserve all settings
+        # Get current cluster object to pipe to Set-AzConnectedKubernetes
+        # This ensures all existing properties are preserved
         $currentCluster = Get-AzConnectedKubernetes `
             -ClusterName $script:ClusterName `
             -ResourceGroupName $script:ResourceGroup `
@@ -378,51 +379,19 @@ function Enable-ArcFeatures {
         Write-InfoLog "  Distribution: $($currentCluster.Distribution)"
         Write-InfoLog "  Infrastructure: $($currentCluster.Infrastructure)"
         Write-InfoLog "  Location: $($currentCluster.Location)"
+        Write-InfoLog "  Kind: $($currentCluster.Kind)"
+        Write-InfoLog "  AgentVersion: $($currentCluster.AgentVersion)"
         
-        # Build parameters preserving current values to avoid API validation errors
-        $setParams = @{
-            ClusterName = $script:ClusterName
-            ResourceGroupName = $script:ResourceGroup
-            Location = $currentCluster.Location
-            CustomLocationsOid = $customLocationsOid
-            OidcIssuerProfileEnabled = $true
-            WorkloadIdentityEnabled = $true
-            AcceptEULA = $true
-            ErrorAction = 'Stop'
-        }
+        # Use InputObject parameter to preserve all existing settings
+        # Only specify the new features we want to enable
+        Write-InfoLog "Calling Set-AzConnectedKubernetes with InputObject..."
         
-        # Preserve all existing settings that the API requires
-        if (-not [string]::IsNullOrEmpty($currentCluster.Distribution)) {
-            $setParams['Distribution'] = $currentCluster.Distribution
-        }
-        if (-not [string]::IsNullOrEmpty($currentCluster.DistributionVersion)) {
-            $setParams['DistributionVersion'] = $currentCluster.DistributionVersion
-        }
-        if (-not [string]::IsNullOrEmpty($currentCluster.Infrastructure)) {
-            $setParams['Infrastructure'] = $currentCluster.Infrastructure
-        }
-        if (-not [string]::IsNullOrEmpty($currentCluster.ProvisioningState)) {
-            $setParams['ProvisioningState'] = $currentCluster.ProvisioningState
-        }
-        if ($currentCluster.AzureHybridBenefit) {
-            $setParams['AzureHybridBenefit'] = $currentCluster.AzureHybridBenefit
-        }
-        # Convert Tag object to hashtable if present (API returns TrackedResourceTags type)
-        if ($currentCluster.Tag) {
-            $tagHashtable = @{}
-            foreach ($property in $currentCluster.Tag.PSObject.Properties) {
-                if ($property.Name -ne 'AdditionalProperties') {
-                    $tagHashtable[$property.Name] = $property.Value
-                }
-            }
-            if ($tagHashtable.Count -gt 0) {
-                $setParams['Tag'] = $tagHashtable
-                Write-InfoLog "  Preserving tags: $($tagHashtable.Keys -join ', ')"
-            }
-        }
-        
-        Write-InfoLog "Calling Set-AzConnectedKubernetes with preserved settings..."
-        Set-AzConnectedKubernetes @setParams
+        $currentCluster | Set-AzConnectedKubernetes `
+            -CustomLocationsOid $customLocationsOid `
+            -OidcIssuerProfileEnabled `
+            -WorkloadIdentityEnabled `
+            -AcceptEULA `
+            -ErrorAction Stop
         
         Write-Success "Custom-locations and related features enabled successfully"
     } catch {
