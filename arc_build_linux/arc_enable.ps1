@@ -380,7 +380,30 @@ function Enable-ArcFeatures {
         
         Write-Success "Custom-locations and related features enabled successfully"
     } catch {
-        Write-ErrorLog "Failed to enable custom-locations feature: $_"
+        Write-ErrorLog "Failed to enable custom-locations feature: $($_.Exception.Message)"
+        
+        # Log detailed error information
+        Write-ErrorLog "Error Details:"
+        if ($_.Exception.InnerException) {
+            Write-ErrorLog "  Inner Exception: $($_.Exception.InnerException.Message)"
+        }
+        if ($_.ErrorDetails) {
+            Write-ErrorLog "  Error Details: $($_.ErrorDetails.Message)"
+        }
+        if ($_.Exception.Response) {
+            try {
+                $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+                $reader.BaseStream.Position = 0
+                $responseBody = $reader.ReadToEnd()
+                Write-ErrorLog "  Response Body: $responseBody"
+            } catch {
+                # Ignore stream reading errors
+            }
+        }
+        # Log the full exception for debugging
+        Write-ErrorLog "  Full Exception Type: $($_.Exception.GetType().FullName)"
+        Write-ErrorLog "  Script Stack Trace: $($_.ScriptStackTrace)"
+        
         Write-WarnLog "IoT Operations deployment will fail without this feature"
         Write-InfoLog "You can retry manually with Set-AzConnectedKubernetes or az connectedk8s enable-features"
     }
