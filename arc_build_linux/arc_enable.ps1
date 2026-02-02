@@ -407,8 +407,18 @@ function Enable-ArcFeatures {
         if ($currentCluster.AzureHybridBenefit) {
             $setParams['AzureHybridBenefit'] = $currentCluster.AzureHybridBenefit
         }
-        if ($currentCluster.Tag -and $currentCluster.Tag.Count -gt 0) {
-            $setParams['Tag'] = $currentCluster.Tag
+        # Convert Tag object to hashtable if present (API returns TrackedResourceTags type)
+        if ($currentCluster.Tag) {
+            $tagHashtable = @{}
+            foreach ($property in $currentCluster.Tag.PSObject.Properties) {
+                if ($property.Name -ne 'AdditionalProperties') {
+                    $tagHashtable[$property.Name] = $property.Value
+                }
+            }
+            if ($tagHashtable.Count -gt 0) {
+                $setParams['Tag'] = $tagHashtable
+                Write-InfoLog "  Preserving tags: $($tagHashtable.Keys -join ', ')"
+            }
         }
         
         Write-InfoLog "Calling Set-AzConnectedKubernetes with preserved settings..."
