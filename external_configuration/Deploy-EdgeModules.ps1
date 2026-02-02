@@ -1,22 +1,49 @@
 <#
 .SYNOPSIS
-    Deploy edge modules to Azure IoT Operations cluster via kubectl
+    Deploy edge modules to Azure IoT Operations cluster via kubectl through Azure Arc proxy
+
 .DESCRIPTION
-    This script deploys edge modules (edgemqttsim, hello-flask, sputnik, wasm-quality-filter-python)
+    This script deploys edge modules (edgemqttsim, hello-flask, sputnik, demohistorian)
     to the Kubernetes cluster using kubectl through Azure Arc proxy. Runs remotely from Windows
     to edge device on different network.
+    
+    PREREQUISITES:
+    - Cluster must be Arc-connected (run arc_enable.ps1 + enable_custom_locations.sh on edge first)
+    - Azure IoT Operations must be deployed (run External-Configurator.ps1 first)
+    - Docker Desktop running on Windows (for building containers, unless -SkipBuild is used)
+    - Azure CLI with connectedk8s extension
+    
 .PARAMETER ConfigPath
-    Path to aio_config.json. If not specified, searches in edge_configs/ or current directory.
+    Path to aio_config.json. Searches in config/, edge_configs/, or current directory.
+
 .PARAMETER ModuleName
     Specific module to deploy. If not specified, deploys all modules marked true in config.
+
 .PARAMETER Force
     Force redeployment even if module is already running
+
+.PARAMETER SkipBuild
+    Skip container build - assumes images already exist in registry
+
+.PARAMETER ImageTag
+    Tag for container images (default: latest)
+
 .EXAMPLE
     .\Deploy-EdgeModules.ps1
+
 .EXAMPLE
     .\Deploy-EdgeModules.ps1 -ModuleName edgemqttsim
+
 .EXAMPLE
     .\Deploy-EdgeModules.ps1 -ModuleName hello-flask -Force
+
+.EXAMPLE
+    .\Deploy-EdgeModules.ps1 -SkipBuild
+    
+.NOTES
+    Author: Azure IoT Operations Team
+    Date: February 2026
+    Version: 2.1.0 - Updated for separation of concerns architecture
 #>
 
 param(
@@ -24,7 +51,7 @@ param(
     [string]$ConfigPath,
     
     [Parameter(Mandatory=$false)]
-    [ValidateSet("edgemqttsim", "hello-flask", "sputnik", "wasm-quality-filter-python", "demohistorian")]
+    [ValidateSet("edgemqttsim", "hello-flask", "sputnik", "demohistorian")]
     [string]$ModuleName,
     
     [Parameter(Mandatory=$false)]
@@ -43,7 +70,9 @@ $ErrorActionPreference = "Stop"
 
 # Script variables
 $script:ScriptDir = $PSScriptRoot
-$script:IotOppsDir = Join-Path (Split-Path $script:ScriptDir) "iotopps"
+$script:RepoRoot = Split-Path $script:ScriptDir
+$script:ModulesDir = Join-Path $script:RepoRoot "modules"
+$script:ConfigDir = Join-Path $script:RepoRoot "config"
 $script:LogFile = Join-Path $script:ScriptDir "deploy_edge_modules_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
 $script:StartTime = Get-Date
 $script:ProxyJob = $null  # Store proxy job for cleanup
@@ -96,6 +125,7 @@ function Find-ConfigFile {
     
     $searchPaths = @(
         $ConfigPath,
+        (Join-Path $script:ConfigDir "aio_config.json"),
         (Join-Path $script:ScriptDir "edge_configs\aio_config.json"),
         (Join-Path $script:ScriptDir "aio_config.json")
     )
@@ -115,6 +145,7 @@ function Find-ClusterInfoFile {
     Write-InfoLog "Searching for cluster_info.json..."
     
     $searchPaths = @(
+        (Join-Path $script:ConfigDir "cluster_info.json"),
         (Join-Path $script:ScriptDir "edge_configs\cluster_info.json"),
         (Join-Path $script:ScriptDir "cluster_info.json")
     )
@@ -329,11 +360,11 @@ function Test-Prerequisites {
         throw "Azure CLI is not installed or not in PATH"
     }
     
-    # Check iotopps directory
-    if (-not (Test-Path $script:IotOppsDir)) {
-        throw "iotopps directory not found: $script:IotOppsDir"
+    # Check modules directory
+    if (-not (Test-Path $script:ModulesDir)) {
+        throw "modules directory not found: $script:ModulesDir"
     }
-    Write-Success "iotopps directory found: $script:IotOppsDir"
+    Write-Success "modules directory found: $script:ModulesDir"
 }
 
 function Start-ArcProxy {
@@ -402,7 +433,7 @@ function Test-ClusterConnection {
 function Test-ModuleExists {
     param([string]$Module)
     
-    $modulePath = Join-Path $script:IotOppsDir $Module
+    $modulePath = Join-Path $script:ModulesDir $Module
     $deploymentPath = Join-Path $modulePath "deployment.yaml"
     
     if (-not (Test-Path $modulePath)) {
@@ -460,7 +491,7 @@ function Build-AndPushContainer {
     Write-Host "Building and Pushing Container" -ForegroundColor Cyan
     Write-Host "========================================" -ForegroundColor Cyan
     
-    $modulePath = Join-Path $script:IotOppsDir $Module
+    $modulePath = Join-Path $script:ModulesDir $Module
     
     if (-not (Test-Path (Join-Path $modulePath "Dockerfile"))) {
         throw "Dockerfile not found for module: $Module"
