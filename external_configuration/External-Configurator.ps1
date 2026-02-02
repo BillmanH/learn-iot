@@ -940,8 +940,8 @@ function Deploy-IoTOperations {
     
     Write-Success "Arc cluster status: Connected"
     
-    # Enable custom-locations feature (required for IoT Operations)
-    Write-Log "Enabling custom-locations feature on Arc cluster..."
+    # Check if custom-locations feature is enabled (required for IoT Operations)
+    Write-Log "Checking custom-locations feature on Arc cluster..."
     
     # Get the Custom Locations Resource Provider object ID for this tenant
     # The Application ID bc313c14-388c-4e7d-a58e-70017303ee3b is fixed globally for the Custom Locations RP
@@ -949,22 +949,20 @@ function Deploy-IoTOperations {
     $customLocationsOid = az ad sp show --id $customLocationsAppId --query id -o tsv 2>$null
     
     if ([string]::IsNullOrEmpty($customLocationsOid)) {
-        Write-ErrorLog "Could not retrieve Custom Locations Resource Provider object ID"
-        Write-InfoLog "This may indicate a permissions issue with your Azure AD tenant"
-        Write-ErrorLog "Cannot proceed without custom-locations feature" -Fatal
+        Write-WarnLog "Could not retrieve Custom Locations Resource Provider object ID"
+    } else {
+        Write-InfoLog "Custom Locations RP Object ID: $customLocationsOid"
     }
     
-    Write-InfoLog "Custom Locations RP Object ID: $customLocationsOid"
-    
-    # Check if custom-locations is already enabled
-    $clusterFeatures = az connectedk8s show `
+    # Check if custom-locations is enabled by querying Azure (no kubectl required)
+    $clusterInfo = az connectedk8s show `
         --name $script:ClusterName `
         --resource-group $script:ResourceGroup `
-        --query "features" -o json 2>$null | ConvertFrom-Json
+        -o json 2>$null | ConvertFrom-Json
     
     $customLocationsEnabled = $false
-    if ($clusterFeatures) {
-        foreach ($feature in $clusterFeatures) {
+    if ($clusterInfo -and $clusterInfo.features) {
+        foreach ($feature in $clusterInfo.features) {
             if ($feature.name -eq "custom-locations" -and $feature.state -eq "Installed") {
                 $customLocationsEnabled = $true
                 break
@@ -973,25 +971,33 @@ function Deploy-IoTOperations {
     }
     
     if ($customLocationsEnabled) {
-        Write-Success "Custom-locations feature is already enabled"
+        Write-Success "Custom-locations feature is enabled"
     } else {
-        Write-InfoLog "Enabling cluster-connect and custom-locations features..."
-        Write-InfoLog "This may take a few minutes..."
-        
-        az connectedk8s enable-features `
-            --name $script:ClusterName `
-            --resource-group $script:ResourceGroup `
-            --features cluster-connect custom-locations `
-            --custom-locations-oid $customLocationsOid 2>&1
-        
-        if ($LASTEXITCODE -ne 0) {
-            Write-ErrorLog "Failed to enable custom-locations feature"
-            Write-InfoLog "You may need to manually run:"
-            Write-Host "  az connectedk8s enable-features --name $script:ClusterName --resource-group $script:ResourceGroup --features cluster-connect custom-locations --custom-locations-oid $customLocationsOid" -ForegroundColor Yellow
-            Write-ErrorLog "Cannot proceed without custom-locations feature" -Fatal
-        }
-        
-        Write-Success "Custom-locations feature enabled successfully"
+        Write-Host ""
+        Write-Host "============================================================================" -ForegroundColor Red
+        Write-Host "CUSTOM-LOCATIONS FEATURE NOT ENABLED" -ForegroundColor Red
+        Write-Host "============================================================================" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "The custom-locations feature is required for Azure IoT Operations but is not enabled." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "This must be run from the EDGE DEVICE (Linux) where kubectl has access to the cluster." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "To fix this, run the following on your EDGE DEVICE:" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "  # Get the Custom Locations RP Object ID" -ForegroundColor Gray
+        Write-Host "  OID=`$(az ad sp show --id bc313c14-388c-4e7d-a58e-70017303ee3b --query id -o tsv)" -ForegroundColor White
+        Write-Host ""
+        Write-Host "  # Enable the custom-locations feature" -ForegroundColor Gray
+        Write-Host "  az connectedk8s enable-features \" -ForegroundColor White
+        Write-Host "    --name $script:ClusterName \" -ForegroundColor White
+        Write-Host "    --resource-group $script:ResourceGroup \" -ForegroundColor White
+        Write-Host "    --features cluster-connect custom-locations \" -ForegroundColor White
+        Write-Host "    --custom-locations-oid `$OID" -ForegroundColor White
+        Write-Host ""
+        Write-Host "After running this command, re-run this script." -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "============================================================================" -ForegroundColor Red
+        Write-ErrorLog "Custom-locations feature not enabled - cannot deploy IoT Operations" -Fatal
     }
     
     # Initialize cluster

@@ -314,7 +314,7 @@ function Enable-ArcForCluster {
 }
 
 function Enable-ArcFeatures {
-    Write-Log "Enabling Arc features (custom locations, cluster connect)..."
+    Write-Log "Enabling Arc features (custom-locations, cluster-connect)..."
     
     if ($DryRun) {
         Write-InfoLog "[DRY-RUN] Would enable Arc features"
@@ -322,30 +322,67 @@ function Enable-ArcFeatures {
     }
     
     # Get the Custom Locations RP object ID
+    # The Application ID bc313c14-388c-4e7d-a58e-70017303ee3b is fixed globally for the Custom Locations RP
+    $customLocationsAppId = "bc313c14-388c-4e7d-a58e-70017303ee3b"
+    
+    Write-InfoLog "Retrieving Custom Locations Resource Provider object ID..."
+    
+    # Use PowerShell Az module (preferred for this script)
     try {
-        $customLocationsOid = (Get-AzADServicePrincipal -ApplicationId "bc313c14-388c-4e7d-a58e-70017303ee3b" -ErrorAction SilentlyContinue).Id
+        $customLocationsOid = (Get-AzADServicePrincipal -ApplicationId $customLocationsAppId -ErrorAction Stop).Id
     } catch {
+        Write-WarnLog "PowerShell lookup failed: $_"
         $customLocationsOid = $null
     }
     
-    if ($customLocationsOid) {
-        Write-Log "Enabling custom-locations and cluster-connect features..."
+    if ([string]::IsNullOrEmpty($customLocationsOid)) {
+        Write-ErrorLog "Could not retrieve Custom Locations RP object ID"
+        Write-WarnLog "You may need to manually enable custom-locations after this script completes"
+        return
+    }
+    
+    Write-InfoLog "Custom Locations RP Object ID: $customLocationsOid"
+    
+    # Check if custom-locations is already enabled using PowerShell
+    Write-InfoLog "Checking current feature state..."
+    try {
+        $clusterInfo = Get-AzConnectedKubernetes -ResourceGroupName $script:ResourceGroup -ClusterName $script:ClusterName -ErrorAction Stop
         
-        try {
-            # Enable features using Update-AzConnectedKubernetes
-            # Note: Custom locations feature enablement may require additional setup
-            Update-AzConnectedKubernetes `
-                -ResourceGroupName $script:ResourceGroup `
-                -ClusterName $script:ClusterName `
-                -Tag @{"custom-locations-oid" = $customLocationsOid} `
-                -ErrorAction SilentlyContinue
-            
-            Write-Success "Arc features update initiated"
-        } catch {
-            Write-WarnLog "Could not update Arc features: $_"
+        # Check if custom-locations feature is present in the Arc agent features
+        # The feature state is exposed through the ArcAgentProfile or related properties
+        if ($clusterInfo.Feature) {
+            foreach ($feature in $clusterInfo.Feature) {
+                if ($feature.Name -eq "custom-locations" -and $feature.State -eq "Installed") {
+                    Write-Success "Custom-locations feature is already enabled"
+                    return
+                }
+            }
         }
-    } else {
-        Write-WarnLog "Could not get Custom Locations RP object ID. Skipping feature enablement."
+    } catch {
+        Write-WarnLog "Could not check current feature state: $_"
+    }
+    
+    # Enable features using Set-AzConnectedKubernetes
+    # This cmdlet updates the cluster with the custom-locations OID, OIDC issuer, and workload identity
+    Write-Log "Enabling custom-locations feature..."
+    Write-InfoLog "This may take several minutes..."
+    
+    try {
+        Set-AzConnectedKubernetes `
+            -ClusterName $script:ClusterName `
+            -ResourceGroupName $script:ResourceGroup `
+            -Location $script:Location `
+            -CustomLocationsOid $customLocationsOid `
+            -OidcIssuerProfileEnabled `
+            -WorkloadIdentityEnabled `
+            -AcceptEULA `
+            -ErrorAction Stop
+        
+        Write-Success "Custom-locations and related features enabled successfully"
+    } catch {
+        Write-ErrorLog "Failed to enable custom-locations feature: $_"
+        Write-WarnLog "IoT Operations deployment will fail without this feature"
+        Write-InfoLog "You can retry manually with Set-AzConnectedKubernetes or az connectedk8s enable-features"
     }
 }
 
