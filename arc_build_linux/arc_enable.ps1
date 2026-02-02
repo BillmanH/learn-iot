@@ -362,21 +362,57 @@ function Enable-ArcFeatures {
         Write-WarnLog "Could not check current feature state: $_"
     }
     
-    # Enable features using Set-AzConnectedKubernetes
-    # This cmdlet updates the cluster with the custom-locations OID, OIDC issuer, and workload identity
+    # Enable features using PowerShell Set-AzConnectedKubernetes
+    # This requires getting current cluster config first to preserve all existing settings
     Write-Log "Enabling custom-locations feature..."
     Write-InfoLog "This may take several minutes..."
     
     try {
-        Set-AzConnectedKubernetes `
+        # Get current cluster configuration to preserve all settings
+        $currentCluster = Get-AzConnectedKubernetes `
             -ClusterName $script:ClusterName `
             -ResourceGroupName $script:ResourceGroup `
-            -Location $script:Location `
-            -CustomLocationsOid $customLocationsOid `
-            -OidcIssuerProfileEnabled `
-            -WorkloadIdentityEnabled `
-            -AcceptEULA `
             -ErrorAction Stop
+        
+        Write-InfoLog "Retrieved current cluster configuration"
+        Write-InfoLog "  Distribution: $($currentCluster.Distribution)"
+        Write-InfoLog "  Infrastructure: $($currentCluster.Infrastructure)"
+        Write-InfoLog "  Location: $($currentCluster.Location)"
+        
+        # Build parameters preserving current values to avoid API validation errors
+        $setParams = @{
+            ClusterName = $script:ClusterName
+            ResourceGroupName = $script:ResourceGroup
+            Location = $currentCluster.Location
+            CustomLocationsOid = $customLocationsOid
+            OidcIssuerProfileEnabled = $true
+            WorkloadIdentityEnabled = $true
+            AcceptEULA = $true
+            ErrorAction = 'Stop'
+        }
+        
+        # Preserve all existing settings that the API requires
+        if (-not [string]::IsNullOrEmpty($currentCluster.Distribution)) {
+            $setParams['Distribution'] = $currentCluster.Distribution
+        }
+        if (-not [string]::IsNullOrEmpty($currentCluster.DistributionVersion)) {
+            $setParams['DistributionVersion'] = $currentCluster.DistributionVersion
+        }
+        if (-not [string]::IsNullOrEmpty($currentCluster.Infrastructure)) {
+            $setParams['Infrastructure'] = $currentCluster.Infrastructure
+        }
+        if (-not [string]::IsNullOrEmpty($currentCluster.ProvisioningState)) {
+            $setParams['ProvisioningState'] = $currentCluster.ProvisioningState
+        }
+        if ($currentCluster.AzureHybridBenefit) {
+            $setParams['AzureHybridBenefit'] = $currentCluster.AzureHybridBenefit
+        }
+        if ($currentCluster.Tag -and $currentCluster.Tag.Count -gt 0) {
+            $setParams['Tag'] = $currentCluster.Tag
+        }
+        
+        Write-InfoLog "Calling Set-AzConnectedKubernetes with preserved settings..."
+        Set-AzConnectedKubernetes @setParams
         
         Write-Success "Custom-locations and related features enabled successfully"
     } catch {
@@ -390,22 +426,12 @@ function Enable-ArcFeatures {
         if ($_.ErrorDetails) {
             Write-ErrorLog "  Error Details: $($_.ErrorDetails.Message)"
         }
-        if ($_.Exception.Response) {
-            try {
-                $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
-                $reader.BaseStream.Position = 0
-                $responseBody = $reader.ReadToEnd()
-                Write-ErrorLog "  Response Body: $responseBody"
-            } catch {
-                # Ignore stream reading errors
-            }
-        }
-        # Log the full exception for debugging
         Write-ErrorLog "  Full Exception Type: $($_.Exception.GetType().FullName)"
         Write-ErrorLog "  Script Stack Trace: $($_.ScriptStackTrace)"
         
         Write-WarnLog "IoT Operations deployment will fail without this feature"
-        Write-InfoLog "You can retry manually with Set-AzConnectedKubernetes or az connectedk8s enable-features"
+        Write-InfoLog "This feature must be enabled before running External-Configurator.ps1"
+        Write-InfoLog "Please contact your Azure administrator or try running Update-AzConnectedKubernetes manually"
     }
 }
 
@@ -417,9 +443,9 @@ function Enable-OidcWorkloadIdentity {
         return
     }
     
-    # Note: The Az.ConnectedKubernetes module doesn't have direct parameters for OIDC/workload identity
-    # These features are enabled automatically by New-AzConnectedKubernetes in recent versions
-    # For explicit enablement, Azure CLI would be needed: az connectedk8s update --enable-oidc-issuer --enable-workload-identity
+    # OIDC and workload identity are now enabled in Enable-ArcFeatures via Set-AzConnectedKubernetes
+    Write-InfoLog "OIDC issuer and workload identity are configured in Enable-ArcFeatures"
+    Write-Success "OIDC and workload identity configuration complete"
     
     Write-InfoLog "OIDC issuer and workload identity are enabled by default with Arc connection"
     Write-Success "OIDC and workload identity configuration complete"
