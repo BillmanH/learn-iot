@@ -322,6 +322,7 @@ function Enable-ArcForCluster {
         Write-Host "  1. Run grant_entra_id_roles.ps1 from Windows (or get elevated permissions)"
         Write-Host "  2. Delete the Arc connection:"
         Write-Host "       kubectl delete ns azure-arc"
+        Write-Host "       (NOTE: 'namespace not found' error is OK - means it's already deleted)" -ForegroundColor DarkGray
         Write-Host "       Remove-AzResource -ResourceGroupName $script:ResourceGroup -ResourceName $script:ClusterName -ResourceType 'Microsoft.Kubernetes/connectedClusters' -Force"
         Write-Host "  3. Re-run this script (it's safe to run multiple times)"
         Write-Host ""
@@ -345,6 +346,7 @@ function Enable-ArcForCluster {
             Write-Host ""
             Write-Host "  To delete Arc connection:" -ForegroundColor Yellow
             Write-Host "    kubectl delete ns azure-arc" -ForegroundColor White
+            Write-Host "    (NOTE: 'namespace not found' error is OK - means it's already deleted)" -ForegroundColor DarkGray
             Write-Host "    Remove-AzResource -ResourceGroupName $script:ResourceGroup -ResourceName $script:ClusterName -ResourceType 'Microsoft.Kubernetes/connectedClusters' -Force" -ForegroundColor White
             Write-Host ""
         }
@@ -374,6 +376,7 @@ function Enable-ArcForCluster {
             Write-Host ""
             Write-Host "To fix, delete the Arc connection and re-run this script:" -ForegroundColor Green
             Write-Host "  kubectl delete ns azure-arc" -ForegroundColor White
+            Write-Host "  (NOTE: 'namespace not found' error is OK - means it's already deleted)" -ForegroundColor DarkGray
             Write-Host "  Remove-AzResource -ResourceGroupName $script:ResourceGroup -ResourceName $script:ClusterName -ResourceType 'Microsoft.Kubernetes/connectedClusters' -Force" -ForegroundColor White
             Write-Host "  ./arc_enable.ps1" -ForegroundColor White
             Write-Host ""
@@ -414,6 +417,7 @@ function Enable-ArcForCluster {
                 Write-Host "After fixing permissions, you can re-run this script:" -ForegroundColor Yellow
                 Write-Host "  1. Delete the Arc connection:" -ForegroundColor White
                 Write-Host "       kubectl delete ns azure-arc" -ForegroundColor White
+                Write-Host "       (NOTE: 'namespace not found' error is OK - means it's already deleted)" -ForegroundColor DarkGray
                 Write-Host "       Remove-AzResource -ResourceGroupName $script:ResourceGroup -ResourceName $script:ClusterName -ResourceType 'Microsoft.Kubernetes/connectedClusters' -Force" -ForegroundColor White
                 Write-Host "  2. Re-run: ./arc_enable.ps1" -ForegroundColor White
                 Write-Host ""
@@ -512,6 +516,7 @@ function Enable-ArcFeatures {
             Write-Host ""
             Write-Host "  To delete and reconnect:" -ForegroundColor Yellow
             Write-Host "    kubectl delete ns azure-arc" -ForegroundColor White
+            Write-Host "    (NOTE: 'namespace not found' error is OK - means it's already deleted)" -ForegroundColor DarkGray
             Write-Host "    Remove-AzResource -ResourceGroupName $script:ResourceGroup -ResourceName $script:ClusterName -ResourceType 'Microsoft.Kubernetes/connectedClusters' -Force" -ForegroundColor White
             Write-Host "    # Then re-run this script" -ForegroundColor White
             Write-Host ""
@@ -574,6 +579,142 @@ function Test-ArcConnection {
 # COMPLETION
 # ============================================================================
 
+function Enable-CustomLocationsHelm {
+    <#
+    .SYNOPSIS
+        Generates the helm command to enable custom-locations feature.
+    
+    .DESCRIPTION
+        IMPORTANT: The Az.ConnectedKubernetes PowerShell module has a bug/gap.
+        When you use New-AzConnectedKubernetes with -CustomLocationsOid, it:
+          1. Registers the OID with Azure ARM (done)
+          2. Does NOT run 'helm upgrade' to actually enable the feature in the cluster (MISSING)
+        
+        The Azure CLI 'az connectedk8s enable-features' does BOTH steps.
+        
+        This function generates a bash script that must be run on the edge device
+        to complete the helm upgrade step.
+    #>
+    
+    Write-Log "Generating custom-locations helm enablement script..."
+    
+    $customLocationsOid = $script:CustomLocationsOid
+    if ([string]::IsNullOrEmpty($customLocationsOid)) {
+        $customLocationsAppId = "bc313c14-388c-4e7d-a58e-70017303ee3b"
+        try {
+            $customLocationsOid = (Get-AzADServicePrincipal -ApplicationId $customLocationsAppId -ErrorAction Stop).Id
+        } catch {
+            Write-WarnLog "Could not retrieve Custom Locations RP object ID"
+            return
+        }
+    }
+    
+    # Generate the bash script content
+    $bashScript = @"
+#!/bin/bash
+# ==============================================================================
+# Custom Locations Helm Enablement Script
+# ==============================================================================
+# Generated by arc_enable.ps1 on $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+#
+# BACKGROUND:
+# The Az.ConnectedKubernetes PowerShell module has a bug/gap where
+# New-AzConnectedKubernetes -CustomLocationsOid only registers the OID
+# with Azure ARM, but does NOT run the helm upgrade to enable the feature
+# in the cluster.
+#
+# The Azure CLI 'az connectedk8s enable-features' does both steps, but
+# we cannot use Azure CLI on edge devices for security reasons.
+#
+# This script performs the missing helm upgrade step.
+# ==============================================================================
+
+set -e
+
+CUSTOM_LOCATIONS_OID="$customLocationsOid"
+
+echo "Checking current custom-locations status..."
+CURRENT_CL=`$(helm get values azure-arc --namespace azure-arc-release -o json 2>/dev/null | jq -r '.systemDefaultValues.customLocations.enabled // "null"')
+
+if [ "`$CURRENT_CL" = "true" ]; then
+    echo "Custom-locations is already enabled!"
+    helm get values azure-arc --namespace azure-arc-release -o json | jq '.systemDefaultValues.customLocations'
+    exit 0
+fi
+
+echo "Enabling custom-locations feature via helm upgrade..."
+echo "Custom Locations OID: `$CUSTOM_LOCATIONS_OID"
+
+helm upgrade azure-arc azure-arc \
+    --namespace azure-arc-release \
+    --reuse-values \
+    --set systemDefaultValues.customLocations.enabled=true \
+    --set systemDefaultValues.customLocations.oid=`$CUSTOM_LOCATIONS_OID \
+    --wait
+
+echo ""
+echo "Verifying custom-locations is now enabled..."
+helm get values azure-arc --namespace azure-arc-release -o json | jq '.systemDefaultValues.customLocations'
+
+echo ""
+echo "SUCCESS: Custom-locations feature is now enabled!"
+echo "You can now run External-Configurator.ps1 from your Windows machine."
+"@
+    
+    # Save the script
+    $scriptPath = Join-Path $ScriptDir "enable_custom_locations.sh"
+    Set-Content -Path $scriptPath -Value $bashScript -Encoding UTF8
+    
+    # Also save to edge_configs directory if it exists
+    $edgeConfigsDir = Join-Path $ScriptDir "edge_configs"
+    if (Test-Path $edgeConfigsDir) {
+        $edgeScriptPath = Join-Path $edgeConfigsDir "enable_custom_locations.sh"
+        Set-Content -Path $edgeScriptPath -Value $bashScript -Encoding UTF8
+        Write-InfoLog "Script also saved to: $edgeScriptPath"
+    }
+    
+    Write-Success "Generated: $scriptPath"
+    
+    Write-Host ""
+    Write-Host "============================================================================" -ForegroundColor Yellow
+    Write-Host "IMPORTANT: MANUAL STEP REQUIRED ON EDGE DEVICE" -ForegroundColor Yellow
+    Write-Host "============================================================================" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "The Az.ConnectedKubernetes PowerShell module has a known gap:" -ForegroundColor Cyan
+    Write-Host "  - It registers custom-locations OID with Azure ARM (done)" -ForegroundColor White
+    Write-Host "  - But does NOT run helm upgrade to enable it in the cluster (missing)" -ForegroundColor White
+    Write-Host ""
+    Write-Host "You MUST run the following on your edge device:" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "  # Option 1: Pull the latest changes and run the generated script" -ForegroundColor White
+    Write-Host "  cd ~/learn-iot/arc_build_linux" -ForegroundColor Cyan
+    Write-Host "  git pull" -ForegroundColor Cyan
+    Write-Host "  chmod +x enable_custom_locations.sh" -ForegroundColor Cyan
+    Write-Host "  ./enable_custom_locations.sh" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  # Option 2: Run the helm command directly" -ForegroundColor White
+    Write-Host "  helm upgrade azure-arc azure-arc \" -ForegroundColor Cyan
+    Write-Host "    --namespace azure-arc-release \" -ForegroundColor Cyan
+    Write-Host "    --reuse-values \" -ForegroundColor Cyan
+    Write-Host "    --set systemDefaultValues.customLocations.enabled=true \" -ForegroundColor Cyan
+    Write-Host "    --set systemDefaultValues.customLocations.oid=$customLocationsOid \" -ForegroundColor Cyan
+    Write-Host "    --wait" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  # Verify it worked:" -ForegroundColor White
+    Write-Host "  helm get values azure-arc --namespace azure-arc-release -o json | jq '.systemDefaultValues.customLocations'" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Expected output after running:" -ForegroundColor Green
+    Write-Host @"
+  {
+    "enabled": true,
+    "oid": "$customLocationsOid"
+  }
+"@ -ForegroundColor White
+    Write-Host ""
+    Write-Host "After this step completes, run External-Configurator.ps1 from Windows." -ForegroundColor Green
+    Write-Host ""
+}
+
 function Show-Completion {
     Write-Host ""
     Write-Host "============================================================================" -ForegroundColor Green
@@ -584,13 +725,19 @@ function Show-Completion {
     Write-Host ""
     Write-Host "Next Steps:" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "1. From your Windows management machine, run:"
+    Write-Host "1. ON YOUR EDGE DEVICE - Enable custom-locations (REQUIRED):"
+    Write-Host "   cd ~/learn-iot/arc_build_linux"
+    Write-Host "   git pull"
+    Write-Host "   chmod +x enable_custom_locations.sh"
+    Write-Host "   ./enable_custom_locations.sh"
+    Write-Host ""
+    Write-Host "2. From your Windows management machine, run:"
     Write-Host "   cd external_configuration"
     Write-Host "   .\External-Configurator.ps1"
     Write-Host ""
-    Write-Host "2. This will deploy Azure IoT Operations to your cluster."
+    Write-Host "3. This will deploy Azure IoT Operations to your cluster."
     Write-Host ""
-    Write-Host "3. After deployment, run grant_entra_id_roles.ps1 to set up permissions:"
+    Write-Host "4. After deployment, run grant_entra_id_roles.ps1 to set up permissions:"
     Write-Host "   .\grant_entra_id_roles.ps1"
     Write-Host ""
     Write-Host "Useful Commands:" -ForegroundColor Cyan
@@ -631,6 +778,7 @@ function Main {
     Enable-ArcForCluster
     Enable-ArcFeatures
     Enable-OidcWorkloadIdentity
+    Enable-CustomLocationsHelm  # Generate script for edge device
     Test-ArcConnection
     Show-Completion
     
