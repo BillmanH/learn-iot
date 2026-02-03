@@ -30,6 +30,19 @@ Once you have setup AIO via this process, you should be able to do everything th
 
 ![Process Overview](docs/img/process_1.png)
 
+### The process involves running four scripts:
+#### On the edge machine:
+1. arc_build_linux\installer.sh
+2. arc_build_linux\arc_enable.ps1
+#### On your Windows Machine:
+3. external_configuration\grant_entra_id_roles.ps1
+4. external_configuration\External-Configurator.ps1
+
+
+Specific commands for them are below. 
+
+**Note** Installing AIO can be different depending on your setup. In many cases, you have to run some scripts multiple times or in different order. The log messages in each script should tell you what to do next. 
+
 ## Prerequisites
 
 - **Hardware**: Ubuntu machine with 16GB RAM, 4 CPU cores, 50GB disk
@@ -41,6 +54,9 @@ Once you have setup AIO via this process, you should be able to do everything th
 ### 1. Clone Repository
 
 ```bash
+# Install git if not already installed
+sudo apt update && sudo apt install -y git
+
 git clone https://github.com/BillmanH/learn-iot.git
 cd learn-iot
 ```
@@ -151,8 +167,8 @@ kubectl logs -n azure-iot-operations -l app=aio-broker-frontend --tail=20
 
 ### Infrastructure & Setup
 
-- **[Linux Build Steps](./arc_build_linux/linux_build_steps.md)** - Complete step-by-step guide for installing AIO on a fresh Linux system
 - **[Config Files Guide](./config/readme.md)** - Configuration file templates and outputs
+- **[Linux Build Advanced](./arc_build_linux/linux_build_steps.md)** - Advanced flags, troubleshooting, and cleanup scripts
 - **`arc_build_linux/installer.sh`** - Edge device installer (local infrastructure only)
 - **`external_configuration/External-Configurator.ps1`** - Remote Azure configurator (cloud resources only)
 - **`external_configuration/Deploy-EdgeModules.ps1`** - Automated deployment script for edge applications

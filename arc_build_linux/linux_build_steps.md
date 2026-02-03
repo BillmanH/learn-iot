@@ -1,179 +1,145 @@
-# Azure IoT Operations - Quick Start
+# Linux Build Scripts - Advanced Reference
 
-Two-step installation: (1) Edge setup (2) Azure deployment
+> **For basic installation, see [readme.md](../readme.md)**. This document covers advanced features, flags, and troubleshooting.
 
-## Prerequisites
-- Ubuntu 24.04+, 16GB RAM, 4+ cores
-- Active Azure subscription
-- Git repository cloned
+## Script Flags
 
-## Step 1: Edge Device Setup
+### installer.sh
 
-**On Linux edge device:**
+| Flag | Description |
+|------|-------------|
+| `--force-reinstall` | Complete reinstall - removes K3s, Arc registration, and starts fresh |
+| `--skip-system-update` | Skip apt update/upgrade for faster runs (use with caution) |
+
 ```bash
-cd ~/learn-iot/arc_build_linux
-
-# Edit config (set resource_group, location, cluster_name)
-nano aio_config.json
-
-# Run installer
-chmod +x installer.sh
-./installer.sh
-
-# For clean reinstall:
+# Force complete reinstall
 ./installer.sh --force-reinstall
 
-# To completely remove everything:
+# Complete cleanup without reinstall
 ./linux_aio_cleanup.sh
 ```
 
-This installs:
-- K3s Kubernetes cluster
-- kubectl, Helm, Azure CLI
-- Azure Arc agents
-- CSI Secret Store (for Key Vault integration)
+### arc_enable.ps1
 
-**Time:** 15-25 minutes
+Runs after `installer.sh` to connect the cluster to Azure Arc. Requires PowerShell (installed automatically by installer.sh).
 
-## Step 2: Azure IoT Operations Deployment
-
-**On Windows management machine:**
-
-```powershell
-cd C:\path\to\learn-iot\external_configuration
-
-# Deploy Azure IoT Operations
-.\External-Configurator.ps1 -UseArcProxy
-
-# Or specify files explicitly:
-.\External-Configurator.ps1 `
-  -ClusterInfo "..\configs\cluster_info.json" `
-  -ConfigFile "..\arc_build_linux\aio_config.json" `
-  -UseArcProxy
+```bash
+pwsh ./arc_enable.ps1
 ```
 
-This deploys:
-- Azure IoT Operations (via Arc)
-- MQTT broker and dataflow pipelines
-- Device Registry and assets (optional)
+**Generated files:**
+- `enable_custom_locations.sh` - Run this after arc_enable.ps1 completes (fixes Helm chart gap)
 
-**Time:** 10-15 minutes
+## Color-Coded Output
 
-## Configuration File
+- **Green**: Success
+- **Yellow**: Warnings (review but may be OK)
+- **Red**: Errors (action required)
 
-Edit `aio_config.json`:
+## Advanced Troubleshooting
+
+### Config File Cluster Name Mismatch
+
+The cluster name must match between config files:
+```bash
+# Check both files
+cat ../config/aio_config.json | grep cluster_name
+cat ../config/cluster_info.json | grep cluster_name
+```
+
+### Stale Arc Registration
+
+If your cluster was previously Arc-enabled with a different name or resource group:
+```bash
+# installer.sh detects and fixes this automatically
+# For manual cleanup:
+./installer.sh --force-reinstall
+```
+
+### Arc Proxy RBAC Issues
+
+If `Deploy-EdgeModules.ps1` fails with "Forbidden" errors, you need to create a ClusterRoleBinding:
+
+```bash
+# On the edge device, run:
+kubectl create clusterrolebinding azure-user-admin \
+  --clusterrole=cluster-admin \
+  --user=<YOUR_ENTRA_ID_OBJECT_ID>
+```
+
+To automate this for future installs, add `manage_principal` to your `aio_config.json`:
 ```json
 {
   "azure": {
-    "subscription_id": "",
-    "resource_group": "IoT-Operations",
-    "location": "westus2",
-    "cluster_name": "iot-ops-cluster",
-    "namespace_name": "iot-operations-ns"
-  },
-  "deployment": {
-    "deployment_mode": "test"
+    "manage_principal": "<YOUR_ENTRA_ID_OBJECT_ID>"
   }
 }
 ```
 
-## Common Commands
+### Custom Locations Not Enabled
+
+If `az iot ops create` fails with "resource provider does not have required permissions":
 
 ```bash
-# Check cluster health
-kubectl get pods --all-namespaces
-
-# View Arc status
-az connectedk8s show --name iot-ops-cluster --resource-group IoT-Operations
-
-# Interactive cluster UI
-k9s
-
-# View logs
-cat /path/to/installer_*.log
+# Run the generated script after arc_enable.ps1
+chmod +x enable_custom_locations.sh
+./enable_custom_locations.sh
 ```
 
-## Color-Coded Output
-- **Green**: Success
-- **Yellow**: Warnings
-- **Red**: Errors
+This is needed because `Az.ConnectedKubernetes` registers the OID with ARM but doesn't update the Helm chart.
 
-## Troubleshooting
+### View Detailed Logs
 
-### Common Issues
-
-**Permission Denied**
 ```bash
-# Make sure the script is executable
-chmod +x linuxAIO.sh
+# Installer logs (timestamped)
+cat linuxAIO_*.log
 
-# Don't run as root
-./linuxAIO.sh  # Correct
-sudo ./linuxAIO.sh  # Wrong - script will exit
+# K3s service status
+sudo systemctl status k3s
+journalctl -u k3s -f
+
+# Arc agent logs
+kubectl logs -n azure-arc -l app.kubernetes.io/component=connect-agent
 ```
 
-**System Requirements Not Met**
-- Ensure you have at least 16GB RAM and 4 CPU cores
-- Check Ubuntu version: `lsb_release -a`
-- Check kernel version: `uname -r`
+### Manual Component Verification
 
-**Azure Authentication Issues**
 ```bash
-# Manual Azure CLI login if needed
-az login
-az account set --subscription "Your-Subscription-Name"
-```
-
-**Network Issues**
-- Ensure internet connectivity for downloading packages
-- Check if corporate firewall blocks Azure or Kubernetes traffic
-
-### Getting Help
-
-**Check script logs:**
-The script provides detailed logging with timestamps. Look for error messages in red.
-
-**Verify installation:**
-After successful installation, check:
-```bash
-# Check K3s status
+# K3s running
 sudo systemctl status k3s
 
-# Check kubectl access
+# Nodes ready
 kubectl get nodes
 
-# Check Azure IoT Operations pods
+# Arc agents healthy (should be 12+ pods Running)
+kubectl get pods -n azure-arc
+
+# IoT Operations pods
 kubectl get pods -n azure-iot-operations
+
+# CSI Secret Store driver
+kubectl get pods -n kube-system | grep secrets-store
 ```
 
-## Post-Installation
+## Cleanup Scripts
 
+### linux_aio_cleanup.sh
 
-## Troubleshooting
+Removes everything for a fresh start:
+- Uninstalls K3s
+- Removes Azure Arc registration
+- Cleans up kubectl config
+- Removes generated files
 
-**Config file cluster name mismatch:**
 ```bash
-# Ensure cluster_name matches in both files
-cat aio_config.json | grep cluster_name
-cat ../config/cluster_info.json | grep cluster_name
+chmod +x linux_aio_cleanup.sh
+./linux_aio_cleanup.sh
 ```
 
-**Arc proxy fails:**
-```bash
-# Verify cluster is Arc-enabled
-az connectedk8s show --name iot-ops-cluster --resource-group IoT-Operations
-```
+## Files Generated by installer.sh
 
-**Stale Arc registration:**
-- Automatically detected and fixed by installer.sh
-- Use `--force-reinstall` for complete cleanup
-
-**View logs:**
-```bash
-cat installer_*.log
-cat external_configurator_*.log
-```
-
-## Additional Resources
-- [Azure IoT Operations Docs](https://learn.microsoft.com/azure/iot-operations/)
-- [K3s Documentation](https://k3s.io/)
+| File | Location | Purpose |
+|------|----------|---------|
+| `cluster_info.json` | `../config/` | Cluster details for External-Configurator.ps1 |
+| `enable_custom_locations.sh` | Current dir | Helm upgrade for custom-locations feature |
+| `linuxAIO_*.log` | Current dir | Detailed installation logs |
