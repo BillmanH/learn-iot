@@ -21,14 +21,16 @@
 
 ### arc_enable.ps1
 
-Runs after `installer.sh` to connect the cluster to Azure Arc. Requires PowerShell (installed automatically by installer.sh).
+Runs after `installer.sh` to connect the cluster to Azure Arc and enable custom-locations. Requires PowerShell (installed automatically by installer.sh).
 
 ```bash
 pwsh ./arc_enable.ps1
+
+# Verify custom-locations is enabled:
+helm get values azure-arc -n azure-arc-release -o json | jq '.systemDefaultValues.customLocations'
 ```
 
-**Generated files:**
-- `enable_custom_locations.sh` - Run this after arc_enable.ps1 completes (fixes Helm chart gap)
+**Note**: The script now runs `helm upgrade` automatically to enable custom-locations (previously this was a separate manual step).
 
 ## Color-Coded Output
 
@@ -81,9 +83,16 @@ To automate this for future installs, add `manage_principal` to your `aio_config
 If `az iot ops create` fails with "resource provider does not have required permissions":
 
 ```bash
-# Run the generated script after arc_enable.ps1
-chmod +x enable_custom_locations.sh
-./enable_custom_locations.sh
+# Re-run arc_enable.ps1 - it now runs helm upgrade automatically
+pwsh ./arc_enable.ps1
+
+# Or run the helm command manually:
+helm upgrade azure-arc azure-arc \
+  --namespace azure-arc-release \
+  --reuse-values \
+  --set systemDefaultValues.customLocations.enabled=true \
+  --set systemDefaultValues.customLocations.oid=<your-custom-locations-oid> \
+  --wait
 ```
 
 This is needed because `Az.ConnectedKubernetes` registers the OID with ARM but doesn't update the Helm chart.
@@ -141,5 +150,5 @@ chmod +x linux_aio_cleanup.sh
 | File | Location | Purpose |
 |------|----------|---------|
 | `cluster_info.json` | `../config/` | Cluster details for External-Configurator.ps1 |
-| `enable_custom_locations.sh` | Current dir | Helm upgrade for custom-locations feature |
+
 | `linuxAIO_*.log` | Current dir | Detailed installation logs |
