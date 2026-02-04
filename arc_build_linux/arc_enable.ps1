@@ -506,20 +506,12 @@ function Enable-ArcFeatures {
         # If features were enabled during New-AzConnectedKubernetes, we're good
         # The features are typically enabled immediately when specified during connection
         if ($customLocationsEnabled) {
-            Write-Success "Custom-locations feature is enabled"
+            Write-Success "Custom-locations feature is registered in Azure"
         } else {
-            # Features should have been enabled during New-AzConnectedKubernetes
-            # If not, the cluster may need to be reconnected
-            Write-WarnLog "Custom-locations feature state could not be verified"
-            Write-WarnLog "If IoT Operations deployment fails with 'resource provider does not have required permissions',"
-            Write-WarnLog "you may need to delete the Arc connection and re-run this script."
-            Write-Host ""
-            Write-Host "  To delete and reconnect:" -ForegroundColor Yellow
-            Write-Host "    kubectl delete ns azure-arc" -ForegroundColor White
-            Write-Host "    (NOTE: 'namespace not found' error is OK - means it's already deleted)" -ForegroundColor DarkGray
-            Write-Host "    Remove-AzResource -ResourceGroupName $script:ResourceGroup -ResourceName $script:ClusterName -ResourceType 'Microsoft.Kubernetes/connectedClusters' -Force" -ForegroundColor White
-            Write-Host "    # Then re-run this script" -ForegroundColor White
-            Write-Host ""
+            # Azure API doesn't always show feature state correctly
+            # The helm check in Enable-CustomLocationsHelm is the authoritative source
+            Write-InfoLog "Custom-locations feature state not reported by Azure API"
+            Write-InfoLog "Will verify via helm configuration next..."
         }
     } catch {
         Write-ErrorLog "Could not verify cluster feature state: $_"
@@ -627,20 +619,57 @@ function Enable-CustomLocationsHelm {
     }
     
     # Run helm upgrade directly
+    # Note: We need to get the current chart version and use the OCI registry URL
+    Write-InfoLog "Getting current Azure Arc chart version..."
+    
+    try {
+        $currentVersion = helm list -n azure-arc-release -o json | ConvertFrom-Json | Where-Object { $_.name -eq "azure-arc" } | Select-Object -ExpandProperty chart
+        if (-not $currentVersion) {
+            Write-ErrorLog "Could not determine current Azure Arc chart version"
+            Write-WarnLog "Run 'helm list -n azure-arc-release' to check the release status"
+            return
+        }
+        # Extract version number from chart name (e.g., "azure-arc-k8sagents-1.21.10" -> "1.21.10")
+        $versionMatch = $currentVersion -match '(\d+\.\d+\.\d+.*?)$'
+        if ($versionMatch) {
+            $chartVersion = $matches[1]
+            Write-InfoLog "Current chart version: $chartVersion"
+        } else {
+            Write-WarnLog "Could not parse version from chart: $currentVersion, will use latest"
+            $chartVersion = $null
+        }
+    } catch {
+        Write-WarnLog "Could not get chart version: $_"
+        $chartVersion = $null
+    }
+    
     Write-InfoLog "Running helm upgrade to enable custom-locations..."
     
+    # Build the helm command with OCI registry
+    $chartRef = "oci://mcr.microsoft.com/azurearck8s/azure-arc-k8sagents"
+    $versionArg = if ($chartVersion) { "--version $chartVersion" } else { "" }
+    
     if ($DryRun) {
-        Write-Host "[DRY-RUN] Would run: helm upgrade azure-arc azure-arc --namespace azure-arc-release --reuse-values --set systemDefaultValues.customLocations.enabled=true --set systemDefaultValues.customLocations.oid=$customLocationsOid --wait" -ForegroundColor Yellow
+        Write-Host "[DRY-RUN] Would run: helm upgrade azure-arc $chartRef $versionArg --namespace azure-arc-release --reuse-values --set systemDefaultValues.customLocations.enabled=true --set systemDefaultValues.customLocations.oid=$customLocationsOid --wait" -ForegroundColor Yellow
         return
     }
     
     try {
-        $helmResult = helm upgrade azure-arc azure-arc `
-            --namespace azure-arc-release `
-            --reuse-values `
-            --set systemDefaultValues.customLocations.enabled=true `
-            --set systemDefaultValues.customLocations.oid=$customLocationsOid `
-            --wait 2>&1
+        # Build arguments list
+        $helmArgs = @(
+            "upgrade", "azure-arc", $chartRef,
+            "--namespace", "azure-arc-release",
+            "--reuse-values",
+            "--set", "systemDefaultValues.customLocations.enabled=true",
+            "--set", "systemDefaultValues.customLocations.oid=$customLocationsOid",
+            "--wait"
+        )
+        if ($chartVersion) {
+            $helmArgs += "--version"
+            $helmArgs += $chartVersion
+        }
+        
+        $helmResult = & helm @helmArgs 2>&1
         
         if ($LASTEXITCODE -ne 0) {
             Write-ErrorLog "Helm upgrade failed: $helmResult"
@@ -659,7 +688,7 @@ function Enable-CustomLocationsHelm {
     } catch {
         Write-ErrorLog "Failed to run helm upgrade: $_"
         Write-WarnLog "Manual step may be required. Run:"
-        Write-Host "  helm upgrade azure-arc azure-arc --namespace azure-arc-release --reuse-values --set systemDefaultValues.customLocations.enabled=true --set systemDefaultValues.customLocations.oid=$customLocationsOid --wait" -ForegroundColor Cyan
+        Write-Host "  helm upgrade azure-arc oci://mcr.microsoft.com/azurearck8s/azure-arc-k8sagents --namespace azure-arc-release --reuse-values --set systemDefaultValues.customLocations.enabled=true --set systemDefaultValues.customLocations.oid=$customLocationsOid --wait" -ForegroundColor Cyan
     }
 }
 
