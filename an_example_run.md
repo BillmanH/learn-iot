@@ -106,5 +106,14 @@ In progress [Checking operation  status                                   ]
 ```
 
 I do some other things and come back to it later. 
+```
+[2026-02-04 18:35:19] SUCCESS: Cluster is connected to Azure Arc!
 
-it says it ran successfully, but I also see some errors in the log. 
+============================================================================
+Arc Enablement Completed!
+============================================================================
+
+Your cluster 'bel-aio-work-cluster' is now connected to Azure Arc.
+Custom-locations feature has been enabled via helm.
+```
+
