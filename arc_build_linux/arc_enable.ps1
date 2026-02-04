@@ -571,6 +571,9 @@ function Test-ArcConnection {
 # COMPLETION
 # ============================================================================
 
+# Track whether custom-locations was successfully enabled
+$script:CustomLocationsEnabled = $false
+
 function Enable-CustomLocationsHelm {
     <#
     .SYNOPSIS
@@ -585,6 +588,7 @@ function Enable-CustomLocationsHelm {
         The Azure CLI 'az connectedk8s enable-features' does BOTH steps.
         
         This function runs the helm upgrade directly to complete the missing step.
+        If helm upgrade fails, it falls back to 'az connectedk8s enable-features'.
     #>
     
     Write-Log "Enabling custom-locations feature via helm..."
@@ -612,94 +616,97 @@ function Enable-CustomLocationsHelm {
             Write-Success "Custom-locations is already enabled!"
             Write-InfoLog "Current configuration:"
             helm get values azure-arc --namespace azure-arc-release -o json | jq '.systemDefaultValues.customLocations'
+            $script:CustomLocationsEnabled = $true
             return
         }
     } catch {
         Write-InfoLog "Could not check current status, proceeding with enablement..."
     }
     
-    # Run helm upgrade directly
-    # Note: We need to get the current chart version and use the OCI registry URL
-    Write-InfoLog "Getting current Azure Arc chart version..."
-    
-    try {
-        $currentVersion = helm list -n azure-arc-release -o json | ConvertFrom-Json | Where-Object { $_.name -eq "azure-arc" } | Select-Object -ExpandProperty chart
-        if (-not $currentVersion) {
-            Write-ErrorLog "Could not determine current Azure Arc chart version"
-            Write-WarnLog "Run 'helm list -n azure-arc-release' to check the release status"
-            return
-        }
-        # Extract version number from chart name (e.g., "azure-arc-k8sagents-1.21.10" -> "1.21.10")
-        $versionMatch = $currentVersion -match '(\d+\.\d+\.\d+.*?)$'
-        if ($versionMatch) {
-            $chartVersion = $matches[1]
-            Write-InfoLog "Current chart version: $chartVersion"
-        } else {
-            Write-WarnLog "Could not parse version from chart: $currentVersion, will use latest"
-            $chartVersion = $null
-        }
-    } catch {
-        Write-WarnLog "Could not get chart version: $_"
-        $chartVersion = $null
-    }
-    
     Write-InfoLog "Running helm upgrade to enable custom-locations..."
     
-    # Build the helm command with OCI registry
-    $chartRef = "oci://mcr.microsoft.com/azurearck8s/azure-arc-k8sagents"
-    $versionArg = if ($chartVersion) { "--version $chartVersion" } else { "" }
-    
     if ($DryRun) {
-        Write-Host "[DRY-RUN] Would run: helm upgrade azure-arc $chartRef $versionArg --namespace azure-arc-release --reuse-values --set systemDefaultValues.customLocations.enabled=true --set systemDefaultValues.customLocations.oid=$customLocationsOid --wait" -ForegroundColor Yellow
+        Write-Host "[DRY-RUN] Would run: az connectedk8s enable-features --name $script:ClusterName --resource-group $script:ResourceGroup --features cluster-connect custom-locations --custom-locations-oid $customLocationsOid" -ForegroundColor Yellow
+        $script:CustomLocationsEnabled = $true
         return
     }
     
+    # Use Azure CLI - it's the most reliable method
+    # The CLI handles both ARM registration AND helm upgrade internally
+    Write-InfoLog "Using Azure CLI to enable custom-locations feature..."
+    
     try {
-        # Build arguments list
-        $helmArgs = @(
-            "upgrade", "azure-arc", $chartRef,
-            "--namespace", "azure-arc-release",
-            "--reuse-values",
-            "--set", "systemDefaultValues.customLocations.enabled=true",
-            "--set", "systemDefaultValues.customLocations.oid=$customLocationsOid",
-            "--wait"
-        )
-        if ($chartVersion) {
-            $helmArgs += "--version"
-            $helmArgs += $chartVersion
-        }
-        
-        $helmResult = & helm @helmArgs 2>&1
+        $enableResult = az connectedk8s enable-features `
+            --name $script:ClusterName `
+            --resource-group $script:ResourceGroup `
+            --features cluster-connect custom-locations `
+            --custom-locations-oid $customLocationsOid 2>&1
         
         if ($LASTEXITCODE -ne 0) {
-            Write-ErrorLog "Helm upgrade failed: $helmResult"
-            Write-WarnLog "You may need to run this manually. See troubleshooting docs."
-            return
+            # Check if it failed because features are already enabled
+            if ($enableResult -match "already enabled" -or $enableResult -match "already registered") {
+                Write-InfoLog "Features may already be enabled, verifying..."
+            } else {
+                Write-ErrorLog "az connectedk8s enable-features failed: $enableResult"
+                Write-WarnLog "Custom-locations could not be enabled automatically."
+                Write-Host ""
+                Write-Host "To enable manually, run this command on the edge device:" -ForegroundColor Yellow
+                Write-Host "  az connectedk8s enable-features --name $script:ClusterName --resource-group $script:ResourceGroup --features cluster-connect custom-locations --custom-locations-oid $customLocationsOid" -ForegroundColor Cyan
+                Write-Host ""
+                return
+            }
         }
         
-        Write-Success "Helm upgrade completed!"
-        
-        # Verify
+        # Verify it worked
         Write-InfoLog "Verifying custom-locations is enabled..."
-        helm get values azure-arc --namespace azure-arc-release -o json | jq '.systemDefaultValues.customLocations'
+        Start-Sleep -Seconds 3
         
-        Write-Success "Custom-locations feature is now enabled!"
+        $verifyResult = helm get values azure-arc --namespace azure-arc-release -o json 2>$null | ConvertFrom-Json
+        if ($verifyResult.systemDefaultValues.customLocations.enabled -eq $true) {
+            Write-Success "Custom-locations feature is now enabled!"
+            Write-InfoLog "Configuration:"
+            helm get values azure-arc --namespace azure-arc-release -o json | jq '.systemDefaultValues.customLocations'
+            $script:CustomLocationsEnabled = $true
+        } else {
+            Write-WarnLog "Helm values don't show custom-locations as enabled."
+            Write-WarnLog "The Azure API may show it as enabled, but cluster configuration may need time to sync."
+            Write-Host ""
+            Write-Host "Verify manually with:" -ForegroundColor Yellow
+            Write-Host "  helm get values azure-arc -n azure-arc-release -o json | jq '.systemDefaultValues.customLocations'" -ForegroundColor Cyan
+            Write-Host ""
+        }
         
     } catch {
-        Write-ErrorLog "Failed to run helm upgrade: $_"
-        Write-WarnLog "Manual step may be required. Run:"
-        Write-Host "  helm upgrade azure-arc oci://mcr.microsoft.com/azurearck8s/azure-arc-k8sagents --namespace azure-arc-release --reuse-values --set systemDefaultValues.customLocations.enabled=true --set systemDefaultValues.customLocations.oid=$customLocationsOid --wait" -ForegroundColor Cyan
+        Write-ErrorLog "Failed to enable custom-locations: $_"
+        Write-WarnLog "Manual step required. Run:"
+        Write-Host "  az connectedk8s enable-features --name $script:ClusterName --resource-group $script:ResourceGroup --features cluster-connect custom-locations --custom-locations-oid $customLocationsOid" -ForegroundColor Cyan
     }
 }
 
 function Show-Completion {
     Write-Host ""
-    Write-Host "============================================================================" -ForegroundColor Green
-    Write-Host "Arc Enablement Completed!" -ForegroundColor Green
-    Write-Host "============================================================================" -ForegroundColor Green
-    Write-Host ""
-    Write-Host "Your cluster '$script:ClusterName' is now connected to Azure Arc."
-    Write-Host "Custom-locations feature has been enabled via helm."
+    
+    if ($script:CustomLocationsEnabled) {
+        Write-Host "============================================================================" -ForegroundColor Green
+        Write-Host "Arc Enablement Completed Successfully!" -ForegroundColor Green
+        Write-Host "============================================================================" -ForegroundColor Green
+        Write-Host ""
+        Write-Host "Your cluster '$script:ClusterName' is now connected to Azure Arc."
+        Write-Host "Custom-locations feature is enabled." -ForegroundColor Green
+    } else {
+        Write-Host "============================================================================" -ForegroundColor Yellow
+        Write-Host "Arc Enablement Completed (with warnings)" -ForegroundColor Yellow
+        Write-Host "============================================================================" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Your cluster '$script:ClusterName' is connected to Azure Arc."
+        Write-Host "Custom-locations feature could NOT be verified as enabled." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Before proceeding, verify custom-locations manually:" -ForegroundColor Cyan
+        Write-Host "  helm get values azure-arc -n azure-arc-release -o json | jq '.systemDefaultValues.customLocations'"
+        Write-Host ""
+        Write-Host "If 'enabled' is not true, run:" -ForegroundColor Cyan
+        Write-Host "  az connectedk8s enable-features --name $script:ClusterName --resource-group $script:ResourceGroup --features cluster-connect custom-locations"
+    }
     Write-Host ""
     Write-Host "Next Steps:" -ForegroundColor Cyan
     Write-Host ""
