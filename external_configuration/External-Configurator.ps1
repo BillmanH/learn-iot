@@ -306,6 +306,7 @@ function Import-AzureConfig {
             $script:ResourceGroup = $script:AzureConfig.azure.resource_group
             $script:Location = $script:AzureConfig.azure.location
             $script:NamespaceName = $script:AzureConfig.azure.namespace_name
+            $script:StorageAccountName = $script:AzureConfig.azure.storage_account_name
             $script:KeyVaultName = $script:AzureConfig.azure.key_vault_name
             
             # Store the config cluster name for validation (don't override yet)
@@ -999,14 +1000,13 @@ function Deploy-IoTOperations {
         Write-InfoLog "If 'az iot ops create' fails with 'resource provider does not have required permissions',"
         Write-InfoLog "you need to run this on your EDGE device:"
         Write-Host ""
-        Write-Host "  helm upgrade azure-arc azure-arc \" -ForegroundColor Cyan
-        Write-Host "    --namespace azure-arc-release \" -ForegroundColor Cyan
-        Write-Host "    --reuse-values \" -ForegroundColor Cyan
-        Write-Host "    --set systemDefaultValues.customLocations.enabled=true \" -ForegroundColor Cyan
-        Write-Host "    --set systemDefaultValues.customLocations.oid=$customLocationsOid \" -ForegroundColor Cyan
-        Write-Host "    --wait" -ForegroundColor Cyan
+        Write-Host "  az connectedk8s enable-features \" -ForegroundColor Cyan
+        Write-Host "    --name $script:ClusterName \" -ForegroundColor Cyan
+        Write-Host "    --resource-group $script:ResourceGroup \" -ForegroundColor Cyan
+        Write-Host "    --features cluster-connect custom-locations \" -ForegroundColor Cyan
+        Write-Host "    --custom-locations-oid $customLocationsOid" -ForegroundColor Cyan
         Write-Host ""
-        Write-InfoLog "Or re-run arc_enable.ps1 on the edge device (it will run the helm upgrade for you)."
+        Write-InfoLog "Or re-run arc_enable.ps1 on the edge device (it will do this for you)."
         Write-Host ""
     } else {
         Write-Host ""
@@ -1029,15 +1029,14 @@ function Deploy-IoTOperations {
         Write-Host "  # Check if custom-locations is enabled in Helm:" -ForegroundColor Gray
         Write-Host "  helm get values azure-arc --namespace azure-arc-release -o json | jq '.systemDefaultValues.customLocations'" -ForegroundColor White
         Write-Host ""
-        Write-Host "  # If it shows 'null', run the helm upgrade:" -ForegroundColor Gray
-        Write-Host "  helm upgrade azure-arc azure-arc \" -ForegroundColor White
-        Write-Host "    --namespace azure-arc-release \" -ForegroundColor White
-        Write-Host "    --reuse-values \" -ForegroundColor White
-        Write-Host "    --set systemDefaultValues.customLocations.enabled=true \" -ForegroundColor White
-        Write-Host "    --set systemDefaultValues.customLocations.oid=$customLocationsOid \" -ForegroundColor White
-        Write-Host "    --wait" -ForegroundColor White
+        Write-Host "  # If it shows 'null', run:" -ForegroundColor Gray
+        Write-Host "  az connectedk8s enable-features \" -ForegroundColor White
+        Write-Host "    --name $script:ClusterName \" -ForegroundColor White
+        Write-Host "    --resource-group $script:ResourceGroup \" -ForegroundColor White
+        Write-Host "    --features cluster-connect custom-locations \" -ForegroundColor White
+        Write-Host "    --custom-locations-oid $customLocationsOid" -ForegroundColor White
         Write-Host ""
-        Write-Host "  # Or re-run arc_enable.ps1 (includes helm upgrade):" -ForegroundColor Gray
+        Write-Host "  # Or re-run arc_enable.ps1 (includes this step):" -ForegroundColor Gray
         Write-Host "  cd ~/learn-iot/arc_build_linux && git pull" -ForegroundColor White
         Write-Host "  pwsh ./arc_enable.ps1" -ForegroundColor White
         Write-Host ""
@@ -1310,20 +1309,26 @@ function Test-Deployment {
     }
     
     # Verify required extensions for asset sync
+    # NOTE: In AIO v1.2+, deviceregistry is bundled into microsoft.iotoperations extension
+    # The separate microsoft.deviceregistry.assets extension is no longer required
     Write-Log "Verifying required Kubernetes extensions..."
     $extensions = az k8s-extension list --cluster-name $script:ClusterName --resource-group $script:ResourceGroup --cluster-type connectedClusters -o json 2>$null
     
     if ($extensions) {
         $extData = $extensions | ConvertFrom-Json
         
+        # Only microsoft.iotoperations is required - deviceregistry is now bundled in
         $requiredExtensions = @{
             "microsoft.iotoperations" = $false
-            "microsoft.deviceregistry.assets" = $false
         }
         
         $optionalExtensions = @{
             "microsoft.kubernetesworkloadidfederation" = $false
+            "microsoft.deviceregistry.assets" = $false  # Legacy - now bundled in iotoperations
         }
+        
+        # Track failed extensions
+        $failedExtensions = @()
         
         foreach ($ext in $extData) {
             $extType = $ext.extensionType.ToLower()
@@ -1337,13 +1342,47 @@ function Test-Deployment {
                     Write-WarnLog "  Extension: $($ext.name) ($extType) - $extState (still in progress)"
                 } else {
                     Write-ErrorLog "  Extension: $($ext.name) ($extType) - $extState"
+                    $failedExtensions += @{ Name = $ext.name; Type = $extType; State = $extState }
                 }
             } elseif ($optionalExtensions.ContainsKey($extType)) {
                 $optionalExtensions[$extType] = $true
-                Write-InfoLog "  Extension: $($ext.name) ($extType) - $extState"
+                if ($extState -eq "Failed") {
+                    Write-WarnLog "  Extension: $($ext.name) ($extType) - $extState (optional, but failed)"
+                    $failedExtensions += @{ Name = $ext.name; Type = $extType; State = $extState }
+                } else {
+                    Write-InfoLog "  Extension: $($ext.name) ($extType) - $extState"
+                }
             } else {
-                Write-InfoLog "  Extension: $($ext.name) ($extType) - $extState"
+                # Check for platform extension failures (common issue)
+                if ($extType -eq "microsoft.iotoperations.platform" -and $extState -eq "Failed") {
+                    Write-WarnLog "  Extension: $($ext.name) ($extType) - $extState (known issue - upgrade will fix)"
+                    $failedExtensions += @{ Name = $ext.name; Type = $extType; State = $extState }
+                } else {
+                    Write-InfoLog "  Extension: $($ext.name) ($extType) - $extState"
+                }
             }
+        }
+        
+        # Check for failed extensions and provide remediation
+        if ($failedExtensions.Count -gt 0) {
+            Write-Host ""
+            Write-Host "============================================================================" -ForegroundColor Yellow
+            Write-Host "FAILED EXTENSIONS DETECTED" -ForegroundColor Yellow
+            Write-Host "============================================================================" -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "The following extensions are in a failed state:" -ForegroundColor Yellow
+            foreach ($ext in $failedExtensions) {
+                Write-Host "  - $($ext.Name) ($($ext.Type)) - $($ext.State)" -ForegroundColor Red
+            }
+            Write-Host ""
+            Write-Host "TO FIX THIS, run on your EDGE DEVICE:" -ForegroundColor Cyan
+            Write-Host ""
+            Write-Host "  az iot ops upgrade --name $instanceName -g $script:ResourceGroup -y" -ForegroundColor White
+            Write-Host ""
+            Write-Host "This will clean up failed extensions and update components to latest versions." -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "============================================================================" -ForegroundColor Yellow
+            Write-Host ""
         }
         
         # Check for missing required extensions
@@ -1369,9 +1408,18 @@ function Test-Deployment {
             Write-Host "  - Assets created in the Azure Portal will NOT sync to Kubernetes" -ForegroundColor Gray
             Write-Host "  - Asset endpoints and dataflows will not function" -ForegroundColor Gray
             Write-Host ""
-            Write-Host "This usually means IoT Operations deployment failed or did not complete." -ForegroundColor Yellow
-            Write-Host "An IoT Operations instance may exist in Azure, but the required Kubernetes" -ForegroundColor Yellow
-            Write-Host "extensions were not installed on the cluster." -ForegroundColor Yellow
+            Write-Host "TO FIX THIS, run on your EDGE DEVICE:" -ForegroundColor Cyan
+            Write-Host ""
+            Write-Host "  # Try upgrading the IoT Operations instance:" -ForegroundColor Gray
+            Write-Host "  az iot ops upgrade --name $instanceName -g $script:ResourceGroup -y" -ForegroundColor White
+            Write-Host ""
+            Write-Host "If upgrade doesn't work, you may need to fully reinstall:" -ForegroundColor Cyan
+            Write-Host ""
+            Write-Host "  # 1. Delete the AIO instance:" -ForegroundColor Gray
+            Write-Host "  az iot ops delete --name $instanceName -g $script:ResourceGroup --yes" -ForegroundColor White
+            Write-Host ""
+            Write-Host "  # 2. Wait for deletion to complete, then from Windows:" -ForegroundColor Gray
+            Write-Host "  .\External-Configurator.ps1" -ForegroundColor White
             Write-Host ""
             Write-Host "============================================================================" -ForegroundColor Red
             Write-Host ""
