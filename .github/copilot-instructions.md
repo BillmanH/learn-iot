@@ -156,10 +156,11 @@ cd external_configuration
 
 #### Step 4: Permissions Setup (FROM Windows machine)
 ```powershell
-# Grant Entra ID roles and Key Vault access
+# Grant Entra ID roles and Key Vault access (uses current signed-in user)
 .\grant_entra_id_roles.ps1
 
-# Or grant to specific user (use Object ID, not email - more reliable)
+# Or grant to specific user - MUST use Object ID (GUID), NOT email
+# Get your Object ID: az ad signed-in-user show --query id -o tsv
 .\grant_entra_id_roles.ps1 -AddUser 12345678-1234-1234-1234-123456789abc
 ```
 

@@ -123,10 +123,18 @@ Transfer the `config/` folder to your Windows management machine, then:
 cd external_configuration
 
 # First, grant yourself the required Azure permissions
+# This uses your current signed-in Azure identity by default
 .\grant_entra_id_roles.ps1
+
+# To grant permissions to a different user, use their Object ID (GUID):
+# Get your Object ID: az ad signed-in-user show --query id -o tsv
+# Find another user: az ad user list --filter "startswith(displayName,'username')" --query "[].{Name:displayName, OID:id}" -o table
+.\grant_entra_id_roles.ps1 -AddUser 12345678-1234-1234-1234-123456789abc
+```
 
 This is separate because it may be that the person who has the ability to assign permissions is different than the person who will be building the resource.
 
+```powershell
 # Deploy Azure IoT Operations
 .\External-Configurator.ps1
 ```

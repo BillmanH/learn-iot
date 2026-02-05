@@ -17,8 +17,9 @@
     Azure Key Vault name (default: auto-detected from resource group)
     
 .PARAMETER AddUser
-    User email/UPN or Object ID (GUID) to grant full access
-    Examples: you@mail.com or 12345678-1234-1234-1234-123456789abc
+    User Object ID (GUID) to grant full access.
+    To get your Object ID, run: az ad signed-in-user show --query id -o tsv
+    Example: 12345678-1234-1234-1234-123456789abc
     Optional - if not provided, grants to current signed-in user
 
 .PARAMETER SubscriptionId
@@ -26,12 +27,15 @@
     
 .EXAMPLE
     .\grant_entra_id_roles.ps1
+    # Grants permissions to current signed-in user
     
 .EXAMPLE
-    .\grant_entra_id_roles.ps1 -AddUser you@mail.com or 12345678-1234-1234-1234-123456789abc
+    .\grant_entra_id_roles.ps1 -AddUser 12345678-1234-1234-1234-123456789abc
+    # Grants permissions to user with specified Object ID
     
 .EXAMPLE
-    .\grant_entra_id_roles.ps1 -ResourceGroup "IoT-Operations" -ClusterName "iot-ops-cluster" -AddUser <your OID>
+    .\grant_entra_id_roles.ps1 -ResourceGroup "IoT-Operations" -ClusterName "iot-ops-cluster" -AddUser 12345678-1234-1234-1234-123456789abc
+    # Full example with all parameters
 
 .NOTES
     Author: Azure IoT Operations Team
@@ -348,43 +352,55 @@ if ($managedIdentities -and $managedIdentities.Count -gt 0) {
 
 # Get user to grant access to
 Write-SubHeader "User Access"
-if ([string]::IsNullOrEmpty($AddUser)) {
-    $AddUser = $currentAccount.user.name
-    Write-Info "No user specified, using current signed-in user: $AddUser"
-} else {
-    Write-Info "Will grant access to: $AddUser"
-}
-
-# Get user object ID
 $userObjectId = $null
 
-# Check if input is already a GUID (Object ID)
-$guidPattern = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-if ($AddUser -match $guidPattern) {
-    # Input is already an Object ID
-    $userObjectId = $AddUser
-    Write-Success "Using Object ID: $userObjectId"
-    
-    # Try to get user display name for informational purposes
-    $userInfo = az ad user show --id $userObjectId --query "{displayName:displayName, userPrincipalName:userPrincipalName}" 2>$null | ConvertFrom-Json
-    if ($userInfo) {
-        Write-Info "  Display Name: $($userInfo.displayName)"
-        Write-Info "  UPN: $($userInfo.userPrincipalName)"
-    }
-} else {
-    # Input is email/UPN, need to look up Object ID
-    $userObjectId = az ad user show --id $AddUser --query id -o tsv 2>$null
+if ([string]::IsNullOrEmpty($AddUser)) {
+    # No user specified, get current signed-in user's Object ID
+    Write-Info "No user specified, using current signed-in user..."
+    $userObjectId = az ad signed-in-user show --query id -o tsv 2>$null
     
     if ($userObjectId) {
-        Write-Success "Found user: $AddUser"
-        Write-Info "  Object ID: $userObjectId"
+        $userInfo = az ad signed-in-user show --query "{displayName:displayName, userPrincipalName:userPrincipalName}" 2>$null | ConvertFrom-Json
+        Write-Success "Current user Object ID: $userObjectId"
+        if ($userInfo) {
+            Write-Info "  Display Name: $($userInfo.displayName)"
+            Write-Info "  UPN: $($userInfo.userPrincipalName)"
+        }
     } else {
-        Write-ErrorMsg "Could not find user: $AddUser"
-        Write-Info "Options:"
-        Write-Info "  1. Verify the email/UPN is correct"
-        Write-Info "  2. Use the Object ID instead: -AddUser <object-id-guid>"
-        Write-Info "  3. Get your Object ID: az ad signed-in-user show --query id -o tsv"
-        Write-Info "  4. Search for user: az ad user list --filter ""startswith(displayName,'username')"""
+        Write-ErrorMsg "Could not get current user's Object ID"
+        Write-Info "Please specify -AddUser with your Object ID"
+        Write-Info "Get your Object ID: az ad signed-in-user show --query id -o tsv"
+        Stop-Transcript
+        exit 1
+    }
+} else {
+    # Validate that AddUser is a valid GUID (Object ID)
+    $guidPattern = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+    
+    if ($AddUser -match $guidPattern) {
+        $userObjectId = $AddUser
+        Write-Success "Using Object ID: $userObjectId"
+        
+        # Try to get user display name for informational purposes
+        $userInfo = az ad user show --id $userObjectId --query "{displayName:displayName, userPrincipalName:userPrincipalName}" 2>$null | ConvertFrom-Json
+        if ($userInfo) {
+            Write-Info "  Display Name: $($userInfo.displayName)"
+            Write-Info "  UPN: $($userInfo.userPrincipalName)"
+        } else {
+            Write-Warning "Could not retrieve user details (Object ID may be for a service principal or external user)"
+        }
+    } else {
+        Write-ErrorMsg "Invalid Object ID format: $AddUser"
+        Write-Host ""
+        Write-Host "The -AddUser parameter requires a valid Object ID (GUID)." -ForegroundColor Yellow
+        Write-Host "Email addresses are not supported due to lookup reliability issues." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "To get your Object ID, run:" -ForegroundColor Cyan
+        Write-Host "  az ad signed-in-user show --query id -o tsv" -ForegroundColor White
+        Write-Host ""
+        Write-Host "To find another user's Object ID:" -ForegroundColor Cyan
+        Write-Host "  az ad user list --filter \"startswith(displayName,'username')\" --query \"[].{Name:displayName, OID:id}\" -o table" -ForegroundColor White
+        Write-Host ""
         Stop-Transcript
         exit 1
     }
