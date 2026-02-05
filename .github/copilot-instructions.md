@@ -243,6 +243,37 @@ kubectl get pods -l app=sputnik
 ### Known Issues & Workarounds
 - **Az.ConnectedKubernetes -CustomLocationsOid Gap**: The PowerShell module's `-CustomLocationsOid` parameter only registers the OID with Azure ARM but does NOT run `helm upgrade` to enable the feature in the cluster. The Azure CLI `az connectedk8s enable-features` does both steps. **Fix**: The `arc_enable.ps1` script now runs `helm upgrade` automatically to work around this gap.
 - **Helm OCI Registry Issues**: Helm may fail to pull charts from OCI registries with "could not load config" errors. Workaround: Use `oras` to pull the chart, then upgrade with the local tgz file.
+- **Device Registry Extension Bundled (AIO v1.2+)**: In older AIO versions, `microsoft.deviceregistry.assets` was a separate K8s extension. In AIO v1.2+, device registry functionality is **bundled into the `microsoft.iotoperations` extension**. Do NOT look for a separate `microsoft.deviceregistry.assets` extension - verify device registry is working by checking for CRDs instead:
+  ```bash
+  # Verify device registry CRDs exist (this confirms asset sync capability)
+  kubectl get crd | grep -i deviceregistry
+  # Expected: assets.deviceregistry.microsoft.com, assetendpointprofiles.deviceregistry.microsoft.com, etc.
+  ```
+- **Platform Extension Failures**: The `microsoft.iotoperations.platform` extension may fail during initial deployment due to CRD conflicts (e.g., `bundles.trust.cert-manager.io` already exists). **Fix**: Run `az iot ops upgrade --name <instance> -g <rg> -y` on the edge device to clean up failed extensions and update components.
+- **Dual CRD System for Assets (AIO v1.2+)**: AIO v1.2 has TWO parallel APIs for assets that sync to DIFFERENT K8s CRDs:
+  - **Old API** (CLI-created): `Microsoft.DeviceRegistry/assets` → syncs to `assets.deviceregistry.microsoft.com`
+  - **New API** (Portal-created): `Microsoft.DeviceRegistry/namespaces/{ns}/assets` → syncs to `assets.namespaces.deviceregistry.microsoft.com`
+  
+  The shorthand `kubectl get assets -A` only shows OLD CRD assets. To see portal-created assets:
+  ```bash
+  # Old CRD (CLI-created assets)
+  kubectl get assets.deviceregistry.microsoft.com -A
+  
+  # New CRD (Portal-created assets)
+  kubectl get assets.namespaces.deviceregistry.microsoft.com -A
+  
+  # Similarly for devices (new namespace-nested CRD)
+  kubectl get devices.namespaces.deviceregistry.microsoft.com -A
+  ```
+  
+  When listing assets in Azure, use the namespace-nested resource type:
+  ```powershell
+  # Old API assets
+  az resource list --resource-type "Microsoft.DeviceRegistry/assets" -o table
+  
+  # New API assets (portal-created)
+  az resource list --resource-type "Microsoft.DeviceRegistry/namespaces/assets" -o table
+  ```
 
 ### Troubleshooting Tips
 When troubleshooting deployment issues, the most common cause is that **containers are still being created or deleted**. Be patient and verify the cluster state before proceeding:

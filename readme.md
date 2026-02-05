@@ -67,7 +67,7 @@ cd learn-iot
 
 ```bash
 cd config
-cp aio_config.json.template aio_config.json
+cp quikstart_config.template aio_config.json
 ```
 
 Edit `aio_config.json` with your settings:
