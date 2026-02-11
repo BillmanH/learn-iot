@@ -399,7 +399,7 @@ if ([string]::IsNullOrEmpty($AddUser)) {
         Write-Host "  az ad signed-in-user show --query id -o tsv" -ForegroundColor White
         Write-Host ""
         Write-Host "To find another user's Object ID:" -ForegroundColor Cyan
-        Write-Host "  az ad user list --filter \"startswith(displayName,'username')\" --query \"[].{Name:displayName, OID:id}\" -o table" -ForegroundColor White
+        Write-Host '  az ad user list --filter "startswith(displayName,''username'')" --query "[].{Name:displayName, OID:id}" -o table' -ForegroundColor White
         Write-Host ""
         Stop-Transcript
         exit 1
