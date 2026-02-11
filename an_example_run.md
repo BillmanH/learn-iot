@@ -14,6 +14,8 @@ git clone https://github.com/BillmanH/learn-iot.git
 cd learn-iot
 ```
 
+I have it on both my windows laptop, and also on my edge machine. The windows machine is able to con
+
 I run the installer.
 ```bash
 cd arc_build_linux
@@ -117,3 +119,4 @@ Your cluster 'bel-aio-work-cluster' is now connected to Azure Arc.
 Custom-locations feature has been enabled via helm.
 ```
 
+Next I run the 

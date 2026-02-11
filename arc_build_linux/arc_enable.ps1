@@ -55,6 +55,7 @@ $script:ClusterName = ""
 $script:ResourceGroup = ""
 $script:SubscriptionId = ""
 $script:Location = ""
+$script:KeyVaultName = ""
 
 # ============================================================================
 # LOGGING FUNCTIONS
@@ -130,6 +131,7 @@ Then edit it with your subscription, resource group, and cluster name." -Fatal
     $script:ResourceGroup = $config.azure.resource_group
     $script:SubscriptionId = $config.azure.subscription_id
     $script:Location = if ($config.azure.location) { $config.azure.location } else { "eastus" }
+    $script:KeyVaultName = $config.azure.key_vault_name
     
     # Validate required fields
     if ([string]::IsNullOrEmpty($script:ClusterName)) {
@@ -148,6 +150,7 @@ Then edit it with your subscription, resource group, and cluster name." -Fatal
     Write-Host "  Resource Group: $script:ResourceGroup"
     Write-Host "  Subscription:   $script:SubscriptionId"
     Write-Host "  Location:       $script:Location"
+    Write-Host "  Key Vault:      $script:KeyVaultName"
     Write-Host ""
     
     Write-Success "Configuration loaded"
@@ -510,9 +513,357 @@ function Enable-OidcWorkloadIdentity {
         return
     }
     
-    # OIDC and workload identity are enabled during New-AzConnectedKubernetes
-    Write-InfoLog "OIDC issuer and workload identity are configured during Arc connection"
-    Write-Success "OIDC and workload identity configuration verified"
+    # KNOWN ISSUE: Az.ConnectedKubernetes module sets WorkloadIdentityEnabled=true in ARM
+    # but does NOT deploy the workload identity webhook pods to the cluster.
+    # We need to verify the webhook is running and enable it via CLI if not.
+    
+    Write-InfoLog "Checking if workload identity webhook is deployed..."
+    
+    try {
+        # Check if workload identity webhook pods are running
+        $wiPods = kubectl get pods -n azure-arc 2>$null | Select-String -Pattern "workload-identity"
+        
+        if ($wiPods) {
+            Write-Success "Workload identity webhook is running"
+            Write-InfoLog "Pods: $wiPods"
+            return
+        }
+        
+        Write-WarnLog "Workload identity webhook NOT found in cluster"
+        Write-InfoLog "Azure shows workloadIdentityEnabled=true but webhook pods are not deployed"
+        Write-InfoLog "This is a known Az.ConnectedKubernetes module gap - enabling via CLI..."
+        
+        # Use Azure CLI to properly enable workload identity (deploys the webhook)
+        $updateResult = az connectedk8s update `
+            --name $script:ClusterName `
+            --resource-group $script:ResourceGroup `
+            --enable-workload-identity 2>&1
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-WarnLog "az connectedk8s update failed: $updateResult"
+            Write-Host ""
+            Write-Host "To enable manually, run this command on the edge device:" -ForegroundColor Yellow
+            Write-Host "  az connectedk8s update --name $script:ClusterName --resource-group $script:ResourceGroup --enable-workload-identity" -ForegroundColor Cyan
+            Write-Host ""
+            return
+        }
+        
+        # Verify webhook is now running
+        Write-InfoLog "Waiting for workload identity webhook to start..."
+        Start-Sleep -Seconds 10
+        
+        $wiPodsAfter = kubectl get pods -n azure-arc 2>$null | Select-String -Pattern "workload-identity"
+        if ($wiPodsAfter) {
+            Write-Success "Workload identity webhook is now running!"
+            Write-InfoLog "Pods: $wiPodsAfter"
+        } else {
+            Write-WarnLog "Webhook pods not yet visible. They may take a few minutes to start."
+            Write-Host "Verify with: kubectl get pods -n azure-arc | grep workload" -ForegroundColor Cyan
+        }
+        
+    } catch {
+        Write-ErrorLog "Failed to verify/enable workload identity: $_"
+        Write-Host "To enable manually, run:" -ForegroundColor Yellow
+        Write-Host "  az connectedk8s update --name $script:ClusterName --resource-group $script:ResourceGroup --enable-workload-identity" -ForegroundColor Cyan
+    }
+}
+
+function Test-K3sOidcIssuerConfigured {
+    <#
+    .SYNOPSIS
+        Checks if K3s is configured with the correct Arc OIDC issuer URL.
+    
+    .DESCRIPTION
+        For secret sync to work with workload identity, K3s must issue service 
+        account tokens with the Arc OIDC issuer URL (not the default 
+        kubernetes.default.svc.cluster.local). This function checks if K3s is
+        correctly configured.
+        
+        Returns a hashtable with:
+        - Configured: $true if OIDC issuer matches Arc issuer
+        - CurrentIssuer: Current K3s issuer URL (or $null if default)
+        - ExpectedIssuer: Arc OIDC issuer URL
+    #>
+    
+    Write-InfoLog "Checking K3s OIDC issuer configuration..."
+    
+    $result = @{
+        Configured = $false
+        CurrentIssuer = $null
+        ExpectedIssuer = $null
+        K3sReady = $false
+    }
+    
+    # Check if K3s is running
+    $nodesReady = kubectl get nodes --no-headers 2>$null | Select-String -Pattern "Ready"
+    if (-not $nodesReady) {
+        Write-WarnLog "K3s is not ready (no nodes in Ready state)"
+        return $result
+    }
+    $result.K3sReady = $true
+    
+    # Get the expected OIDC issuer URL from Azure
+    $expectedIssuer = az connectedk8s show `
+        --name $script:ClusterName `
+        --resource-group $script:ResourceGroup `
+        --query "oidcIssuerProfile.issuerUrl" `
+        --output tsv 2>$null
+    
+    if ([string]::IsNullOrEmpty($expectedIssuer)) {
+        Write-WarnLog "OIDC issuer URL not available from Azure yet"
+        return $result
+    }
+    $result.ExpectedIssuer = $expectedIssuer
+    
+    # Get current K3s issuer
+    $clusterDump = kubectl cluster-info dump 2>$null
+    $currentIssuer = $clusterDump | Select-String -Pattern "service-account-issuer=([^\s,`"]+)" | 
+        ForEach-Object { $_.Matches.Groups[1].Value } | 
+        Select-Object -First 1
+    
+    if ($currentIssuer) {
+        $result.CurrentIssuer = $currentIssuer
+        
+        if ($currentIssuer -eq $expectedIssuer) {
+            $result.Configured = $true
+            Write-Success "K3s OIDC issuer is correctly configured"
+        } else {
+            Write-WarnLog "K3s OIDC issuer mismatch"
+            Write-InfoLog "  Current:  $currentIssuer"
+            Write-InfoLog "  Expected: $expectedIssuer"
+        }
+    } else {
+        Write-InfoLog "K3s using default issuer (kubernetes.default.svc.cluster.local)"
+    }
+    
+    return $result
+}
+
+function Configure-K3sOidcIssuer {
+    <#
+    .SYNOPSIS
+        Configures K3s to use the Arc OIDC issuer URL for service account tokens.
+    
+    .DESCRIPTION
+        After Arc connection, retrieves the OIDC issuer URL from Azure and configures
+        K3s to issue service account tokens with that issuer. This is REQUIRED for
+        workload identity and secret sync to work properly.
+        
+        Without this configuration, K3s issues tokens with the default issuer
+        'https://kubernetes.default.svc.cluster.local' which doesn't match the
+        federated identity credentials created by Azure, causing secret sync to fail.
+        
+        Safe to run multiple times - checks current state before making changes.
+    #>
+    
+    Write-Log "Configuring K3s OIDC issuer for secret sync..."
+    
+    if ($DryRun) {
+        Write-InfoLog "[DRY-RUN] Would configure K3s OIDC issuer"
+        return $true
+    }
+    
+    # Check current configuration
+    $oidcStatus = Test-K3sOidcIssuerConfigured
+    
+    if ($oidcStatus.Configured) {
+        Write-Success "K3s already configured with correct OIDC issuer"
+        return $true
+    }
+    
+    if (-not $oidcStatus.K3sReady) {
+        Write-Host ""
+        Write-Host "============================================================================" -ForegroundColor Yellow
+        Write-Host "K3S NOT READY" -ForegroundColor Yellow
+        Write-Host "============================================================================" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "K3s is not running or restarting." -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "Check K3s status and run this script again:" -ForegroundColor Gray
+        Write-Host "  kubectl get nodes"
+        Write-Host "  sudo systemctl status k3s"
+        Write-Host ""
+        return $false
+    }
+    
+    if (-not $oidcStatus.ExpectedIssuer) {
+        Write-Host ""
+        Write-Host "============================================================================" -ForegroundColor Yellow
+        Write-Host "ARC OIDC ISSUER NOT AVAILABLE" -ForegroundColor Yellow
+        Write-Host "============================================================================" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "The Arc OIDC issuer URL is not yet available from Azure." -ForegroundColor Cyan
+        Write-Host "Arc may still be initializing. This typically takes 2-5 minutes."
+        Write-Host ""
+        Write-Host "Run this script again in a few minutes." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "To check Arc status manually:" -ForegroundColor Gray
+        Write-Host "  kubectl get pods -n azure-arc"
+        Write-Host "  az connectedk8s show --name $script:ClusterName --resource-group $script:ResourceGroup --query '{status:connectivityStatus, oidc:oidcIssuerProfile.issuerUrl}'"
+        Write-Host ""
+        return $false
+    }
+    
+    $oidcIssuerUrl = $oidcStatus.ExpectedIssuer
+    Write-InfoLog "OIDC Issuer URL: $oidcIssuerUrl"
+    Write-InfoLog "Updating K3s configuration..."
+    
+    # Create the K3s config file content
+    $k3sConfig = @"
+kube-apiserver-arg:
+  - 'service-account-issuer=$oidcIssuerUrl'
+  - 'service-account-max-token-expiration=24h'
+"@
+    
+    $configPath = "/etc/rancher/k3s/config.yaml"
+    
+    # Check if config file exists and has other settings we should preserve
+    $existingConfig = $null
+    try {
+        $existingConfig = (sudo cat $configPath 2>$null) -join "`n"
+    } catch {}
+    
+    if ($existingConfig -and $existingConfig -notmatch "service-account-issuer") {
+        # Append to existing config (preserving other settings)
+        Write-InfoLog "Appending OIDC issuer to existing K3s config..."
+        $k3sConfig = $existingConfig.TrimEnd() + "`n" + $k3sConfig
+    } elseif ($existingConfig -and $existingConfig -match "service-account-issuer") {
+        # Config already has an issuer setting - replace the whole file
+        Write-InfoLog "Replacing existing OIDC issuer in K3s config..."
+    }
+    
+    # Write the config file
+    $k3sConfig | sudo tee $configPath > $null
+    
+    Write-InfoLog "Restarting K3s to apply OIDC issuer configuration..."
+    sudo systemctl restart k3s
+    
+    Write-Host ""
+    Write-Host "============================================================================" -ForegroundColor Green
+    Write-Host "K3S OIDC ISSUER CONFIGURED" -ForegroundColor Green
+    Write-Host "============================================================================" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "K3s is restarting with the Arc OIDC issuer. This takes 60-90 seconds." -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Run this script again to verify the configuration is complete." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "To check K3s status manually:" -ForegroundColor Gray
+    Write-Host "  kubectl get nodes"
+    Write-Host "  kubectl cluster-info dump | grep service-account-issuer"
+    Write-Host ""
+    Write-Host "Once K3s is ready, secret sync will work correctly for:" -ForegroundColor Gray
+    Write-Host "  - Azure Key Vault secrets to Kubernetes"
+    Write-Host "  - Dataflow endpoints with SASL authentication"
+    Write-Host ""
+    
+    # Exit script - user should re-run after K3s restarts
+    return $false
+}
+
+function Create-FabricSecretPlaceholders {
+    <#
+    .SYNOPSIS
+        Creates placeholder secrets in Key Vault for Microsoft Fabric Event Streams.
+    
+    .DESCRIPTION
+        Creates two secrets in Azure Key Vault for Fabric Kafka/SASL authentication:
+        - fabric-sasl-username: Set to '$ConnectionString' (required by Fabric)
+        - fabric-sasl-password: Set to a placeholder prompting user to add their connection string
+        
+        These secrets can then be synced to Kubernetes via AIO's secret sync feature.
+        After running this, update fabric-sasl-password with your actual Fabric connection string.
+        
+        Safe to run multiple times - will not overwrite existing password if it's been set.
+    #>
+    
+    Write-Log "Creating Fabric Event Streams secret placeholders..."
+    
+    if ($DryRun) {
+        Write-InfoLog "[DRY-RUN] Would create Fabric secret placeholders in Key Vault"
+        return $true
+    }
+    
+    if ([string]::IsNullOrEmpty($script:KeyVaultName)) {
+        Write-WarnLog "Key Vault name not configured in aio_config.json"
+        Write-InfoLog "Skipping Fabric secret creation. You can create them manually later."
+        return $true
+    }
+    
+    $usernameSecretName = "fabric-sasl-username"
+    $passwordSecretName = "fabric-sasl-password"
+    $usernameValue = '$ConnectionString'
+    $passwordPlaceholder = "PUT_YOUR_FABRIC_KAFKA_CONNECTION_STRING_HERE"
+    
+    try {
+        # Check if username secret exists
+        $existingUsername = az keyvault secret show `
+            --vault-name $script:KeyVaultName `
+            --name $usernameSecretName `
+            --query "value" -o tsv 2>$null
+        
+        if ($existingUsername -eq $usernameValue) {
+            Write-InfoLog "Secret '$usernameSecretName' already exists with correct value"
+        } else {
+            Write-InfoLog "Creating secret '$usernameSecretName'..."
+            az keyvault secret set `
+                --vault-name $script:KeyVaultName `
+                --name $usernameSecretName `
+                --value $usernameValue > $null
+            
+            if ($LASTEXITCODE -eq 0) {
+                Write-Success "Created secret '$usernameSecretName'"
+            } else {
+                Write-WarnLog "Failed to create secret '$usernameSecretName'"
+            }
+        }
+        
+        # Check if password secret exists and has been customized
+        $existingPassword = az keyvault secret show `
+            --vault-name $script:KeyVaultName `
+            --name $passwordSecretName `
+            --query "value" -o tsv 2>$null
+        
+        if ($existingPassword -and $existingPassword -ne $passwordPlaceholder) {
+            Write-InfoLog "Secret '$passwordSecretName' already exists with custom value (not overwriting)"
+        } elseif ($existingPassword -eq $passwordPlaceholder) {
+            Write-InfoLog "Secret '$passwordSecretName' already exists with placeholder value"
+        } else {
+            Write-InfoLog "Creating placeholder secret '$passwordSecretName'..."
+            az keyvault secret set `
+                --vault-name $script:KeyVaultName `
+                --name $passwordSecretName `
+                --value $passwordPlaceholder > $null
+            
+            if ($LASTEXITCODE -eq 0) {
+                Write-Success "Created placeholder secret '$passwordSecretName'"
+            } else {
+                Write-WarnLog "Failed to create secret '$passwordSecretName'"
+            }
+        }
+        
+        Write-Host ""
+        Write-Host "Fabric Secret Setup:" -ForegroundColor Cyan
+        Write-Host "  Key Vault:       $script:KeyVaultName"
+        Write-Host "  Username Secret: $usernameSecretName = '$usernameValue'"
+        Write-Host "  Password Secret: $passwordSecretName"
+        Write-Host ""
+        Write-Host "To set your Fabric connection string:" -ForegroundColor Yellow
+        Write-Host "  1. Go to Microsoft Fabric > Event Stream > ... > Connection Settings"
+        Write-Host "  2. Copy the Kafka connection string"
+        Write-Host "  3. Update the secret:"
+        Write-Host ""
+        Write-Host "  az keyvault secret set --vault-name $script:KeyVaultName --name $passwordSecretName --value 'YOUR_CONNECTION_STRING'" -ForegroundColor Cyan
+        Write-Host ""
+        
+        return $true
+        
+    } catch {
+        Write-WarnLog "Failed to create Fabric secrets: $_"
+        Write-InfoLog "You can create them manually with:"
+        Write-Host "  az keyvault secret set --vault-name $script:KeyVaultName --name $usernameSecretName --value '`$ConnectionString'"
+        Write-Host "  az keyvault secret set --vault-name $script:KeyVaultName --name $passwordSecretName --value 'YOUR_CONNECTION_STRING'"
+        return $true  # Don't fail the whole script
+    }
 }
 
 # ============================================================================
@@ -672,14 +1023,16 @@ function Show-Completion {
         Write-Host "============================================================================" -ForegroundColor Green
         Write-Host ""
         Write-Host "Your cluster '$script:ClusterName' is now connected to Azure Arc."
-        Write-Host "Custom-locations feature is enabled." -ForegroundColor Green
+        Write-Host "  - Custom-locations feature is enabled" -ForegroundColor Green
+        Write-Host "  - K3s OIDC issuer configured for secret sync" -ForegroundColor Green
     } else {
         Write-Host "============================================================================" -ForegroundColor Yellow
         Write-Host "Arc Enablement Completed (with warnings)" -ForegroundColor Yellow
         Write-Host "============================================================================" -ForegroundColor Yellow
         Write-Host ""
         Write-Host "Your cluster '$script:ClusterName' is connected to Azure Arc."
-        Write-Host "Custom-locations feature could NOT be verified as enabled." -ForegroundColor Yellow
+        Write-Host "  - K3s OIDC issuer configured for secret sync" -ForegroundColor Green
+        Write-Host "  - Custom-locations could NOT be verified" -ForegroundColor Yellow
         Write-Host ""
         Write-Host "Before proceeding, verify custom-locations manually:" -ForegroundColor Cyan
         Write-Host "  helm get values azure-arc -n azure-arc-release -o json | jq '.systemDefaultValues.customLocations'"
@@ -702,6 +1055,7 @@ function Show-Completion {
     Write-Host "Useful Commands:" -ForegroundColor Cyan
     Write-Host "  Check Arc status:  Get-AzConnectedKubernetes -ResourceGroupName $script:ResourceGroup -ClusterName $script:ClusterName"
     Write-Host "  View Arc agents:   kubectl get pods -n azure-arc"
+    Write-Host "  Verify OIDC issuer: kubectl cluster-info dump | grep service-account-issuer"
     Write-Host "  Verify custom-locations: helm get values azure-arc -n azure-arc-release -o json | jq '.systemDefaultValues.customLocations'"
     Write-Host ""
     Write-Host "Log file: $LogFile"
@@ -738,6 +1092,18 @@ function Main {
     Enable-ArcForCluster
     Enable-ArcFeatures
     Enable-OidcWorkloadIdentity
+    
+    # Configure K3s OIDC issuer for secret sync
+    # This may exit early if K3s needs to restart - user should re-run
+    $oidcConfigured = Configure-K3sOidcIssuer
+    if (-not $oidcConfigured) {
+        Write-Log "Script exiting - re-run after K3s restarts to complete configuration"
+        exit 0
+    }
+    
+    # Create placeholder secrets for Fabric Event Streams
+    Create-FabricSecretPlaceholders
+    
     Enable-CustomLocations  # Enable custom-locations via Azure CLI
     Test-ArcConnection
     Show-Completion
