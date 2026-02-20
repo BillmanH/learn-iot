@@ -391,6 +391,7 @@ function Enable-ArcForCluster {
                 AcceptEULA = $true
                 OidcIssuerProfileEnabled = $true
                 WorkloadIdentityEnabled = $true
+                AzureRbacEnabled = $true
             }
             
             # Add custom-locations OID if we have it
@@ -412,11 +413,110 @@ function Enable-ArcForCluster {
             
             New-AzConnectedKubernetes @connectParams
             
-            Write-Success "Cluster connected to Azure Arc with features enabled"
+            Write-Success "Cluster connected to Azure Arc with features enabled (including Azure RBAC)"
         }
         
         # Store OID for later verification
         $script:CustomLocationsOid = $customLocationsOid
+    }
+}
+
+function Enable-AzureRbac {
+    <#
+    .SYNOPSIS
+        Enables Azure RBAC on the Arc-connected cluster.
+    
+    .DESCRIPTION
+        Azure RBAC is required for kubectl access through the Arc proxy.
+        Without it, Azure Arc Kubernetes roles (Cluster Admin, Viewer, etc.)
+        are not enforced and kubectl commands via 'az connectedk8s proxy' will
+        return 403 Forbidden errors.
+        
+        Uses Set-AzConnectedKubernetes from the Az.ConnectedKubernetes module.
+        Falls back to Azure CLI if the PowerShell module fails (known gap).
+        
+        Safe to run multiple times - checks current state first.
+    #>
+    
+    Write-Log "Enabling Azure RBAC for kubectl proxy access..."
+    
+    if ($DryRun) {
+        Write-InfoLog "[DRY-RUN] Would enable Azure RBAC on cluster"
+        return
+    }
+    
+    # Check if Azure RBAC is already enabled
+    try {
+        $clusterInfo = Get-AzConnectedKubernetes -ResourceGroupName $script:ResourceGroup -ClusterName $script:ClusterName -ErrorAction Stop
+        
+        if ($clusterInfo.AzureRbacEnabled -eq $true) {
+            Write-Success "Azure RBAC is already enabled"
+            return
+        }
+        
+        Write-InfoLog "Azure RBAC is not enabled, enabling now..."
+    } catch {
+        Write-WarnLog "Could not check Azure RBAC status: $_"
+    }
+    
+    # Try PowerShell module first
+    try {
+        Write-InfoLog "Using Set-AzConnectedKubernetes to enable Azure RBAC..."
+        Set-AzConnectedKubernetes `
+            -ResourceGroupName $script:ResourceGroup `
+            -ClusterName $script:ClusterName `
+            -AzureRbacEnabled $true `
+            -ErrorAction Stop | Out-Null
+        
+        # Verify
+        $updated = Get-AzConnectedKubernetes -ResourceGroupName $script:ResourceGroup -ClusterName $script:ClusterName -ErrorAction Stop
+        if ($updated.AzureRbacEnabled -eq $true) {
+            Write-Success "Azure RBAC enabled successfully via PowerShell module"
+            return
+        } else {
+            Write-WarnLog "PowerShell module reported success but RBAC not showing as enabled"
+            Write-InfoLog "Falling back to Azure CLI..."
+        }
+    } catch {
+        Write-WarnLog "Set-AzConnectedKubernetes failed: $_"
+        Write-InfoLog "Falling back to Azure CLI..."
+    }
+    
+    # Fallback: Azure CLI
+    try {
+        Write-InfoLog "Using az connectedk8s enable-features to enable Azure RBAC..."
+        $cliResult = az connectedk8s enable-features `
+            --name $script:ClusterName `
+            --resource-group $script:ResourceGroup `
+            --features azure-rbac 2>&1
+        
+        if ($LASTEXITCODE -ne 0) {
+            if ($cliResult -match "already enabled") {
+                Write-Success "Azure RBAC is already enabled"
+                return
+            }
+            Write-ErrorLog "az connectedk8s enable-features failed: $cliResult"
+            Write-Host ""
+            Write-Host "To enable manually, run:" -ForegroundColor Yellow
+            Write-Host "  az connectedk8s enable-features --name $script:ClusterName --resource-group $script:ResourceGroup --features azure-rbac" -ForegroundColor Cyan
+            Write-Host ""
+            return
+        }
+        
+        Write-Success "Azure RBAC enabled successfully via Azure CLI"
+        Write-Host ""
+        Write-Host "NOTE: Users need Arc Kubernetes roles to access the cluster via proxy:" -ForegroundColor Cyan
+        Write-Host "  - Azure Arc Kubernetes Cluster Admin  (full access)" -ForegroundColor Gray
+        Write-Host "  - Azure Arc Kubernetes Cluster User    (limited access)" -ForegroundColor Gray
+        Write-Host "  - Azure Arc Kubernetes Viewer          (read-only)" -ForegroundColor Gray
+        Write-Host "" 
+        Write-Host "Grant these roles via grant_entra_id_roles.ps1 or:" -ForegroundColor Cyan
+        Write-Host "  az role assignment create --role 'Azure Arc Kubernetes Cluster Admin' --assignee <USER_OID> --scope <CLUSTER_RESOURCE_ID>" -ForegroundColor Gray
+        Write-Host ""
+    } catch {
+        Write-ErrorLog "Failed to enable Azure RBAC: $_"
+        Write-Host "To enable manually, run:" -ForegroundColor Yellow
+        Write-Host "  az connectedk8s enable-features --name $script:ClusterName --resource-group $script:ResourceGroup --features azure-rbac" -ForegroundColor Cyan
     }
 }
 
@@ -1091,6 +1191,7 @@ function Main {
     Test-ResourceGroup
     Enable-ArcForCluster
     Enable-ArcFeatures
+    Enable-AzureRbac
     Enable-OidcWorkloadIdentity
     
     # Configure K3s OIDC issuer for secret sync
