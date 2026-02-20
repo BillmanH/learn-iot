@@ -86,3 +86,5 @@ You can also run the script with command-line parameters instead of using the co
 ## Security Note
 
 ⚠️ **Never commit `fabric_config.json`** - it contains sensitive connection strings and keys. Always use the template file for sharing and documentation.
+
+> **Why does this repo use a connection string at all?** The `connectionString` field exists because Fabric Event Stream custom endpoints only support SAS key authentication for the Kafka protocol as of early 2026 — there is no Managed Identity option on Fabric's side.

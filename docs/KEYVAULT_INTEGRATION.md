@@ -4,6 +4,8 @@
 
 The `External-Configurator.ps1` script now automatically sets up Azure Key Vault integration for Azure IoT Operations, enabling secure secret management for dataflows and Fabric Real-Time Intelligence connections.
 
+> **Note**: Key Vault integration is required for Fabric RTI connections specifically because Fabric Event Stream custom endpoints do not yet support Microsoft Entra ID / Managed Identity authentication. The SAS connection string must be stored somewhere secure — Key Vault fills that role. For other endpoint types (ADX, standard Azure Event Hubs), `SystemAssignedManagedIdentity` is used and no Key Vault secret is needed.
+
 ## What Gets Created
 
 When you run `External-Configurator.ps1`, it now:

@@ -697,6 +697,9 @@ function Deploy-Infrastructure {
         location = $script:Location
     }
     
+    # TODO (fabric-entra-id-gap): Key Vault + secret sync are required today specifically for
+    # Fabric SASL auth. When Fabric supports Entra ID on custom Kafka endpoints, this step and
+    # the secretsync enable below can be removed for the Fabric RTI flow. See issues/fabric_entra_id_gap.md.
     # Step 3: Create Key Vault
     Write-Log "Step 3/6: Creating Key Vault..."
     $kvParams = @{
@@ -1111,6 +1114,8 @@ function Deploy-IoTOperations {
             }
         }
         
+        # TODO (fabric-entra-id-gap): secretsync enable is required today for Fabric SASL auth.
+        # See issues/fabric_entra_id_gap.md.
         # Now enable secretsync
         az iot ops secretsync enable `
             --name $instanceName `
@@ -1537,6 +1542,7 @@ function Show-CompletionSummary {
     Write-Host "Next Steps:" -ForegroundColor Green
     Write-Host "  1. Review deployment summary: $script:DeploymentSummaryFile" -ForegroundColor Gray
     Write-Host "  2. Add secrets to Key Vault for Fabric RTI dataflows" -ForegroundColor Gray
+    Write-Host "     (required because Fabric custom Kafka endpoints use SAS key auth, not Entra ID/Managed Identity)" -ForegroundColor DarkGray
     Write-Host "  3. Deploy edge modules using Deploy-EdgeModules.ps1" -ForegroundColor Gray
     Write-Host ""
     Write-Host "============================================================================" -ForegroundColor Cyan

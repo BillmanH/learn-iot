@@ -854,6 +854,8 @@ kube-apiserver-arg:
     Write-Host "Once K3s is ready, secret sync will work correctly for:" -ForegroundColor Gray
     Write-Host "  - Azure Key Vault secrets to Kubernetes"
     Write-Host "  - Dataflow endpoints with SASL authentication"
+    Write-Host "    (Note: SASL is required because Fabric Event Stream custom endpoints do not yet support" -ForegroundColor DarkGray
+    Write-Host "     Entra ID / Managed Identity auth. This is a Fabric-side limitation.)" -ForegroundColor DarkGray
     Write-Host ""
     
     # Exit script - user should re-run after K3s restarts
@@ -874,7 +876,15 @@ function Create-FabricSecretPlaceholders {
         After running this, update fabric-sasl-password with your actual Fabric connection string.
         
         Safe to run multiple times - will not overwrite existing password if it's been set.
+        
+        WHY SASL INSTEAD OF MANAGED IDENTITY: Fabric Event Stream custom endpoints only support
+        SAS key (SASL/Plain) authentication as of early 2026. This is a Fabric-side limitation --
+        AIO fully supports SystemAssignedManagedIdentity for Kafka, but Fabric does not expose
+        its Kafka endpoint with Entra-based auth. Monitor Fabric release notes for when Entra ID
+        auth becomes available for custom Kafka endpoints.
     #>
+    # TODO (fabric-entra-id-gap): Remove or repurpose this function when Fabric adds Entra ID
+    # support for custom Kafka endpoints. See issues/fabric_entra_id_gap.md.
     
     Write-Log "Creating Fabric Event Streams secret placeholders..."
     

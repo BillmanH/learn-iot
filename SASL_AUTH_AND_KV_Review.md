@@ -142,23 +142,20 @@ If the Fabric Event Stream can consume from an Azure Event Hub (which it can), y
 
 ## Recommendation
 
-**Option B (Event Hub intermediary)** is the cleanest near-term path:
+**Option C (wait for Fabric direct Entra ID support)** is the correct path:
 
-- Eliminates all SAS/Key Vault plumbing for the RTI dataflow
-- Uses the proven `SystemAssignedManagedIdentity` auth that already works
-- Fabric has first-class Event Hub source support
-- The `grant_entra_id_roles.ps1` script already assigns `Event Hubs Data Sender/Receiver` roles
-- Minimal code changes: swap `endpointType: Kafka` with Fabric's bootstrap → `endpointType: Kafka` with your own Event Hub
+- Fabric is the blocker — this is a Fabric-side limitation, not an AIO or architecture limitation
+- The WILF/OIDC/SAMI infrastructure is already in place and proven; no extra work is needed on our side
+- When Fabric adds Entra ID / Managed Identity support for custom Kafka endpoints, the switch will be a small YAML change
+- In the meantime, SAS/Key Vault is the only available option and is documented as such
 
-However, this adds an Azure resource (Event Hub namespace) to the architecture and a small amount of additional cost.
-
-**Long-term**: Monitor Fabric for Entra ID support on custom endpoints and switch to direct SAMI auth when available.
+**Current plan**: Use SASL/Plain with SAS keys stored in Key Vault. Document it accurately as a Fabric-imposed workaround. Monitor Fabric release notes. Switch to `SystemAssignedManagedIdentity` directly when Fabric exposes it.
 
 ---
 
 ## Files to Update When We Fix This
 
-If/when we switch to managed identity (either via Event Hub intermediary or direct Fabric support):
+When Fabric adds direct Entra ID / Managed Identity support for custom Kafka endpoints:
 
 - [ ] `fabric_setup/fabric-endpoint.yaml` — change `method: Sasl` → `method: SystemAssignedManagedIdentity`
 - [ ] `fabric_setup/Deploy-FabricEndpoint.ps1` — remove Key Vault secret storage logic
@@ -174,7 +171,115 @@ If/when we switch to managed identity (either via Event Hub intermediary or dire
 
 ## Discussion Points
 
-1. **Is Event Hub intermediary acceptable?** Adds cost (~$11/month for Basic tier) but eliminates all secret management complexity.
-2. **Should we implement Option B now?** The WILF/SAMI infrastructure is already deployed and tested. We could have an Event Hub-based flow working quickly.
-3. **Should we file a Fabric feature request?** If Entra ID support for custom endpoints is not already tracked.
-4. **Dual-path?** Keep the SAS path documented as a fallback while implementing the Event Hub path as the "recommended" approach.
+1. **Should we file a Fabric feature request?** If Entra ID support for custom endpoints is not already tracked, filing one increases visibility and may accelerate the timeline.
+2. **Monitor Fabric roadmap** — Fabric has been evolving rapidly. Check each release for Managed Identity / Entra ID support on Event Stream custom Kafka endpoints.
+
+---
+
+## Documentation Change Phases
+
+The following phases define the planned documentation changes across all `.md` files. **No code or configuration changes are included — these are documentation updates only.** Phases are ordered from lowest risk (additive notes) to highest impact (structural rewrites).
+
+Each phase can be reviewed and approved individually before implementation.
+
+---
+
+### Phase 1: Surface the Known Limitation (Additive Notes Only)
+
+**Goal**: Add a visible callout to every file that currently presents SASL/SAS as "just how it works," so readers understand _why_ — without removing or restructuring existing content.
+
+#### Script sub-steps for Phase 1
+
+| Script | Location | Current State | Change Required |
+|--------|----------|--------------|------------------|
+| `installer.sh` | `install_csi_secret_store()`, line ~965 | Warns: _"Without Key Vault sync, Fabric RTI dataflows requiring secrets will not work."_ Implies CSI/Key Vault is unconditionally required for Fabric. | Add a second warn line noting this is only required for the SASL/SAS path — users taking the Event Hub intermediary path (Option B) do not strictly need Key Vault sync for the Fabric flow. |
+| `arc_enable.ps1` | `Configure-K3sOidcIssuer` completion output, line ~856 | Output line: `"- Dataflow endpoints with SASL authentication"` — correctly states SASL but gives the reader no context. | Append a second line: `"  (Note: SASL is required because Fabric custom endpoints do not yet support Entra ID auth)"` |
+| `arc_enable.ps1` | `Create-FabricSecretPlaceholders` function docstring, line ~869 | Says _"Creates two secrets in Azure Key Vault for Fabric Kafka/SASL authentication"_ with zero explanation of why SASL is used. | Expand the `.DESCRIPTION` block with two sentences: (1) Fabric custom Kafka endpoints only support SAS key auth as of early 2026; (2) this is a Fabric-side limitation, not an AIO one — see `SASL_AUTH_AND_KV_Review.md`. |
+| `External-Configurator.ps1` | `Show-CompletionSummary` "Next Steps", line ~1550 | Step 2 reads: _"Add secrets to Key Vault for Fabric RTI dataflows"_ — no context on why. | Append a parenthetical: `"(required because Fabric custom Kafka endpoints use SAS key auth — see SASL_AUTH_AND_KV_Review.md)"` |
+
+#### Markdown file sub-steps for Phase 1
+
+| File | Current State | Change Required |
+| `fabric_setup/fabric-realtime-intelligence-setup.md` | Step 1.4 says SAS Key is "recommended for Azure IoT Operations" with no explanation. | Add a `> **Note**` callout after the SAS Key bullet explaining Fabric does not currently expose Entra ID / Managed Identity auth for custom Kafka endpoints, and linking to this file. |
+| `fabric_setup/README.md` | Overview describes `connectionString` as the config field with no context on why it exists. | Add a short note in the "Security Note" section referencing the SASL limitation and this review document. |
+| `README_ADVANCED.md` | In the "Fabric Endpoint Configuration" block (~line 480), `kubectl create secret generic fabric-connection-string` appears with no explanation of why a secret is needed. | Add a `> **Why a secret?**` callout before the Create Secret block explaining the Fabric limitation and that SAMI would be preferred if Fabric supported it. |
+| `docs/KEYVAULT_INTEGRATION.md` | Line 5 describes Key Vault as enabling "secure secret management for … Fabric Real-Time Intelligence connections" with no mention that this is a workaround. | Add a sentence in the Overview noting that Key Vault is required for Fabric specifically because Fabric custom endpoints do not yet support Entra ID authentication. |
+
+---
+
+### Phase 2: Fix Incorrect/Misleading Content
+
+**Goal**: Correct documented patterns that are technically wrong or contradictory.
+
+#### Script sub-steps for Phase 2
+
+| Script | Location | Issue | Change Required |
+|--------|----------|-------|------------------|
+| `docs/VERIFY_SECRET_MANAGEMENT.md` — referenced by scripts | Step 4.3 CLI example | The "CORRECT Azure CLI command" uses `--authentication SystemAssignedManagedIdentity` for a Fabric endpoint. `External-Configurator.ps1` and user documentation both point readers to this file for guidance. The script itself uses the correct SASL form, so the bug is in the doc — but fixing the doc also fixes what the scripts imply is the workflow. | See markdown change in Phase 2 below. No script code change needed; the scripts already use SASL correctly. |
+
+#### Markdown file sub-steps for Phase 2
+
+| File | Issue | Change Required |
+|------|-------|-----------------|
+| `docs/VERIFY_SECRET_MANAGEMENT.md` | **Step 4.3 "CORRECT Azure CLI command"** shows `--authentication SystemAssignedManagedIdentity` for what is described as a Fabric endpoint. This is incorrect — Fabric custom endpoints do not support SAMI (which is exactly the problem this document describes). The YAML example in 4.3 also shows `method: SystemAssignedManagedIdentity`. | Replace both the CLI command and YAML example in Step 4.3 with the correct SASL/SAS form. Add a note explaining that `SystemAssignedManagedIdentity` works for standard Azure Event Hubs but NOT for Fabric RTI custom endpoints. |
+| `README_ADVANCED.md` | In "Fix 2: Wrong authentication method" (~line 922), the comment `# Not SystemAssignedManagedIdentity for Fabric` is a one-liner with no explanation. Readers who want SAMI will be confused. | Expand the comment to two or three lines: confirm SAMI is unsupported by Fabric, state SASL/Plain is required, and link to this review doc. |
+
+---
+
+### Phase 3: Update Copilot Instructions
+
+**Goal**: Ensure AI-assisted development in this repo gives correct guidance on Fabric auth from the start.
+
+#### Script sub-steps for Phase 3
+
+No script file changes in this phase. The copilot instructions are pure documentation. However, when the instructions are updated, they should reference the three scripts so an AI assistant knows where the SASL pattern is implemented:
+
+- `arc_enable.ps1` → `Create-FabricSecretPlaceholders` — where KV placeholders are seeded
+- `external_configuration/External-Configurator.ps1` → Step 3/6 (Key Vault) and secret sync `az iot ops secretsync enable` call — where the infrastructure that enables SASL is built
+- `installer.sh` → `install_csi_secret_store()` — where the CSI driver that makes Key Vault sync possible is installed
+
+#### Markdown file sub-steps for Phase 3
+
+| File | Current State | Change Required |
+|------|--------------|-----------------|
+| `.github/copilot-instructions.md` | The **Authentication** section lists SAT (preferred for in-cluster) and X.509 (external clients), but says nothing about Fabric RTI auth. | Add a new bullet under "Authentication" (or a dedicated sub-section) that: (1) states Fabric RTI Kafka endpoints currently require SASL/Plain with a SAS connection string; (2) explains SAMI is blocked by a Fabric-side limitation; (3) directs to `SASL_AUTH_AND_KV_Review.md` for full context and alternatives. |
+
+---
+
+### Phase 4: ~~Document Option B~~ — Dropped
+
+> **Decision**: The Event Hub intermediary path (original Option B) is not being pursued. Managed Identity directly to Fabric is the target end state. Phase 4 is removed from the plan.
+
+---
+
+### Phase 5: Track the Gap Formally
+
+**Goal**: Create a lightweight tracking item so the gap doesn't get forgotten and can be closed when Fabric adds Entra ID support.
+
+#### Script sub-steps for Phase 5
+
+| Script | Location | Change Required |
+|--------|----------|-----------------|
+| `arc_enable.ps1` | `Create-FabricSecretPlaceholders` function, line ~863 | Add a `# TODO` comment at the top of the function body: `# TODO (fabric-entra-id-gap): Remove or repurpose this function when Fabric adds Entra ID support for custom Kafka endpoints. See issues/fabric_entra_id_gap.md.` |
+| `external_configuration/External-Configurator.ps1` | Key Vault and secretsync blocks (Steps 3/6 and 6/6, lines ~700–1100) | Add a brief `# TODO` comment near the Key Vault ARM template call and the `az iot ops secretsync enable` call: `# TODO (fabric-entra-id-gap): Key Vault + secret sync are required today specifically for Fabric SASL auth. Review issues/fabric_entra_id_gap.md when simplifying.` |
+| `installer.sh` | `install_csi_secret_store()`, line ~961 | Add a `# TODO` comment at the top of the function: `# TODO (fabric-entra-id-gap): CSI Secret Store is required for Fabric SASL secret sync. When Fabric supports Entra ID auth, this becomes optional for the Fabric RTI path. See issues/fabric_entra_id_gap.md.` |
+
+#### Markdown file sub-steps for Phase 5
+
+| File | Change Required |
+|------|-----------------|
+| `issues/` directory | Create `issues/fabric_entra_id_gap.md` documenting: the missing Entra ID support for Fabric custom Kafka endpoints, the expected files to update when it becomes available (copied from the "Files to Update When We Fix This" checklist above), a template for a Fabric UserVoice / feedback item, and a verification checklist (check Fabric release notes, test SAMI auth, confirm bootstrap server changed). |
+
+---
+
+### Phase 6 (Future — Conditional on Fabric Support)
+
+> **Do not implement until Fabric adds Entra ID / Managed Identity support for Event Stream custom endpoints.**
+
+When Fabric provides SAMI or Entra auth for its Kafka custom endpoints, the work in the "Files to Update When We Fix This" checklist above becomes executable. At that point:
+
+- All Phase 1 callout notes become history notes or are removed.
+- The Phase 2 VERIFY_SECRET_MANAGEMENT.md examples can show SAMI as the correct method.
+- Phase 5 tracking issue gets closed.
+
+No action needed in Phase 6 until that Fabric release is confirmed.

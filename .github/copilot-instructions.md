@@ -71,6 +71,23 @@ This repository is focused on learning and implementing Azure IoT Operations (AI
 - **Alternative**: X.509 certificates for external clients
 - Applications should use MQTT v5 with enhanced authentication
 
+#### Fabric RTI Dataflow Authentication (SASL/SAS — not Managed Identity)
+- **Fabric RTI custom Kafka endpoints require SASL/Plain with a SAS connection string.** Do NOT generate code using `method: SystemAssignedManagedIdentity` for a Fabric endpoint — Fabric does not support Entra ID / Managed Identity authentication for external clients on custom Kafka endpoints as of early 2026.
+- `SystemAssignedManagedIdentity` **works** for standard Azure Event Hub namespaces (owned by you) but **does not work** for Fabric-managed Event Stream custom endpoints.
+- The correct YAML for a Fabric dataflow endpoint is:
+  ```yaml
+  authentication:
+    method: Sasl
+    saslSettings:
+      saslType: Plain
+      secretRef: aio-akv-sp/fabric-connection-string
+  ```
+- The SAS connection string is stored in Azure Key Vault and synced to the cluster via the CSI Secret Store driver. This plumbing is set up by:
+  - `installer.sh` → `install_csi_secret_store()` — installs the CSI driver
+  - `arc_build_linux/arc_enable.ps1` → `Create-FabricSecretPlaceholders` — seeds Key Vault placeholder secrets
+  - `external_configuration/External-Configurator.ps1` → Steps 3/6 and 6/6 — deploys Key Vault ARM template and runs `az iot ops secretsync enable`
+- Secret references must use the `aio-akv-sp/<secret-name>` format (e.g. `aio-akv-sp/fabric-connection-string`). Missing the prefix causes a "secret management is not configured" error.
+
 ### Container Deployment
 - Applications follow standard Docker + Kubernetes pattern
 - Each app includes: `Dockerfile`, `deployment.yaml`, `requirements.txt`, `README.md`
