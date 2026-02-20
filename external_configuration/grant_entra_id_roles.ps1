@@ -653,43 +653,6 @@ az role assignment create `
     --output none 2>$null
 Write-Success "Granted Reader at subscription level"
 
-# Check if Contributor at subscription level is needed
-Write-Host ""
-Write-Host "============================================================================" -ForegroundColor Yellow
-Write-Host "OPTIONAL: Subscription-Level Contributor Role" -ForegroundColor Yellow
-Write-Host "============================================================================" -ForegroundColor Yellow
-Write-Host ""
-Write-Host "The 'Contributor' role at subscription level allows:" -ForegroundColor Cyan
-Write-Host "  - Creating new resource groups" -ForegroundColor Gray
-Write-Host "  - Deploying ARM templates at subscription scope" -ForegroundColor Gray
-Write-Host "  - Full resource management across all resource groups" -ForegroundColor Gray
-Write-Host ""
-Write-Host "This is a BROAD permission. Only grant if necessary." -ForegroundColor Yellow
-Write-Host ""
-
-$grantContributor = Read-Host "Grant 'Contributor' role at subscription level? (y/N)"
-
-if ($grantContributor -eq 'y' -or $grantContributor -eq 'Y') {
-    Write-Info "Granting 'Contributor' role at subscription level..."
-    az role assignment create `
-        --role "Contributor" `
-        --assignee $userObjectId `
-        --scope $subscriptionScope `
-        --output none 2>$null
-    Write-Success "Granted Contributor at subscription level"
-} else {
-    Write-Host ""
-    Write-Host "Skipping Contributor role at subscription level." -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "ALTERNATIVE: If you need to create a resource group, run this manually:" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "  az group create --name $script:ResourceGroup --location eastus" -ForegroundColor Green
-    Write-Host ""
-    Write-Host "Or ask your Azure admin to create the resource group for you." -ForegroundColor Gray
-    Write-Host "Once the resource group exists, External-Configurator.ps1 will skip creation." -ForegroundColor Gray
-    Write-Host ""
-}
-
 # ============================================================================
 # GRANT ROLES - ROLE ASSIGNMENT PERMISSIONS
 # ============================================================================
