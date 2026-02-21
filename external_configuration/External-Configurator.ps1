@@ -306,6 +306,7 @@ function Import-AzureConfig {
             $script:ResourceGroup = $script:AzureConfig.azure.resource_group
             $script:Location = $script:AzureConfig.azure.location
             $script:NamespaceName = $script:AzureConfig.azure.namespace_name
+            $script:StorageAccountName = $script:AzureConfig.azure.storage_account_name
             $script:KeyVaultName = $script:AzureConfig.azure.key_vault_name
             
             # Store the config cluster name for validation (don't override yet)
@@ -582,7 +583,8 @@ function Deploy-ARMTemplate {
     
     if ($LASTEXITCODE -eq 0) {
         try {
-            $deploymentResult = $result | ConvertFrom-Json
+            $resultJson = if ($result -is [array]) { $result -join "`n" } else { $result }
+            $deploymentResult = $resultJson | ConvertFrom-Json
             Write-Success "ARM deployment completed: $TemplateName"
             $script:DeployedResources += "$TemplateName"
             return $deploymentResult
@@ -691,23 +693,65 @@ function Deploy-Infrastructure {
     
     # Step 2: Create Storage Account
     Write-Log "Step 2/6: Creating storage account..."
-    $storageResult = Deploy-ARMTemplate -TemplateName "storageAccount" -Parameters @{
-        storageAccountName = $script:StorageAccountName
-        location = $script:Location
+    # Check if storage account already exists (name is globally unique across Azure)
+    # First check in our resource group, then check global availability
+    $existingStorage = az storage account show --name $script:StorageAccountName --resource-group $script:ResourceGroup --query "name" -o tsv 2>$null
+    if ($existingStorage) {
+        Write-Success "Storage account already exists in resource group: $script:StorageAccountName (reusing)"
+        $storageResult = @{ success = $true }
+    } else {
+        # Check if the name is taken globally (by another RG/subscription)
+        $nameCheck = az storage account check-name --name $script:StorageAccountName --query "nameAvailable" -o tsv 2>$null
+        if ($nameCheck -eq "false") {
+            # Name taken globally - check if it exists anywhere in our subscription
+            $existingInSub = az storage account list --query "[?name=='$($script:StorageAccountName)'].{name:name, rg:resourceGroup}" -o json 2>$null | ConvertFrom-Json
+            if ($existingInSub -and $existingInSub.Count -gt 0) {
+                Write-WarnLog "Storage account '$($script:StorageAccountName)' exists in resource group '$($existingInSub[0].rg)' (different from '$($script:ResourceGroup)')"
+                Write-Success "Reusing existing storage account: $script:StorageAccountName"
+                $storageResult = @{ success = $true }
+            } else {
+                Write-WarnLog "Storage account name '$($script:StorageAccountName)' is taken globally by another Azure subscription."
+                Write-Host "Please set a unique 'storage_account_name' in config/aio_config.json and retry." -ForegroundColor Yellow
+                Write-ErrorLog "Cannot create storage account - name globally taken" -Fatal
+            }
+        } else {
+            $storageResult = Deploy-ARMTemplate -TemplateName "storageAccount" -Parameters @{
+                storageAccountName = $script:StorageAccountName
+                location = $script:Location
+            }
+        }
     }
     
+    # TODO (fabric-entra-id-gap): Key Vault + secret sync are required today specifically for
+    # Fabric SASL auth. When Fabric supports Entra ID on custom Kafka endpoints, this step and
+    # the secretsync enable below can be removed for the Fabric RTI flow. See issues/fabric_entra_id_gap.md.
     # Step 3: Create Key Vault
     Write-Log "Step 3/6: Creating Key Vault..."
-    $kvParams = @{
-        keyVaultName = $script:KeyVaultName
-        location = $script:Location
+    # Check if Key Vault already exists (name is globally unique across Azure)
+    $existingKv = az keyvault show --name $script:KeyVaultName --resource-group $script:ResourceGroup --query "name" -o tsv 2>$null
+    if ($existingKv) {
+        Write-Success "Key Vault already exists in resource group: $script:KeyVaultName (reusing)"
+        $kvResult = @{ success = $true }
+    } else {
+        # Check if the name is taken globally (including soft-deleted vaults)
+        $existingKvAnywhere = az keyvault show --name $script:KeyVaultName --query "name" -o tsv 2>$null
+        if ($existingKvAnywhere) {
+            Write-WarnLog "Key Vault '$($script:KeyVaultName)' exists in a different resource group"
+            Write-Success "Reusing existing Key Vault: $script:KeyVaultName"
+            $kvResult = @{ success = $true }
+        } else {
+            $kvParams = @{
+                keyVaultName = $script:KeyVaultName
+                location = $script:Location
+            }
+            # Add user access policy if we have the user's object ID
+            if ($script:UserObjectId) {
+                $kvParams.userObjectId = $script:UserObjectId
+                Write-InfoLog "Adding access policy for current user to Key Vault"
+            }
+            $kvResult = Deploy-ARMTemplate -TemplateName "keyVault" -Parameters $kvParams
+        }
     }
-    # Add user access policy if we have the user's object ID
-    if ($script:UserObjectId) {
-        $kvParams.userObjectId = $script:UserObjectId
-        Write-InfoLog "Adding access policy for current user to Key Vault"
-    }
-    $kvResult = Deploy-ARMTemplate -TemplateName "keyVault" -Parameters $kvParams
     
     # Step 4: Create Device Registry Namespace
     Write-Log "Step 4/6: Creating Device Registry namespace..."
@@ -893,7 +937,8 @@ function Deploy-IoTOperations {
         Write-ErrorLog "Arc cluster not found - cannot deploy IoT Operations" -Fatal
     }
     
-    $clusterData = $clusterResult | ConvertFrom-Json
+    $clusterJson = if ($clusterResult -is [array]) { $clusterResult -join "`n" } else { $clusterResult }
+    $clusterData = $clusterJson | ConvertFrom-Json
     $clusterStatus = $clusterData.connectivityStatus
     
     if ($clusterStatus -ne "Connected") {
@@ -960,10 +1005,12 @@ function Deploy-IoTOperations {
     # Note: The 'features' property in az connectedk8s show is NOT populated when
     # custom-locations is enabled via -CustomLocationsOid during New-AzConnectedKubernetes.
     # The feature is still enabled, it just doesn't show in that property.
-    $clusterInfo = az connectedk8s show `
+    $clusterInfoRaw = az connectedk8s show `
         --name $script:ClusterName `
         --resource-group $script:ResourceGroup `
-        -o json 2>$null | ConvertFrom-Json
+        -o json 2>$null
+    $clusterInfoJson = if ($clusterInfoRaw -is [array]) { $clusterInfoRaw -join "`n" } else { $clusterInfoRaw }
+    $clusterInfo = $clusterInfoJson | ConvertFrom-Json
     
     $customLocationsEnabled = $false
     $blockingReason = ""
@@ -999,14 +1046,13 @@ function Deploy-IoTOperations {
         Write-InfoLog "If 'az iot ops create' fails with 'resource provider does not have required permissions',"
         Write-InfoLog "you need to run this on your EDGE device:"
         Write-Host ""
-        Write-Host "  helm upgrade azure-arc azure-arc \" -ForegroundColor Cyan
-        Write-Host "    --namespace azure-arc-release \" -ForegroundColor Cyan
-        Write-Host "    --reuse-values \" -ForegroundColor Cyan
-        Write-Host "    --set systemDefaultValues.customLocations.enabled=true \" -ForegroundColor Cyan
-        Write-Host "    --set systemDefaultValues.customLocations.oid=$customLocationsOid \" -ForegroundColor Cyan
-        Write-Host "    --wait" -ForegroundColor Cyan
+        Write-Host "  az connectedk8s enable-features \" -ForegroundColor Cyan
+        Write-Host "    --name $script:ClusterName \" -ForegroundColor Cyan
+        Write-Host "    --resource-group $script:ResourceGroup \" -ForegroundColor Cyan
+        Write-Host "    --features cluster-connect custom-locations \" -ForegroundColor Cyan
+        Write-Host "    --custom-locations-oid $customLocationsOid" -ForegroundColor Cyan
         Write-Host ""
-        Write-InfoLog "Or run: ./enable_custom_locations.sh (generated by arc_enable.ps1)"
+        Write-InfoLog "Or re-run arc_enable.ps1 on the edge device (it will do this for you)."
         Write-Host ""
     } else {
         Write-Host ""
@@ -1029,17 +1075,16 @@ function Deploy-IoTOperations {
         Write-Host "  # Check if custom-locations is enabled in Helm:" -ForegroundColor Gray
         Write-Host "  helm get values azure-arc --namespace azure-arc-release -o json | jq '.systemDefaultValues.customLocations'" -ForegroundColor White
         Write-Host ""
-        Write-Host "  # If it shows 'null', run the helm upgrade:" -ForegroundColor Gray
-        Write-Host "  helm upgrade azure-arc azure-arc \" -ForegroundColor White
-        Write-Host "    --namespace azure-arc-release \" -ForegroundColor White
-        Write-Host "    --reuse-values \" -ForegroundColor White
-        Write-Host "    --set systemDefaultValues.customLocations.enabled=true \" -ForegroundColor White
-        Write-Host "    --set systemDefaultValues.customLocations.oid=$customLocationsOid \" -ForegroundColor White
-        Write-Host "    --wait" -ForegroundColor White
+        Write-Host "  # If it shows 'null', run:" -ForegroundColor Gray
+        Write-Host "  az connectedk8s enable-features \" -ForegroundColor White
+        Write-Host "    --name $script:ClusterName \" -ForegroundColor White
+        Write-Host "    --resource-group $script:ResourceGroup \" -ForegroundColor White
+        Write-Host "    --features cluster-connect custom-locations \" -ForegroundColor White
+        Write-Host "    --custom-locations-oid $customLocationsOid" -ForegroundColor White
         Write-Host ""
-        Write-Host "  # Or use the script generated by arc_enable.ps1:" -ForegroundColor Gray
+        Write-Host "  # Or re-run arc_enable.ps1 (includes this step):" -ForegroundColor Gray
         Write-Host "  cd ~/learn-iot/arc_build_linux && git pull" -ForegroundColor White
-        Write-Host "  chmod +x enable_custom_locations.sh && ./enable_custom_locations.sh" -ForegroundColor White
+        Write-Host "  pwsh ./arc_enable.ps1" -ForegroundColor White
         Write-Host ""
         Write-Host "Then re-run this script." -ForegroundColor Cyan
         Write-Host ""
@@ -1047,37 +1092,52 @@ function Deploy-IoTOperations {
         Write-ErrorLog "Custom-locations feature not enabled - cannot deploy IoT Operations. Reason: $blockingReason" -Fatal
     }
     
-    # Initialize cluster
-    Write-Log "Initializing cluster for Azure IoT Operations..."
-    az iot ops init --cluster $script:ClusterName --resource-group $script:ResourceGroup
-    
-    # Get schema registry ID
-    $schemaRegistryId = az resource show `
-        --resource-group $script:ResourceGroup `
-        --resource-type "Microsoft.DeviceRegistry/schemaRegistries" `
-        --name $script:SchemaRegistryName `
-        --query "id" -o tsv 2>$null
-    
-    # Get namespace ID
-    $namespaceId = "/subscriptions/$script:SubscriptionId/resourceGroups/$script:ResourceGroup/providers/Microsoft.DeviceRegistry/namespaces/$script:NamespaceName"
-    
-    Write-Log "Deploying Azure IoT Operations instance..."
-    Write-InfoLog "This may take several minutes..."
-    
-    az iot ops create `
-        --cluster $script:ClusterName `
-        --resource-group $script:ResourceGroup `
-        --name $instanceName `
-        --sr-resource-id $schemaRegistryId `
-        --ns-resource-id $namespaceId `
-        --no-progress 2>&1
-    
-    if ($LASTEXITCODE -ne 0) {
-        Write-ErrorLog "Azure IoT Operations deployment failed"
-        return
+    # Check if IoT Operations already exists on this cluster
+    $existingInstance = az iot ops show --name $instanceName --resource-group $script:ResourceGroup --query "provisioningState" -o tsv 2>$null
+    if ($existingInstance) {
+        Write-Success "IoT Operations instance already exists: $instanceName (State: $existingInstance) - skipping create"
+        
+        # Try upgrade instead to pick up any config changes
+        Write-Log "Running IoT Operations upgrade to apply any pending updates..."
+        az iot ops upgrade --name $instanceName --resource-group $script:ResourceGroup -y 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            Write-Success "IoT Operations upgrade completed"
+        } else {
+            Write-WarnLog "IoT Operations upgrade returned non-zero (may already be up to date)"
+        }
+    } else {
+        # Initialize cluster
+        Write-Log "Initializing cluster for Azure IoT Operations..."
+        az iot ops init --cluster $script:ClusterName --resource-group $script:ResourceGroup
+        
+        # Get schema registry ID
+        $schemaRegistryId = az resource show `
+            --resource-group $script:ResourceGroup `
+            --resource-type "Microsoft.DeviceRegistry/schemaRegistries" `
+            --name $script:SchemaRegistryName `
+            --query "id" -o tsv 2>$null
+        
+        # Get namespace ID
+        $namespaceId = "/subscriptions/$script:SubscriptionId/resourceGroups/$script:ResourceGroup/providers/Microsoft.DeviceRegistry/namespaces/$script:NamespaceName"
+        
+        Write-Log "Deploying Azure IoT Operations instance..."
+        Write-InfoLog "This may take several minutes..."
+        
+        az iot ops create `
+            --cluster $script:ClusterName `
+            --resource-group $script:ResourceGroup `
+            --name $instanceName `
+            --sr-resource-id $schemaRegistryId `
+            --ns-resource-id $namespaceId `
+            --no-progress 2>&1
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-ErrorLog "Azure IoT Operations deployment failed"
+            return
+        }
+        
+        Write-Success "Azure IoT Operations deployed: $instanceName"
     }
-    
-    Write-Success "Azure IoT Operations deployed: $instanceName"
     $script:DeployedResources += "IoTOperationsInstance:$instanceName"
     
     # Enable secret sync
@@ -1112,6 +1172,8 @@ function Deploy-IoTOperations {
             }
         }
         
+        # TODO (fabric-entra-id-gap): secretsync enable is required today for Fabric SASL auth.
+        # See issues/fabric_entra_id_gap.md.
         # Now enable secretsync
         az iot ops secretsync enable `
             --name $instanceName `
@@ -1207,7 +1269,8 @@ function Test-Deployment {
         Write-Success "Key Vault verified: $script:KeyVaultName"
         
         # Check Key Vault configuration for AIO dataflows
-        $kvData = $kv | ConvertFrom-Json
+        $kvJson = if ($kv -is [array]) { $kv -join "`n" } else { $kv }
+        $kvData = $kvJson | ConvertFrom-Json
         $kvIssues = @()
         
         # Key Vault Secrets User role ID
@@ -1293,7 +1356,8 @@ function Test-Deployment {
     # Verify Arc cluster
     $arc = az connectedk8s show --name $script:ClusterName --resource-group $script:ResourceGroup 2>$null
     if ($arc) {
-        $arcData = $arc | ConvertFrom-Json
+        $arcJson = if ($arc -is [array]) { $arc -join "`n" } else { $arc }
+        $arcData = $arcJson | ConvertFrom-Json
         Write-Success "Arc cluster verified: $script:ClusterName (Status: $($arcData.connectivityStatus))"
     } else {
         Write-WarnLog "Arc cluster not found: $script:ClusterName"
@@ -1303,10 +1367,136 @@ function Test-Deployment {
     $instanceName = "$script:ClusterName-aio"
     $iotOps = az iot ops show --name $instanceName --resource-group $script:ResourceGroup 2>$null
     if ($iotOps) {
-        $iotOpsData = $iotOps | ConvertFrom-Json
+        $iotOpsJson = if ($iotOps -is [array]) { $iotOps -join "`n" } else { $iotOps }
+        $iotOpsData = $iotOpsJson | ConvertFrom-Json
         Write-Success "IoT Operations verified: $instanceName (State: $($iotOpsData.provisioningState))"
     } else {
         Write-WarnLog "IoT Operations not found: $instanceName"
+    }
+    
+    # Verify required extensions for asset sync
+    # NOTE: In AIO v1.2+, deviceregistry is bundled into microsoft.iotoperations extension
+    # The separate microsoft.deviceregistry.assets extension is no longer required
+    Write-Log "Verifying required Kubernetes extensions..."
+    $extensions = az k8s-extension list --cluster-name $script:ClusterName --resource-group $script:ResourceGroup --cluster-type connectedClusters -o json 2>$null
+    
+    if ($extensions) {
+        # Join array of strings into single string for PS 5.1 ConvertFrom-Json compatibility
+        $extJson = if ($extensions -is [array]) { $extensions -join "`n" } else { $extensions }
+        $extData = $extJson | ConvertFrom-Json
+        
+        # Only microsoft.iotoperations is required - deviceregistry is now bundled in
+        $requiredExtensions = @{
+            "microsoft.iotoperations" = $false
+        }
+        
+        $optionalExtensions = @{
+            "microsoft.kubernetesworkloadidfederation" = $false
+            "microsoft.deviceregistry.assets" = $false  # Legacy - now bundled in iotoperations
+        }
+        
+        # Track failed extensions
+        $failedExtensions = @()
+        
+        foreach ($ext in $extData) {
+            $extType = $ext.extensionType.ToLower()
+            $extState = $ext.provisioningState
+            
+            if ($requiredExtensions.ContainsKey($extType)) {
+                $requiredExtensions[$extType] = $true
+                if ($extState -eq "Succeeded") {
+                    Write-Success "  Extension: $($ext.name) ($extType) - $extState"
+                } elseif ($extState -eq "Creating" -or $extState -eq "Updating") {
+                    Write-WarnLog "  Extension: $($ext.name) ($extType) - $extState (still in progress)"
+                } else {
+                    Write-ErrorLog "  Extension: $($ext.name) ($extType) - $extState"
+                    $failedExtensions += @{ Name = $ext.name; Type = $extType; State = $extState }
+                }
+            } elseif ($optionalExtensions.ContainsKey($extType)) {
+                $optionalExtensions[$extType] = $true
+                if ($extState -eq "Failed") {
+                    Write-WarnLog "  Extension: $($ext.name) ($extType) - $extState (optional, but failed)"
+                    $failedExtensions += @{ Name = $ext.name; Type = $extType; State = $extState }
+                } else {
+                    Write-InfoLog "  Extension: $($ext.name) ($extType) - $extState"
+                }
+            } else {
+                # Check for platform extension failures (common issue)
+                if ($extType -eq "microsoft.iotoperations.platform" -and $extState -eq "Failed") {
+                    Write-WarnLog "  Extension: $($ext.name) ($extType) - $extState (known issue - upgrade will fix)"
+                    $failedExtensions += @{ Name = $ext.name; Type = $extType; State = $extState }
+                } else {
+                    Write-InfoLog "  Extension: $($ext.name) ($extType) - $extState"
+                }
+            }
+        }
+        
+        # Check for failed extensions and provide remediation
+        if ($failedExtensions.Count -gt 0) {
+            Write-Host ""
+            Write-Host "============================================================================" -ForegroundColor Yellow
+            Write-Host "FAILED EXTENSIONS DETECTED" -ForegroundColor Yellow
+            Write-Host "============================================================================" -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "The following extensions are in a failed state:" -ForegroundColor Yellow
+            foreach ($ext in $failedExtensions) {
+                Write-Host "  - $($ext.Name) ($($ext.Type)) - $($ext.State)" -ForegroundColor Red
+            }
+            Write-Host ""
+            Write-Host "TO FIX THIS, run on your EDGE DEVICE:" -ForegroundColor Cyan
+            Write-Host ""
+            Write-Host "  az iot ops upgrade --name $instanceName -g $script:ResourceGroup -y" -ForegroundColor White
+            Write-Host ""
+            Write-Host "This will clean up failed extensions and update components to latest versions." -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "============================================================================" -ForegroundColor Yellow
+            Write-Host ""
+        }
+        
+        # Check for missing required extensions
+        $missingExtensions = @()
+        foreach ($ext in $requiredExtensions.Keys) {
+            if (-not $requiredExtensions[$ext]) {
+                $missingExtensions += $ext
+            }
+        }
+        
+        if ($missingExtensions.Count -gt 0) {
+            Write-Host ""
+            Write-Host "============================================================================" -ForegroundColor Red
+            Write-Host "MISSING REQUIRED EXTENSIONS" -ForegroundColor Red
+            Write-Host "============================================================================" -ForegroundColor Red
+            Write-Host ""
+            Write-Host "The following extensions are required for IoT Operations but were not found:" -ForegroundColor Yellow
+            foreach ($ext in $missingExtensions) {
+                Write-Host "  - $ext" -ForegroundColor Red
+            }
+            Write-Host ""
+            Write-Host "Without these extensions:" -ForegroundColor Yellow
+            Write-Host "  - Assets created in the Azure Portal will NOT sync to Kubernetes" -ForegroundColor Gray
+            Write-Host "  - Asset endpoints and dataflows will not function" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "TO FIX THIS, run on your EDGE DEVICE:" -ForegroundColor Cyan
+            Write-Host ""
+            Write-Host "  # Try upgrading the IoT Operations instance:" -ForegroundColor Gray
+            Write-Host "  az iot ops upgrade --name $instanceName -g $script:ResourceGroup -y" -ForegroundColor White
+            Write-Host ""
+            Write-Host "If upgrade doesn't work, you may need to fully reinstall:" -ForegroundColor Cyan
+            Write-Host ""
+            Write-Host "  # 1. Delete the AIO instance:" -ForegroundColor Gray
+            Write-Host "  az iot ops delete --name $instanceName -g $script:ResourceGroup --yes" -ForegroundColor White
+            Write-Host ""
+            Write-Host "  # 2. Wait for deletion to complete, then from Windows:" -ForegroundColor Gray
+            Write-Host "  .\External-Configurator.ps1" -ForegroundColor White
+            Write-Host ""
+            Write-Host "============================================================================" -ForegroundColor Red
+            Write-Host ""
+        } else {
+            Write-Success "All required extensions are installed"
+        }
+    } else {
+        Write-WarnLog "Could not retrieve extension list"
+        Write-InfoLog "Run: az k8s-extension list --cluster-name $script:ClusterName --resource-group $script:ResourceGroup --cluster-type connectedClusters -o table"
     }
     
     Write-Success "Verification completed"
@@ -1415,6 +1605,7 @@ function Show-CompletionSummary {
     Write-Host "Next Steps:" -ForegroundColor Green
     Write-Host "  1. Review deployment summary: $script:DeploymentSummaryFile" -ForegroundColor Gray
     Write-Host "  2. Add secrets to Key Vault for Fabric RTI dataflows" -ForegroundColor Gray
+    Write-Host "     (required because Fabric custom Kafka endpoints use SAS key auth, not Entra ID/Managed Identity)" -ForegroundColor DarkGray
     Write-Host "  3. Deploy edge modules using Deploy-EdgeModules.ps1" -ForegroundColor Gray
     Write-Host ""
     Write-Host "============================================================================" -ForegroundColor Cyan

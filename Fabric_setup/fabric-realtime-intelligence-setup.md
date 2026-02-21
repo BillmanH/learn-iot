@@ -53,6 +53,10 @@ After publishing the endpoint, configure the connection protocol:
 2. Select **Protocol**: **Kafka**
 3. Select **Authentication** 
    - **SAS Key**: Shared Access Signature key authentication (recommended for Azure IoT Operations)
+
+> **Note — Why SAS Key and not Managed Identity?**
+> Fabric Event Stream custom endpoints currently only expose SAS key authentication for the Kafka protocol. There is no Managed Identity or Microsoft Entra ID option in the Fabric UI. This is a Fabric-side limitation — Azure IoT Operations fully supports `SystemAssignedManagedIdentity` for Kafka endpoints, but Fabric does not yet offer it for custom endpoints.
+
 4. Copy the connection details that appear:
    - **Bootstrap server**: (e.g., `pkc-<id>.<region>.azure.confluent.cloud:9092` or similar Kafka endpoint)
    - **Topic name**: `es_<guid>` (format: `es_aaaaaaaa-0000-1111-2222-bbbbbbbbbbbb`)

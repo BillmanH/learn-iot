@@ -959,6 +959,9 @@ configure_kubectl() {
 }
 
 install_csi_secret_store() {
+    # TODO (fabric-entra-id-gap): CSI Secret Store is required for Fabric SASL secret sync.
+    # When Fabric supports Entra ID auth, this becomes optional for the Fabric RTI path.
+    # See issues/fabric_entra_id_gap.md.
     # Check if Key Vault sync should be enabled
     if [ "$CONFIG_TYPE" = "advanced" ] && [ "$ENABLE_KEYVAULT_SYNC" != "true" ]; then
         info "Skipping CSI Secret Store installation (advanced mode: enable_keyvault_sync=false)"

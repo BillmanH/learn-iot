@@ -218,17 +218,19 @@ kubectl describe dataflowendpoint <your-fabric-endpoint-name> -n azure-iot-opera
 
 ### 4.3 Verify Secret Reference Format
 
+> **⚠️ Authentication method note**: Fabric RTI custom Kafka endpoints **only support SASL/Plain (SAS key)** authentication. `SystemAssignedManagedIdentity` is **not** supported by Fabric custom endpoints — it works for standard Azure Event Hub namespaces you own, but Fabric's underlying Event Stream infrastructure does not expose Entra ID auth for external clients.
+
 When you create a **Fabric RTI endpoint** using Azure CLI, the secret reference must include the `aio-akv-sp/` prefix:
 
-✅ **CORRECT Azure CLI command:**
+✅ **CORRECT Azure CLI command (Fabric uses SASL, not Managed Identity):**
 ```powershell
 az iot ops dataflow endpoint create kafka `
   --name fabric-endpoint `
   --instance iot-ops-cluster-aio `
   -g IoT-Operations `
   --host "<your-bootstrap-server>:9093" `
-  --authentication SystemAssignedManagedIdentity `
-  --secret-ref aio-akv-sp/fabric-connection-string  # ✅ Correct!
+  --authentication Sasl `
+  --secret-ref aio-akv-sp/fabric-connection-string  # ✅ Correct prefix!
 ```
 
 ❌ **WRONG - Missing prefix (causes the error):**
@@ -252,12 +254,13 @@ spec:
     tls:
       mode: Enabled
     authentication:
-      method: SystemAssignedManagedIdentity
-      systemAssignedManagedIdentitySettings:
+      method: Sasl
+      saslSettings:
+        saslType: Plain
         secretRef: aio-akv-sp/fabric-connection-string  # Must use this format!
 ```
 
-❌ **WRONG - Missing prefix (causes the error):**
+❌ **WRONG - Missing prefix (causes "secret management is not configured" error):**
 ```yaml
 secretRef: fabric-connection-string
 ```
@@ -265,6 +268,11 @@ secretRef: fabric-connection-string
 ❌ **WRONG - Wrong prefix:**
 ```yaml
 secretRef: keyvault/fabric-connection-string
+```
+
+❌ **WRONG - Wrong authentication method (Fabric does not support Entra ID on custom Kafka endpoints):**
+```yaml
+method: SystemAssignedManagedIdentity  # Does NOT work for Fabric RTI custom endpoints
 ```
 
 ### 4.4 The Secret Reference Format Explained

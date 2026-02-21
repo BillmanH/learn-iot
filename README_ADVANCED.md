@@ -444,6 +444,8 @@ if ($connString -match 'EntityPath=([^;]+)') {
 }
 ```
 
+> **Why a secret?** Normally AIO uses `SystemAssignedManagedIdentity` for cloud endpoints (see ADX example above). A Kubernetes secret is required here specifically because Fabric Event Stream custom endpoints do not yet support Entra ID / Managed Identity authentication — SAS key (SASL/Plain) is the only option Fabric exposes for its Kafka endpoint.
+
 **Create Secret**:
 
 ```bash
@@ -916,10 +918,13 @@ spec:
       dataDestination: es_e526de3f-6433-4a35-8f07-521f30abe1c5  # EntityPath, not custom name
 
 # Fix 2: Wrong authentication method
+# Fabric custom Kafka endpoints only support SAS/SASL — SystemAssignedManagedIdentity is
+# NOT supported by Fabric RTI custom endpoints (it works for standard Azure Event Hub
+# namespaces that you own, but not for Fabric-managed Event Stream endpoints).
 spec:
   kafkaSettings:
     authentication:
-      method: Sasl  # Not SystemAssignedManagedIdentity for Fabric
+      method: Sasl  # Required for Fabric. SAMI not supported by Fabric custom endpoints.
       saslSettings:
         saslType: Plain
         secretRef: fabric-connection-string
