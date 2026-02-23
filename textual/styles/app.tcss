@@ -85,7 +85,30 @@ Checkbox {
     padding: 0;
 }
 
-/* ─── Edge panel — check rows ────────────────────────────────────────────── */
+/* ─── Edge panel — step rows (mirrors Azure StepRow) ────────────────────── */
+
+EdgeStepRow {
+    height: 1;
+    layout: horizontal;
+    margin-bottom: 0;
+}
+
+.edge-step-icon {
+    width: 3;
+    content-align: center middle;
+}
+
+.edge-step-label {
+    padding: 0 1;
+    height: 1;
+}
+
+.edge-step-icon--idle    { color: $text-disabled; }
+.edge-step-icon--running { color: $warning; }
+.edge-step-icon--pass    { color: $success; }
+.edge-step-icon--fail    { color: $error; }
+
+/* ─── Edge panel — legacy check rows (kept for CSS completeness) ─────────── */
 
 .section-hint {
     color: $text-disabled;
@@ -191,18 +214,35 @@ Checkbox {
 #log-area {
     height: 1fr;
     border: round $surface;
+    padding: 0;
 }
 
-#log-tabs {
-    height: 100%;
-}
-
-TabPane {
-    padding: 0 1;
-    height: 100%;
-}
-
-RichLog {
+/* TextArea used as a selectable log pane — neutral dark theme */
+#log {
     height: 100%;
     scrollbar-size: 1 1;
+}
+
+/* Hide the TextArea cursor-position footer bar */
+#log > .text-area--cursor-line {
+    display: none;
+}
+
+/* ─── Azure panel — step rows ────────────────────────────────────────────── */
+
+.step-label {
+    padding: 0 1;
+    height: 1;
+}
+
+.step-icon--idle    { color: $text-disabled; }
+.step-icon--running { color: $warning; }
+.step-icon--success { color: $success; }
+.step-icon--failed  { color: $error; }
+
+/* One-line status below the action buttons */
+.azure-status-line {
+    color: $text-muted;
+    margin-top: 1;
+    text-style: italic;
 }

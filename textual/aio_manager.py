@@ -5,10 +5,13 @@ Run with: uv run --extra ui textual/aio_manager.py
 from __future__ import annotations
 import sys
 import os
+import signal
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from textual.app import App
+from textual.binding import Binding
+from textual.worker import Worker, WorkerState
 from models.state import AppState
 from screens.main_screen import MainScreen
 
@@ -18,22 +21,40 @@ class AIOManagerApp(App):
 
     TITLE = "AIO Manager"
     SUB_TITLE = "Azure IoT Operations"
+    # Prevent ctrl+c from quitting so the TextArea log pane supports copy.
+    # Use 'q' to quit instead.
+    CTRL_C_QUIT = False
 
     BINDINGS = [
-        ("q", "quit", "Quit"),
-        ("f1", "action_show_help", "Help"),
+        Binding("q", "quit", "Quit"),
+        Binding("f1", "action_show_help", "Help"),
     ]
 
     def on_mount(self) -> None:
         self.push_screen(MainScreen(AppState()))
 
+    def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
+        """Catch worker crashes so they show as a notification rather than exiting."""
+        if event.state == WorkerState.ERROR:
+            exc = event.worker.error
+            self.notify(
+                f"Worker error: {exc}",
+                title="Background Task Failed",
+                severity="error",
+                timeout=10,
+            )
+
     def action_show_help(self) -> None:
         self.notify(
-            "Q: Quit  |  F1: Help  |  Tab/Click: switch log tabs",
+            "Q: Quit  |  Ctrl+C: Copy (select text first)  |  F1: Help",
             title="Key Bindings",
             timeout=5,
         )
 
 
 if __name__ == "__main__":
+    # Suppress SIGINT (Ctrl+C) at the OS level so Windows doesn't send
+    # KeyboardInterrupt to the Python process.  This lets the TextArea use
+    # Ctrl+C for copy.  Quit the app with 'q'.
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     AIOManagerApp().run()

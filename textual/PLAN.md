@@ -25,24 +25,24 @@ Replace the need to manually orchestrate four separate scripts across two machin
 │                          │                          │ Azure Clust Dep T │
 │  Status: ● Connected     │  Status: ◌ Not started   │─────────────────  │
 │  Host: 192.168.1.x       │                          │ Field   Value OK  │
-│                          │  [ ] Key Vault           │ sub_id  abc… ✓    │
-│  [ ] installer.sh        │  [ ] Storage Account     │ rg      my-r ✓    │
-│  [ ] arc_enable.ps1      │  [ ] Schema Registry     │ location east ✓   │
-│                          │  [ ] IoT Operations      │─────────────────  │
-│  Pods (azure-arc):       │  [ ] Role Assignments    │ (row description) │
-│  ● arc-agent  Running    │                          │─────────────────  │
-│  ● config-agent Running  │  [ grant_entra_id_roles ]│ sub_id: abc123  ▲ │
-│  ○ ...                   │  [ External-Configurator]│ rg: my-rg       │ │
-│                          │                          │ location: eastus│ │
+│                          │  ✓ Key Vault             │ sub_id  abc… ✓    │
+│  ✓ installer.sh          │  ✓ Storage Account       │ rg      my-r ✓    │
+│  ✓ arc_enable.ps1        │  ⟳ Schema Registry       │ location east ✓   │
+│                          │  ○ IoT Operations        │─────────────────  │
+│  ✓ Arc Connected         │  ○ Role Assignments      │ (row description) │
+│  ✓ Custom Locations      │                          │─────────────────  │
+│  ✓ Workload Identity     │  [ Grant Entra ID Perms ]│ sub_id: abc123  ▲ │
+│  ✓ Arc Pods              │  [ Build Azure Resources]│ rg: my-rg       │ │
+│  ✓ RBAC Bindings         │                          │ location: eastus│ │
 │                          │                          │ cluster: name   ▼ │
-│                          │                          │[ Validate       ] │
-│                          │                          │[ Open in Editor ] │
+│  [ Run All Checks      ] │                          │[ Validate       ] │
+│  Ready for Azure Setup   │                          │[ Open in Editor ] │
 │                          │                          │[ Reload         ] │
 ├──────────────────────────┴──────────────────────────┴───────────────────┤
-│  LOG OUTPUT                                                              │
-│  [EDGE] [AZURE] [ALL]                                                    │
-│  > 14:02:11 installer.sh - K3s installed successfully                   │
-│  > 14:03:45 arc_enable.ps1 - Connecting cluster to Azure Arc...         │
+│  LOGS                                                                    │
+│  > 14:02:11 [CONFIG] Loaded aio_config.json — OK                        │
+│  > 14:03:45 [EDGE] ✓ arc-connected                                       │
+│  > 14:05:12 [AZURE] SUCCESS: ARM deployment completed: keyVault          │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -51,10 +51,10 @@ Replace the need to manually orchestrate four separate scripts across two machin
 
 | Panel | Purpose |
 |---|---|
-| **Edge** | SSH connection to the Ubuntu edge device, script execution status, pod health |
-| **Azure Setup** | Step-by-step status of Azure resource deployment, action buttons |
+| **Edge** | Verify Arc connectivity and Kubernetes state before Azure setup |
+| **Azure Setup** | Step-by-step status and action buttons for Azure resource deployment |
 | **Config** | Read/validate config files, inline JSON viewer, quick-edit shortcuts |
-| **Log Output** | Unified log pane, filterable by source (edge / azure / all) |
+| **Logs** | Unified scrollable log — all output from config load, edge checks, and Azure scripts |
 
 ---
 
@@ -139,12 +139,12 @@ A central reactive state object tracks:
 ### Phase 0 — Blank UI Proof of Concept
 **Goal**: The smallest possible Textual app that proves the environment works and gives us something to look at and critique before committing to the layout.
 
-- [ ] Add `textual` to `pyproject.toml` optional deps (see Environment Setup above)
-- [ ] Create `textual/aio_manager.py` with a minimal `App` subclass
-- [ ] Three placeholder panels arranged in a 3-column horizontal split
-- [ ] A log pane below the panels (static placeholder text)
-- [ ] Header showing app name and basic key bindings (Q to quit)
-- [ ] No real data, no SSH, no scripts — purely structural
+- [x] Add `textual` to `pyproject.toml` optional deps (see Environment Setup above)
+- [x] Create `textual/aio_manager.py` with a minimal `App` subclass
+- [x] Three placeholder panels arranged in a 3-column horizontal split
+- [x] A log pane below the panels (static placeholder text)
+- [x] Header showing app name and basic key bindings (Q to quit)
+- [x] No real data, no SSH, no scripts — purely structural
 
 **Review checkpoint**: Run the app, evaluate the layout and colour scheme, update this spec with any changes before proceeding to Phase 1.
 
@@ -157,12 +157,12 @@ uv run --extra ui textual/aio_manager.py
 ### Phase 1 — Shell and Layout
 **Goal**: A running app with the correct 3-panel layout, no real functionality yet.
 
-- [ ] Set up folder structure and `pyproject.toml` dependencies
-- [ ] Create `aio_manager.py` with `App` subclass
-- [ ] Implement `main_screen.py` with 3-column layout using Textual CSS
-- [ ] Add placeholder widgets in each panel (static labels, dummy checklists)
-- [ ] Add log pane at the bottom with tab switching (EDGE / AZURE / ALL)
-- [ ] Header with app name and key bindings (F1 help, Q quit)
+- [x] Set up folder structure and `pyproject.toml` dependencies
+- [x] Create `aio_manager.py` with `App` subclass
+- [x] Implement `main_screen.py` with 3-column layout using Textual CSS
+- [x] Add placeholder widgets in each panel (static labels, dummy checklists)
+- [x] Add log pane at the bottom with tab switching (EDGE / AZURE / ALL)
+- [x] Header with app name and key bindings (F1 help, Q quit)
 
 **Deliverable**: `python aio_manager.py` opens a working, navigable shell.
 
@@ -187,94 +187,44 @@ uv run --extra ui textual/aio_manager.py
 
 ---
 
-### Phase 3 — Edge Panel (SSH)
-**Goal**: Connect to the edge device and verify that installer.sh and arc_enable.ps1 have been run successfully by the user on the edge machine. This panel does **not** run those scripts — it validates their results.
+### Phase 3 — Edge Panel
+**Goal**: Verify that installer.sh and arc_enable.ps1 have been run successfully on the edge device. This panel does **not** run those scripts — it validates their results with a single button.
 
-**Assumption**: The user has already manually run `installer.sh` and `arc_enable.ps1` on the edge device before using this panel.
+**No SSH required**: Both verifications run locally on the Windows machine. Azure CLI uses the user's local `az` session; `kubectl` uses `kubeconfig_path` from `aio_config.json`.
 
-**No SSH required**: Both verifications run locally on the Windows machine. Azure CLI commands use the user's local `az` session; `kubectl` commands use the kubeconfig file path from `aio_config.json` (`cluster.kubeconfig_path`). SSH connection is deferred to a later phase if needed.
+- [x] Seven checks displayed as StepRows (○/⟳/✓/✗) mirroring the Azure panel
+- [x] Arc Connected — `az connectedk8s show`, checks `connectivityStatus == "Connected"`
+- [x] Custom Locations — queries `systemDefaultValues.customLocations.enabled`
+- [x] Workload Identity — queries `workloadIdentity.enabled`
+- [x] Arc Pods — `kubectl get pods -n azure-arc`, checks all Running
+- [x] RBAC Bindings — `kubectl get clusterrolebindings`, checks azure-arc-* bindings
+- [x] Operator Permissions — `kubectl auth can-i` for azure-arc-operator service account
+- [x] Device Registry CRDs — `kubectl get crd`, checks `assets.deviceregistry.microsoft.com`
+- [x] Single **"Check Edge Deployment"** button runs all 7 checks in sequence
+- [x] Readiness banner: green "Ready for Azure Setup" or amber "N issues detected — see log"
+- [x] Failed checks write remediation text to the log pane with `[EDGE] ✗ <check>` + `FIX: ...`
 
-#### Verification 1 — Azure Arc connectivity (Azure CLI)
-Runs locally on the Windows machine using `az` CLI commands. Each item is an individually clickable button. Clicking runs the check and updates the button color and status text inline.
-
-- [ ] Button: **Check Arc Connected** — runs `az connectedk8s show --name <cluster> --resource-group <rg>`, checks `connectivityStatus == "Connected"`
-  - Pass: button turns green, shows `Connected`
-  - Fail: shows inline instruction — *"Cluster not found or not connected. Re-run arc_enable.ps1 on the edge device and wait for the agent pods to reach Running state."*
-- [ ] Button: **Check Custom Locations** — queries `systemDefaultValues.customLocations.enabled` from `az connectedk8s show`
-  - Pass: button turns green
-  - Fail: shows inline instruction — *"Custom Locations not enabled. On the edge device run the helm upgrade step in arc_enable.ps1 to set customLocations.enabled=true."*
-- [ ] Button: **Check Workload Identity** — queries `workloadIdentity.enabled` from `az connectedk8s show`
-  - Pass: button turns green
-  - Fail: shows inline instruction — *"Workload Identity not enabled. On the edge device run: az connectedk8s update --enable-workload-identity (see arc_enable.ps1 known issue workaround)."*
-
-#### Verification 2 — Kubernetes RBAC (kubectl, local)
-Runs `kubectl` locally by setting `KUBECONFIG` to the path from `cluster.kubeconfig_path` in `aio_config.json`. The kubeconfig must be accessible on the Windows machine. Each item is an individually clickable button.
-
-- [ ] Button: **Check Arc Pods** — runs `kubectl get pods -n azure-arc`, checks all pods are `Running`
-  - Pass: button turns green, shows pod count
-  - Fail: shows inline instruction — *"One or more Arc pods are not Running. Wait for pods to stabilise (kubectl get pods -n azure-arc). If stuck, check node resources with kubectl describe node."*
-- [ ] Button: **Check RBAC Bindings** — runs `kubectl get clusterrolebindings`, checks for expected `azure-arc-*` bindings
-  - Pass: button turns green, shows count of bindings found
-  - Fail: shows inline instruction — *"Expected Azure Arc RBAC bindings are missing. Re-run arc_enable.ps1 — the Arc extension may not have installed cleanly."*
-- [ ] Button: **Check Operator Permissions** — runs `kubectl auth can-i list pods --namespace azure-arc --as system:serviceaccount:azure-arc:azure-arc-operator`
-  - Pass: button turns green
-  - Fail: shows inline instruction — *"Arc operator service account lacks expected permissions. This may indicate the Arc extension is in a partial state — try az iot ops upgrade or re-enable Arc."*
-- [ ] Button: **Check Device Registry CRDs** — runs `kubectl get crd`, checks for `assets.deviceregistry.microsoft.com`
-  - Pass: button turns green, shows CRD names found
-  - Fail: shows inline instruction — *"Device Registry CRDs not found. In AIO v1.2+ these are bundled with the IoT Operations extension — run Azure Setup (Phase 4) before checking this."*
-
-#### Summary
-- [ ] **Run All Checks** button — triggers all 7 buttons above in sequence
-- [ ] Overall readiness banner updates after all checks complete: green *"Ready for Azure Setup"* or amber *"Issues detected — see failed checks above"*
-- [ ] Each failed check's instruction text is also written to the EDGE log pane for reference
-
-**Deliverable**: Seven individually clickable check buttons that each run a targeted `az` or `kubectl` command, turn green on pass, or display specific remediation instructions on fail, with a "Run All Checks" shortcut and an overall readiness banner.
+**Deliverable**: Single-button edge verification with step-row icons and log-pane remediation output.
 
 ---
 
 ### Phase 4 — Azure Setup Panel
 **Goal**: Run and monitor the Azure configuration scripts from the UI.
 
-- [ ] Parse `deployment_summary.json` to show already-deployed resources
-- [ ] Step checklist: Key Vault, Storage, Schema Registry, AIO, Role Assignments
-- [ ] "Run grant_entra_id_roles.ps1" button — streams output to log pane
-- [ ] "Run External-Configurator.ps1" button — streams output to log pane
-- [ ] Detect step completion from script output patterns (regex matching)
-- [ ] Auto-mark checklist items as complete when output confirms success
-- [ ] Error detection: highlight failed steps with error excerpt and suggested fix
-- [ ] "Re-run step" granular retry buttons per resource type
+- [x] Parse `deployment_summary.json` to show already-deployed resources
+- [x] Step checklist: Key Vault, Storage, Schema Registry, AIO, Role Assignments — StepRow widgets with ○/⟳/✓/✗ icons
+- [x] "Grant Entra ID Permissions" button — shows OID input popup, then streams output to log pane
+- [x] "Build Azure Resources" button — streams output to log pane
+- [x] Detect step completion from script output patterns (regex matching against `ARM deployment completed:` and `SUCCESS:` lines)
+- [x] Auto-mark checklist items as complete when output confirms success
+- [x] Error detection: highlight failed steps (`] ERROR:` pattern marks all RUNNING steps as FAILED with red icon)
+- [ ] "Re-run step" granular retry buttons per resource type — **deferred**: External-Configurator.ps1 does not support partial re-runs; full re-run only
 
 **Deliverable**: Full Azure setup flow runnable from the UI without touching PowerShell directly.
 
 ---
 
-### Phase 5 — Monitoring Mode
-**Goal**: Post-installation live monitoring.
-
-- [ ] MQTT message counter (live via SSH + `kubectl logs`)
-- [ ] Pod restarts and health rollup
-- [ ] Dataflow status (list active dataflows via `kubectl get dataflow`)
-- [ ] Switch between "Setup Mode" and "Monitor Mode" (keyboard toggle)
-- [ ] Log streaming — tail azure-iot-operations and azure-arc logs live
-
-**Deliverable**: App remains useful after installation as an operational dashboard.
-
----
-
-### Phase 6 — Module Deployment
-**Goal**: Deploy edge modules from the UI.
-
-- [ ] Module picker — list modules from `modules/` directory
-- [ ] Show current deployment status per module
-- [ ] "Deploy" and "Remove" buttons per module
-- [ ] Wraps `Deploy-EdgeModules.ps1` with module selection passed as parameters
-- [ ] Display container image and version information
-
-**Deliverable**: Full end-to-end app management without leaving the TUI.
-
----
-
-### Phase 7 — Packaging as Standalone Executable
+### Phase 5 — Packaging as Standalone Executable
 **Goal**: A single `aio-manager.exe` that runs on any Windows machine without requiring Python, uv, or any dependencies installed.
 
 - [ ] Add `pyinstaller` to the `ui` optional dependency group

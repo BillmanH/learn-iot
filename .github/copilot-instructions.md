@@ -299,6 +299,37 @@ kubectl get pods -n azure-iot-operations
 
 **Wait until all pods are in Running/Completed state before running the next deployment step.**
 
+## AIO Manager TUI (`textual/`)
+
+A terminal UI built with the Python `textual` library. Entry point: `textual/aio_manager.py`. Run with `uv run --extra ui textual/aio_manager.py`.
+
+### Ctrl+C Copy in the Log Pane — CRITICAL, DO NOT REGRESS
+
+The log pane is a `TextArea` (id `#log`) used in read-only mode as a scrolling output display. Users must be able to select text and press Ctrl+C to copy it (e.g. to paste az CLI commands into a terminal).
+
+**Three parts must all be present simultaneously or copy will break:**
+
+1. **`signal.SIG_IGN` before `app.run()`** (`aio_manager.py`):
+   ```python
+   signal.signal(signal.SIGINT, signal.SIG_IGN)
+   AIOManagerApp().run()
+   ```
+   Windows sends `SIGINT` (KeyboardInterrupt) to the Python process on Ctrl+C. This bypasses Textual entirely and kills the process. `SIG_IGN` discards it at the OS/Python level before Textual ever sees it.
+
+2. **`CTRL_C_QUIT = False`** on the `App` class (`aio_manager.py`):
+   ```python
+   CTRL_C_QUIT = False
+   ```
+   Belt-and-suspenders: also blocks Textual's own internal Ctrl+C quit binding.
+
+3. **`ta.insert(text, location=ta.document.end)`** in `_write_log` (`main_screen.py`):
+   ```python
+   ta.insert(line + "\n", location=ta.document.end)
+   ```
+   This appends text **without moving the cursor**. Any prior approach using `ta.move_cursor(ta.document.end)` followed by `ta.insert(text)` destroys the user's selection before Ctrl+C can act on it. The `location=` argument is the only correct approach.
+
+If copy ever stops working, check these three things in order. All three have been broken and re-fixed multiple times.
+
 ## Avoid These Patterns
 - Don't use plain MQTT without authentication
 - Don't deploy without containerization

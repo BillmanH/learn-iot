@@ -10,8 +10,8 @@ from datetime import datetime, timezone
 
 from textual.app import ComposeResult
 from textual.screen import ModalScreen
-from textual.widgets import Label, Button, Static
-from textual.containers import Vertical, Horizontal
+from textual.widgets import Static, ListView, ListItem, Label
+from textual.containers import Vertical
 
 
 # ---------------------------------------------------------------------------
@@ -169,13 +169,23 @@ class CreateConfigModal(ModalScreen[str | None]):
       None       — exit the application
     """
 
+    BINDINGS = [
+        ("1", "pick_blank",    "Create blank config"),
+        ("2", "pick_defaults", "Create config with defaults"),
+        ("3", "pick_exit",     "Exit"),
+        ("ctrl+q", "pick_exit", "Exit"),
+    ]
+
+    # Map list index → dismiss value
+    _CHOICES = ["blank", "defaults", None]
+
     DEFAULT_CSS = """
     CreateConfigModal {
         align: center middle;
     }
 
     #modal-container {
-        width: 64;
+        width: 66;
         height: auto;
         border: double $warning;
         padding: 1 2;
@@ -202,32 +212,25 @@ class CreateConfigModal(ModalScreen[str | None]):
         margin-bottom: 1;
     }
 
-    #modal-hint {
+    #modal-list {
+        height: auto;
+        border: none;
+        margin: 1 0;
+    }
+
+    #modal-list > ListItem {
+        padding: 0 1;
+        height: auto;
+    }
+
+    #modal-list > ListItem > Label {
+        width: 1fr;
+    }
+
+    #modal-footer {
         text-align: center;
         color: $text-muted;
-        margin-bottom: 1;
-    }
-
-    #btn-row {
-        align: center middle;
-        height: auto;
         margin-top: 1;
-    }
-
-    #btn-row Button {
-        margin: 0 1;
-    }
-
-    #btn-blank {
-        width: 18;
-    }
-
-    #btn-defaults {
-        width: 22;
-    }
-
-    #btn-exit {
-        width: 10;
     }
     """
 
@@ -239,25 +242,29 @@ class CreateConfigModal(ModalScreen[str | None]):
         with Vertical(id="modal-container"):
             yield Static("Configuration File Not Found", id="modal-title")
             yield Static(
-                "aio_config.json could not be located.\n"
-                "Would you like to create one now?",
+                f"[bold]aio_config.json[/bold] could not be located at:\n{self._config_path}",
                 id="modal-body",
             )
-            yield Static(str(self._config_path), id="modal-path")
-            yield Static(
-                "Blank: all fields empty, ready to fill in.\n"
-                "Defaults: common values pre-filled as a starting point.",
-                id="modal-hint",
+            yield Static("Select an option:", id="modal-path")
+            yield ListView(
+                ListItem(Label("[bold]\[1][/bold]  Create Blank Config\n     All fields empty — ready to fill in manually"), id="item-blank"),
+                ListItem(Label("[bold]\[2][/bold]  Create Default Config\n     Common values pre-filled as a starting point"), id="item-defaults"),
+                ListItem(Label("[bold]\[3][/bold]  Exit"), id="item-exit"),
+                id="modal-list",
             )
-            with Horizontal(id="btn-row"):
-                yield Button("Create Blank",    id="btn-blank",    variant="primary")
-                yield Button("Create Defaults", id="btn-defaults", variant="success")
-                yield Button("Exit",            id="btn-exit",     variant="error")
+            yield Static(
+                "Use [bold]↑↓[/bold] + [bold]Enter[/bold] to select, or press [bold]1[/bold] / [bold]2[/bold] / [bold]3[/bold]  ·  [bold]Ctrl+Q[/bold] to exit",
+                id="modal-footer",
+            )
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "btn-blank":
-            self.dismiss("blank")
-        elif event.button.id == "btn-defaults":
-            self.dismiss("defaults")
-        elif event.button.id == "btn-exit":
-            self.dismiss(None)
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        mapping = {
+            "item-blank":    "blank",
+            "item-defaults": "defaults",
+            "item-exit":     None,
+        }
+        self.dismiss(mapping.get(event.item.id))
+
+    def action_pick_blank(self)    -> None: self.dismiss("blank")
+    def action_pick_defaults(self) -> None: self.dismiss("defaults")
+    def action_pick_exit(self)     -> None: self.dismiss(None)

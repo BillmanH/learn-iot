@@ -16,7 +16,14 @@ import logging
 import os
 import pathlib
 import shutil
+import subprocess
+import sys
 from dataclasses import dataclass
+from typing import Callable
+
+# On Windows, launch subprocesses in their own process group so that
+# Ctrl+C (CTRL_C_EVENT) sent to the terminal does NOT kill child processes.
+_SUBPROCESS_FLAGS = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
 
 # ── File logger ───────────────────────────────────────────────────────────────
 
@@ -32,6 +39,31 @@ _check_log = logging.getLogger("aio_manager.checks")
 _check_log.setLevel(logging.DEBUG)
 _check_log.addHandler(_file_handler)
 _check_log.propagate = False  # don't bleed into Textual's root logger
+
+
+# ── UI log bridge ──────────────────────────────────────────────────────────
+
+class UILogHandler(logging.Handler):
+    """Routes check log records to a UI callback (e.g. MainScreen.log_edge)."""
+    def __init__(self, callback: Callable[[str], None]) -> None:
+        super().__init__()
+        self._callback = callback
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            self._callback(self.format(record))
+        except Exception:
+            pass
+
+
+def register_ui_handler(callback: Callable[[str], None]) -> UILogHandler:
+    """Add a UI handler to the check logger; returns it so it can be removed on unmount."""
+    handler = UILogHandler(callback)
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s  %(message)s", datefmt="%H:%M:%S")
+    )
+    _check_log.addHandler(handler)
+    return handler
 
 
 def log_check(fn):
@@ -76,6 +108,7 @@ async def _run(args: list[str], env: dict | None = None) -> tuple[int, str, str]
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
+            creationflags=_SUBPROCESS_FLAGS,
         )
         stdout, stderr = await proc.communicate()
         return (
@@ -99,6 +132,107 @@ async def _logged_run(args: list[str], env: dict | None = None) -> tuple[int, st
 
 
 # ── Verification 1 — Azure Arc (az CLI) ──────────────────────────────────────
+
+async def check_arc_all(
+    cluster_name: str,
+    resource_group: str,
+) -> list[tuple[str, "CheckResult"]]:
+    """Run az connectedk8s show ONCE and derive all three Arc check results.
+
+    Returns a list of (check_id, CheckResult) in this fixed order:
+        arc-connected, custom-locations, workload-identity
+    """
+    _check_log.info(
+        "CHECK  arc-connected + custom-locations + workload-identity (combined az call)"
+    )
+    code, out, err = await _logged_run([
+        "az", "connectedk8s", "show",
+        "--name", cluster_name,
+        "--resource-group", resource_group,
+        "--output", "json",
+    ])
+
+    if code != 0:
+        msg = (err or "unknown error").strip()
+        fix = (
+            f"az command failed: {msg}. "
+            "Make sure 'az login' has been run and that cluster_name / resource_group "
+            "in aio_config.json match what was created by arc_enable.ps1."
+        )
+        _check_log.warning("FAIL  arc-connected  |  %s", msg[:200])
+        return [
+            ("arc-connected",        CheckResult(False, "", fix)),
+            ("custom-locations",     CheckResult(False, "", "Fix Arc Connected first.")),
+            ("workload-identity",    CheckResult(False, "", "Fix Arc Connected first.")),
+        ]
+
+    try:
+        data = json.loads(out)
+    except json.JSONDecodeError:
+        bad = CheckResult(False, "", "Could not parse az output. Check that Azure CLI is logged in.")
+        return [("arc-connected", bad), ("custom-locations", bad), ("workload-identity", bad)]
+
+    # ── Arc Connected ─────────────────────────────────────────────────────────
+    status = data.get("connectivityStatus", "unknown")
+    if status.lower() == "connected":
+        r_connected = CheckResult(True, f"connectivityStatus: {status}", "")
+        _check_log.info("PASS   arc-connected  |  connectivityStatus: %s", status)
+    else:
+        r_connected = CheckResult(
+            False, f"connectivityStatus: {status}",
+            "Cluster is not Connected to Azure Arc. "
+            "Re-run arc_enable.ps1 on the edge device and wait for all pods in the "
+            "azure-arc namespace to reach Running state before re-checking.",
+        )
+        _check_log.warning("FAIL   arc-connected  |  connectivityStatus: %s", status)
+
+    # ── Custom Locations ───────────────────────────────────────────────────
+    sdv = data.get("systemDefaultValues") or {}
+    cl  = sdv.get("customLocations") or {}
+    cl_enabled = cl.get("enabled", False)
+    if cl_enabled:
+        r_cl = CheckResult(True, "customLocations.enabled: true", "")
+        _check_log.info("PASS   custom-locations  |  customLocations.enabled: true")
+    else:
+        r_cl = CheckResult(
+            False, f"customLocations.enabled: {cl_enabled}",
+            "Custom Locations not enabled in the cluster. "
+            "Known issue: Az.ConnectedKubernetes only registers this with ARM but does "
+            "not run the required helm upgrade. On the edge device run: "
+            "helm upgrade azure-arc azurearcmcp/azure-arc-k8sagents "
+            "-n azure-arc-release --reuse-values "
+            "--set systemDefaultValues.customLocations.enabled=true "
+            "--set systemDefaultValues.customLocations.oid=<oid> "
+            "(See arc_enable.ps1 for the full helm upgrade step.)",
+        )
+        _check_log.warning("FAIL   custom-locations  |  customLocations.enabled: %s", cl_enabled)
+
+    # ── Workload Identity ────────────────────────────────────────────────
+    wi         = data.get("workloadIdentity") or {}
+    wi_enabled = wi.get("enabled", False)
+    if wi_enabled:
+        r_wi = CheckResult(True, "workloadIdentity.enabled: true", "")
+        _check_log.info("PASS   workload-identity  |  workloadIdentity.enabled: true")
+    else:
+        r_wi = CheckResult(
+            False, f"workloadIdentity.enabled: {wi_enabled}",
+            f"Workload Identity not enabled in the cluster. "
+            "Known issue: Setting WorkloadIdentityEnabled in New-AzConnectedKubernetes "
+            "only registers the feature with ARM but does NOT deploy the webhook pods. "
+            f"On the edge device run: az connectedk8s update "
+            f"--name {cluster_name} --resource-group {resource_group} "
+            "--enable-workload-identity "
+            "(Without this, Key Vault secret sync will fail with AADSTS700211.)",
+        )
+        _check_log.warning("FAIL   workload-identity  |  workloadIdentity.enabled: %s", wi_enabled)
+
+    return [
+        ("arc-connected",     r_connected),
+        ("custom-locations",  r_cl),
+        ("workload-identity", r_wi),
+    ]
+
+
 @log_check
 async def check_arc_connected(cluster_name: str, resource_group: str) -> CheckResult:
     code, out, err = await _logged_run([
