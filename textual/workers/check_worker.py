@@ -27,7 +27,12 @@ _SUBPROCESS_FLAGS = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win3
 
 # ── File logger ───────────────────────────────────────────────────────────────
 
-_REPO_ROOT = pathlib.Path(__file__).parent.parent.parent
+def _find_repo_root() -> pathlib.Path:
+    if getattr(sys, "frozen", False):
+        return pathlib.Path(sys.executable).parent
+    return pathlib.Path(__file__).parent.parent.parent
+
+_REPO_ROOT = _find_repo_root()
 _LOG_PATH = _REPO_ROOT / "aio_manager_checks.log"
 
 _file_handler = logging.FileHandler(_LOG_PATH, encoding="utf-8")

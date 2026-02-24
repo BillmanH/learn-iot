@@ -24,9 +24,13 @@ from models.state import AzureState, StepState
 
 
 # Path to the deployment summary produced by External-Configurator.ps1
-_SUMMARY_PATH = (
-    pathlib.Path(__file__).parent.parent.parent / "config" / "deployment_summary.json"
-)
+def _find_repo_root() -> pathlib.Path:
+    import sys as _sys
+    if getattr(_sys, "frozen", False):
+        return pathlib.Path(_sys.executable).parent
+    return pathlib.Path(__file__).parent.parent.parent
+
+_SUMMARY_PATH = _find_repo_root() / "config" / "deployment_summary.json"
 
 # Ordered steps: (id, display label)
 _STEPS: list[tuple[str, str]] = [

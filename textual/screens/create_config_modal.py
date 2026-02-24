@@ -247,9 +247,9 @@ class CreateConfigModal(ModalScreen[str | None]):
             )
             yield Static("Select an option:", id="modal-path")
             yield ListView(
-                ListItem(Label("[bold]\[1][/bold]  Create Blank Config\n     All fields empty — ready to fill in manually"), id="item-blank"),
-                ListItem(Label("[bold]\[2][/bold]  Create Default Config\n     Common values pre-filled as a starting point"), id="item-defaults"),
-                ListItem(Label("[bold]\[3][/bold]  Exit"), id="item-exit"),
+                ListItem(Label("[bold]\\[1][/bold]  Create Blank Config\n     All fields empty — ready to fill in manually"), id="item-blank"),
+                ListItem(Label("[bold]\\[2][/bold]  Create Default Config\n     Common values pre-filled as a starting point"), id="item-defaults"),
+                ListItem(Label("[bold]\\[3][/bold]  Exit"), id="item-exit"),
                 id="modal-list",
             )
             yield Static(

@@ -8,6 +8,7 @@ import logging
 import os
 import pathlib
 import re
+import sys
 from typing import Optional
 
 from rich.text import Text
@@ -31,7 +32,17 @@ from workers.azure_build_worker import build_azure_resources
 
 # ── Log file — all UI pane output is also written here so users can open it
 #    and copy specific az CLI commands without fighting terminal Ctrl+C.
-_UI_LOG_PATH = pathlib.Path(__file__).parent.parent.parent / "aio_manager.log"
+#
+# When running as a PyInstaller --onefile exe, __file__ resolves inside the
+# temp extraction dir (_MEIxxxxx), so we use sys.executable's parent instead.
+def _find_repo_root() -> pathlib.Path:
+    if getattr(sys, "frozen", False):
+        # Frozen executable: place log next to the .exe
+        return pathlib.Path(sys.executable).parent
+    # Dev / uv run: navigate up from screens/ -> textual/ -> repo root
+    return pathlib.Path(__file__).parent.parent.parent
+
+_UI_LOG_PATH = _find_repo_root() / "aio_manager.log"
 
 # ── Strip Rich markup for plain-text log file writes ─────────────────────────
 _MARKUP_RE = re.compile(r'\[/?(?:[a-z][a-z0-9_ ]*(?:\s+on\s+[a-z]+)?|#[0-9a-fA-F]{3,6})\]')
@@ -42,7 +53,7 @@ def _strip(text: str) -> str:
 
 # ── Phase 4 constants ─────────────────────────────────────────────────────────
 
-_REPO_ROOT  = pathlib.Path(__file__).parent.parent.parent
+_REPO_ROOT  = _find_repo_root()
 _SCRIPT_DIR = _REPO_ROOT / "external_configuration"
 
 # Regex patterns: (pattern string, step_id)
@@ -62,12 +73,275 @@ _INFRA_SUCCESS_PATTERNS: list[tuple[str, str]] = [
 class MainScreen(Screen):
     """Single-screen layout: three panels above a selectable log pane."""
 
-    CSS_PATH = "../styles/app.tcss"
+    # No CSS_PATH or DEFAULT_CSS here — all styles live in AIOManagerApp.CSS
+    # in aio_manager.py so they apply at app scope to every named widget type.
 
     def __init__(self, state: AppState) -> None:
         super().__init__()
         self.state = state
         self._ui_log_handler: Optional[UILogHandler] = None
+
+    # (CSS was here — moved to AIOManagerApp.CSS in aio_manager.py)
+    _DELETED_CSS = """
+Screen {
+    layout: vertical;
+    background: $background;
+}
+
+/* ─── Three-panel row ────────────────────────────────────────────────────── */
+
+#panels {
+    height: 3fr;
+    layout: horizontal;
+    padding: 0;
+}
+
+/* Each panel takes equal horizontal space */
+EdgePanel, AzurePanel, ConfigPanel {
+    width: 1fr;
+    height: 100%;
+    padding: 1 2;
+    overflow-y: auto;
+}
+
+EdgePanel {
+    border: round $primary;
+}
+
+AzurePanel {
+    border: round $warning;
+}
+
+ConfigPanel {
+    border: round $success;
+    layout: vertical;
+    overflow-y: hidden;
+}
+
+/* DataTable section list — shrinks to fit content */
+#cfg-tabs {
+    height: auto;
+}
+
+/* cfg-tabs panes auto-size */
+.cfg-tabpane {
+    height: auto;
+    padding: 0 1;
+}
+
+/* ─── Panel internals ────────────────────────────────────────────────────── */
+
+.panel-title {
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.section-header {
+    color: $text-disabled;
+    margin-top: 1;
+}
+
+.status-connected {
+    color: $success;
+}
+
+.status-disconnected {
+    color: $error;
+}
+
+.status-unknown {
+    color: $text-disabled;
+}
+
+.action-buttons {
+    margin-top: 1;
+    layout: vertical;
+}
+
+Button {
+    width: 100%;
+    margin-bottom: 1;
+}
+
+Checkbox {
+    margin: 0;
+    padding: 0;
+}
+
+/* ─── Edge panel — step rows (mirrors Azure StepRow) ────────────────────── */
+
+EdgeStepRow {
+    height: 1;
+    layout: horizontal;
+    margin-bottom: 0;
+}
+
+.edge-step-icon {
+    width: 3;
+    content-align: center middle;
+}
+
+.edge-step-label {
+    padding: 0 1;
+    height: 1;
+}
+
+.edge-step-icon--idle    { color: $text-disabled; }
+.edge-step-icon--running { color: $warning; }
+.edge-step-icon--pass    { color: $success; }
+.edge-step-icon--fail    { color: $error; }
+
+/* ─── Edge panel — legacy check rows (kept for CSS completeness) ─────────── */
+
+.section-hint {
+    color: $text-disabled;
+    text-style: italic;
+    margin-bottom: 1;
+}
+
+.check-row-top {
+    height: auto;
+    layout: horizontal;
+}
+
+/* Base check button — takes remaining width */
+.check-btn {
+    width: 1fr;
+    margin-bottom: 0;
+}
+
+/* Status icon label — fixed width, right-aligned */
+.check-icon {
+    width: 3;
+    content-align: center middle;
+    margin-left: 1;
+}
+
+.check-icon--idle    { color: $text-disabled; }
+.check-icon--running { color: $warning; }
+.check-icon--pass    { color: $success; }
+.check-icon--fail    { color: $error; }
+
+/* Colored button variants */
+.check-btn--running {
+    background: $warning 20%;
+    border: tall $warning;
+    color: $warning;
+}
+
+.check-btn--pass {
+    background: $success 20%;
+    border: tall $success;
+    color: $success;
+}
+
+.check-btn--fail {
+    background: $error 20%;
+    border: tall $error;
+    color: $error;
+}
+
+/* Inline message below a check button */
+.check-message {
+    height: auto;
+    margin: 0 1 1 1;
+    padding: 0 1;
+}
+
+.check-message--pass {
+    color: $success;
+}
+
+.check-message--fail {
+    color: $warning;
+    background: $error 10%;
+    border-left: thick $error;
+    padding: 1;
+}
+
+/* "Open Logs" button shown on failed checks */
+.log-btn {
+    margin-top: 1;
+    min-width: 14;
+    padding: 0 2;
+    background: $surface;
+    color: $text;
+    border: tall $warning 60%;
+}
+.log-btn:hover {
+    background: $warning 20%;
+    color: $warning;
+    border: tall $warning;
+}
+
+/* Run All button */
+.run-all-btn {
+    margin-top: 1;
+}
+
+/* Readiness banner */
+.readiness-banner {
+    margin-top: 1;
+    padding: 1;
+    text-align: center;
+    text-style: bold;
+    height: auto;
+}
+
+.readiness-banner--hint   { color: $text-disabled; }
+.readiness-banner--ready  { color: $success; background: $success 10%; }
+.readiness-banner--issues { color: $error;   background: $error 10%; }
+
+/* ─── Log / Instructions tabbed area ────────────────────────────────────── */
+
+#log-area {
+    height: 1fr;
+    border: round $surface;
+    padding: 0;
+}
+/* Thin toolbar above the tabs containing the Open Log File button */
+#log-toolbar {
+    height: 3;
+    align: right middle;
+    padding: 0 1;
+    background: $surface;
+    border-bottom: solid $surface-lighten-1;
+}
+
+.log-toolbar-btn {
+    height: 1;
+    width: auto;
+    min-width: 18;
+    margin-left: 1;
+    background: $surface-lighten-2;
+    color: $text-muted;
+    border: none;
+}
+/* Log pane fills the remaining log area */
+#log {
+    height: 1fr;
+    scrollbar-size: 1 1;
+}
+
+/* ─── Azure panel — step rows ────────────────────────────────────────────── */
+
+.step-label {
+    padding: 0 1;
+    height: 1;
+}
+
+.step-icon--idle    { color: $text-disabled; }
+.step-icon--running { color: $warning; }
+.step-icon--success { color: $success; }
+.step-icon--failed  { color: $error; }
+
+/* One-line status below the action buttons */
+.azure-status-line {
+    color: $text-muted;
+    margin-top: 1;
+    text-style: italic;
+}
+"""
 
     def compose(self) -> ComposeResult:
         yield Header()

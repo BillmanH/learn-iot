@@ -233,13 +233,16 @@ uv run --extra ui textual/aio_manager.py
 ### Phase 5 — Packaging as Standalone Executable
 **Goal**: A single `aio-manager.exe` that runs on any Windows machine without requiring Python, uv, or any dependencies installed.
 
-- [ ] Add `pyinstaller` to the `ui` optional dependency group
-- [ ] Create `textual/aio_manager.spec` — PyInstaller spec file with:
+- [x] Add `pyinstaller` to the `ui` optional dependency group
+- [x] Create `textual/aio_manager.spec` — PyInstaller spec file with:
   - `--onefile` for a single self-contained `.exe`
   - Include Textual's bundled CSS/asset data files (`textual` package data)
   - Set `console=True` (Textual needs a real console window, not a windowed app)
   - Set the exe name to `aio-manager`
-- [ ] Add a `build` uv script to `pyproject.toml` for convenience
+- [x] Switch `MainScreen` from `CSS_PATH` to `DEFAULT_CSS` (embedded string) so the frozen exe doesn't need an external file
+- [x] Fix `__file__`-based repo root detection in all modules to use `sys.executable.parent` when `sys.frozen` is set
+- [x] Add build command comment to `pyproject.toml` for convenience
+- [x] **Built**: `dist/aio-manager.exe` (~13 MB)
 - [ ] Test the built exe in a clean environment (no Python on PATH)
 - [ ] Document output path and distribution notes
 

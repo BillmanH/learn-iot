@@ -20,8 +20,15 @@ REQUIRED_FIELDS: dict[str, list[str]] = {
     "optional_tools": [],
 }
 
-# Locate config relative to this file: models/ -> textual/ -> repo root -> config/
-_REPO_ROOT = pathlib.Path(__file__).parent.parent.parent
+# Locate config relative to this file in dev mode, or next to the .exe when frozen.
+import sys as _sys
+
+def _find_repo_root() -> pathlib.Path:
+    if getattr(_sys, "frozen", False):
+        return pathlib.Path(_sys.executable).parent
+    return pathlib.Path(__file__).parent.parent.parent
+
+_REPO_ROOT = _find_repo_root()
 DEFAULT_CONFIG_PATH = _REPO_ROOT / "config" / "aio_config.json"
 
 

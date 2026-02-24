@@ -9,4 +9,9 @@ dependencies = []
 [project.optional-dependencies]
 ui = [
     "textual>=8.0.0",
+    "pyinstaller>=6.0.0",
 ]
+
+# Build the standalone .exe (from repo root, after uv sync --extra ui):
+#   uv run --extra ui pyinstaller --distpath . textual/aio_manager.spec
+# Output: aio-manager.exe  (placed at the repo root, tracked in git)
