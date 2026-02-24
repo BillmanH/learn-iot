@@ -5,7 +5,6 @@ Run with: uv run --extra ui textual/aio_manager.py
 from __future__ import annotations
 import sys
 import os
-import signal
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -21,13 +20,10 @@ class AIOManagerApp(App):
 
     TITLE = "AIO Manager"
     SUB_TITLE = "Azure IoT Operations"
-    # Prevent ctrl+c from quitting so the TextArea log pane supports copy.
-    # Use 'q' to quit instead.
-    CTRL_C_QUIT = False
+    ENABLE_COMMAND_PALETTE = False
 
     BINDINGS = [
         Binding("q", "quit", "Quit"),
-        Binding("f1", "action_show_help", "Help"),
     ]
 
     def on_mount(self) -> None:
@@ -44,17 +40,6 @@ class AIOManagerApp(App):
                 timeout=10,
             )
 
-    def action_show_help(self) -> None:
-        self.notify(
-            "Q: Quit  |  Ctrl+C: Copy (select text first)  |  F1: Help",
-            title="Key Bindings",
-            timeout=5,
-        )
-
 
 if __name__ == "__main__":
-    # Suppress SIGINT (Ctrl+C) at the OS level so Windows doesn't send
-    # KeyboardInterrupt to the Python process.  This lets the TextArea use
-    # Ctrl+C for copy.  Quit the app with 'q'.
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
     AIOManagerApp().run()

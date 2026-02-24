@@ -40,7 +40,7 @@ ConfigPanel {
     height: auto;
 }
 
-/* cfg-tabs panes auto-size; log-tabs panes keep height: 100% via global rule */
+/* cfg-tabs panes auto-size */
 .cfg-tabpane {
     height: auto;
     padding: 0 1;
@@ -209,23 +209,35 @@ EdgeStepRow {
 .readiness-banner--ready  { color: $success; background: $success 10%; }
 .readiness-banner--issues { color: $error;   background: $error 10%; }
 
-/* ─── Log area ───────────────────────────────────────────────────────────── */
+/* ─── Log / Instructions tabbed area ────────────────────────────────────── */
 
 #log-area {
     height: 1fr;
     border: round $surface;
     padding: 0;
 }
-
-/* TextArea used as a selectable log pane — neutral dark theme */
-#log {
-    height: 100%;
-    scrollbar-size: 1 1;
+/* Thin toolbar above the tabs containing the Open Log File button */
+#log-toolbar {
+    height: 3;
+    align: right middle;
+    padding: 0 1;
+    background: $surface;
+    border-bottom: solid $surface-lighten-1;
 }
 
-/* Hide the TextArea cursor-position footer bar */
-#log > .text-area--cursor-line {
-    display: none;
+.log-toolbar-btn {
+    height: 1;
+    width: auto;
+    min-width: 18;
+    margin-left: 1;
+    background: $surface-lighten-2;
+    color: $text-muted;
+    border: none;
+}
+/* Log pane fills the remaining log area */
+#log {
+    height: 1fr;
+    scrollbar-size: 1 1;
 }
 
 /* ─── Azure panel — step rows ────────────────────────────────────────────── */

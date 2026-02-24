@@ -303,32 +303,42 @@ kubectl get pods -n azure-iot-operations
 
 A terminal UI built with the Python `textual` library. Entry point: `textual/aio_manager.py`. Run with `uv run --extra ui textual/aio_manager.py`.
 
-### Ctrl+C Copy in the Log Pane — CRITICAL, DO NOT REGRESS
+### Copying Log Output (Log File Approach)
 
-The log pane is a `TextArea` (id `#log`) used in read-only mode as a scrolling output display. Users must be able to select text and press Ctrl+C to copy it (e.g. to paste az CLI commands into a terminal).
+Copying az CLI commands from the log pane via Ctrl+C in a Windows terminal is **not reliably fixable** — Windows intercepts Ctrl+C at the console subsystem level before it reaches Textual's input queue, and this cannot be overridden without breaking other behaviour. **Do not attempt SIGINT handler tricks to enable terminal copy — this approach was tried extensively and abandoned.**
 
-**Three parts must all be present simultaneously or copy will break:**
+The solution is the **"Open Log File" button** in the log toolbar. All output written to the UI log pane is also appended to `aio_manager.log` at the repo root. Clicking the button opens that file in the system default text editor, where the user can freely select and copy any az CLI commands.
 
-1. **`signal.SIG_IGN` before `app.run()`** (`aio_manager.py`):
+**Implementation rules — do not regress these:**
+
+1. **`RichLog` widget (NOT `TextArea`) for the log pane** (`main_screen.py`):
    ```python
-   signal.signal(signal.SIGINT, signal.SIG_IGN)
-   AIOManagerApp().run()
+   yield RichLog(id="log", highlight=False, markup=False)
    ```
-   Windows sends `SIGINT` (KeyboardInterrupt) to the Python process on Ctrl+C. This bypasses Textual entirely and kills the process. `SIG_IGN` discards it at the OS/Python level before Textual ever sees it.
+   This renders colored output natively. `TextArea` was previously used to support Ctrl+C copy, which proved unreliable. `RichLog` is the correct Textual widget for a scrolling log display.
 
-2. **`CTRL_C_QUIT = False`** on the `App` class (`aio_manager.py`):
+2. **`_write_log` writes to both `RichLog` and `aio_manager.log`** (`main_screen.py`):
    ```python
-   CTRL_C_QUIT = False
+   def _write_log(self, display: Text, plain: str) -> None:
+       rl = self.query_one("#log", RichLog)
+       rl.write(display)
+       with open(_UI_LOG_PATH, "a", encoding="utf-8") as f:
+           f.write(f"{ts}  {plain}\n")
    ```
-   Belt-and-suspenders: also blocks Textual's own internal Ctrl+C quit binding.
+   `display` is a `rich.text.Text` object with color spans. `plain` is the stripped version written to file.
 
-3. **`ta.insert(text, location=ta.document.end)`** in `_write_log` (`main_screen.py`):
+3. **"Open Log File" button** in the log toolbar (`main_screen.py`):
    ```python
-   ta.insert(line + "\n", location=ta.document.end)
+   yield Button("Open Log File", id="btn-open-log", classes="log-toolbar-btn")
    ```
-   This appends text **without moving the cursor**. Any prior approach using `ta.move_cursor(ta.document.end)` followed by `ta.insert(text)` destroys the user's selection before Ctrl+C can act on it. The `location=` argument is the only correct approach.
+   Handler calls `os.startfile(str(_UI_LOG_PATH))` with a fallback to `notepad`.
 
-If copy ever stops working, check these three things in order. All three have been broken and re-fixed multiple times.
+4. **Log helpers use `rich.text.Text` objects for color** (`main_screen.py`):
+   - `log_edge`: cyan `[EDGE]` prefix; green for `✓`, yellow for `✗`/`FIX:`
+   - `log_azure`: green `[AZURE]` prefix; green for SUCCESS, red for ERROR/FAILED
+   - `log_all`: plain white text
+
+**Do NOT add any `signal.SIG_IGN`, `CTRL_C_QUIT = False`, or SIGINT handler logic** — it doesn't work and was removed. The log file is the solution.
 
 ## Avoid These Patterns
 - Don't use plain MQTT without authentication

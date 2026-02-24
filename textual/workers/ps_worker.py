@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import pathlib
 import shutil
+import sys
 from typing import Callable
 
 
@@ -60,8 +61,7 @@ async def run_powershell(
 
     try:
         import subprocess as _sp
-        import sys as _sys
-        _flags = _sp.CREATE_NEW_PROCESS_GROUP if _sys.platform == "win32" else 0
+        _flags = _sp.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,

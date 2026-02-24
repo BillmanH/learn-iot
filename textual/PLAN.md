@@ -1,7 +1,13 @@
 # AIO Manager - Textual UI Design Plan
 
-A terminal-based management UI for Azure IoT Operations, built with the Python `textual` library. Runs on the Windows management machine and provides an end-to-end workflow covering edge device setup, Azure configuration, and live monitoring — all from a single screen.
+Run in the terminal:
+```
+uv run --extra ui textual/aio_manager.py
+```
 
+A terminal-based management UI for Installing Azure IoT Operations, built with the Python `textual` library. Runs on the Windows management machine and provides an end-to-end workflow covering edge device setup, Azure configuration.
+
+Note that this is not a tool for monitorig AIO, just for installing it. 
 ---
 
 ## Vision
@@ -25,9 +31,9 @@ Replace the need to manually orchestrate four separate scripts across two machin
 │                          │                          │ Azure Clust Dep T │
 │  Status: ● Connected     │  Status: ◌ Not started   │─────────────────  │
 │  Host: 192.168.1.x       │                          │ Field   Value OK  │
-│                          │  ✓ Key Vault             │ sub_id  abc… ✓    │
-│  ✓ installer.sh          │  ✓ Storage Account       │ rg      my-r ✓    │
-│  ✓ arc_enable.ps1        │  ⟳ Schema Registry       │ location east ✓   │
+│                          │  ✓ Key Vault             │ sub_id  abc… ✓   │
+│  ✓ installer.sh          │  ✓ Storage Account       │ rg      my-r ✓   │
+│  ✓ arc_enable.ps1        │  ⟳ Schema Registry       │ location east ✓  │
 │                          │  ○ IoT Operations        │─────────────────  │
 │  ✓ Arc Connected         │  ○ Role Assignments      │ (row description) │
 │  ✓ Custom Locations      │                          │─────────────────  │
@@ -39,10 +45,10 @@ Replace the need to manually orchestrate four separate scripts across two machin
 │  Ready for Azure Setup   │                          │[ Open in Editor ] │
 │                          │                          │[ Reload         ] │
 ├──────────────────────────┴──────────────────────────┴───────────────────┤
-│  LOGS                                                                    │
+│  LOGS                                                                   │
 │  > 14:02:11 [CONFIG] Loaded aio_config.json — OK                        │
-│  > 14:03:45 [EDGE] ✓ arc-connected                                       │
-│  > 14:05:12 [AZURE] SUCCESS: ARM deployment completed: keyVault          │
+│  > 14:03:45 [EDGE] ✓ arc-connected                                      │
+│  > 14:05:12 [AZURE] SUCCESS: ARM deployment completed: keyVault         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 

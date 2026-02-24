@@ -3,15 +3,19 @@ Main screen — composes the three panels and the log pane into a single layout.
 """
 
 from __future__ import annotations
+import datetime
 import logging
+import os
 import pathlib
 import re
 from typing import Optional
 
+from rich.text import Text
+
 from textual import work
 from textual.app import ComposeResult
 from textual.screen import Screen
-from textual.widgets import Header, Footer, Button, TextArea
+from textual.widgets import Header, Footer, Button, RichLog
 from textual.containers import Horizontal, Vertical
 
 from panels.edge_panel import EdgePanel, CheckRow, EdgeStepRow
@@ -25,9 +29,11 @@ from workers.ps_worker import run_powershell
 from workers.check_worker import UILogHandler, register_ui_handler
 from workers.azure_build_worker import build_azure_resources
 
-# ── Strip Rich markup so the TextArea receives clean, selectable plain text ───────────
-# Removes [green], [/blue], [dim], [bold], [#abc123] — but NOT [EDGE], [OK], [ERROR]
-# (uppercase / mixed-case labels are preserved as literal bracket text).
+# ── Log file — all UI pane output is also written here so users can open it
+#    and copy specific az CLI commands without fighting terminal Ctrl+C.
+_UI_LOG_PATH = pathlib.Path(__file__).parent.parent.parent / "aio_manager.log"
+
+# ── Strip Rich markup for plain-text log file writes ─────────────────────────
 _MARKUP_RE = re.compile(r'\[/?(?:[a-z][a-z0-9_ ]*(?:\s+on\s+[a-z]+)?|#[0-9a-fA-F]{3,6})\]')
 
 
@@ -71,7 +77,10 @@ class MainScreen(Screen):
             yield AzurePanel(id="panel-azure")
 
         with Vertical(id="log-area"):
-            yield TextArea("", id="log", read_only=True)
+            with Horizontal(id="log-toolbar"):
+                yield Button("Open Log File", id="btn-open-log", classes="log-toolbar-btn")
+                yield Button("Open README", id="btn-open-readme", classes="log-toolbar-btn")
+            yield RichLog(id="log", highlight=False, markup=False)
         yield Footer()
 
     async def on_mount(self) -> None:
@@ -152,45 +161,65 @@ class MainScreen(Screen):
 
     # ── Logging helpers ────────────────────────────────────────────────────
 
-    def _write_log(self, line: str) -> None:
-        """Append one plain-text line to the TextArea.
+    def _write_log(self, display: Text, plain: str) -> None:
+        """Append a line to the RichLog pane and to the on-disk log file.
 
-        insert(text, location=document.end) appends without moving the cursor,
-        so any text selection the user has made is never disturbed and Ctrl+C
-        copy works correctly during streaming output.
-
-        We only scroll to the bottom when there is no active selection —
-        i.e. the user is passively watching, not trying to copy something.
+        All UI log output is written to aio_manager.log so users can open it
+        in any text editor and freely copy specific az CLI commands — no
+        terminal Ctrl+C conflicts to worry about.
         """
         try:
-            ta = self.query_one("#log", TextArea)
-            has_selection = ta.selection.start != ta.selection.end
-
-            ta.read_only = False
-            try:
-                ta.insert(line + "\n", location=ta.document.end)
-            finally:
-                ta.read_only = True  # ALWAYS restore, even on exception
-
-            if not has_selection:
-                ta.scroll_end(animate=False)
+            rl = self.query_one("#log", RichLog)
+            rl.write(display)
         except Exception:
-            pass  # Never propagate — a log write must not kill the app
+            pass
+        try:
+            ts = datetime.datetime.now().strftime("%H:%M:%S")
+            with open(_UI_LOG_PATH, "a", encoding="utf-8") as f:
+                f.write(f"{ts}  {plain}\n")
+        except Exception:
+            pass
 
     def log_all(self, message: str) -> None:
-        self._write_log(_strip(message))
+        plain = _strip(message)
+        t = Text(plain)
+        self._write_log(t, plain)
 
     def log_edge(self, message: str) -> None:
-        self._write_log(f"[EDGE] {_strip(message)}")
+        plain = _strip(message)
+        t = Text()
+        t.append("[EDGE] ", style="cyan")
+        if plain.startswith("\u2713"):           # ✓
+            t.append(plain, style="green")
+        elif plain.startswith("\u2717") or "FIX:" in plain:  # ✗
+            t.append(plain, style="yellow")
+        else:
+            t.append(plain)
+        self._write_log(t, f"[EDGE] {plain}")
 
     def log_azure(self, message: str) -> None:
-        self._write_log(f"[AZURE] {_strip(message)}")
+        plain = _strip(message)
+        t = Text()
+        t.append("[AZURE] ", style="green")
+        if "SUCCESS" in plain or plain.startswith("\u2713"):
+            t.append(plain, style="green")
+        elif "ERROR" in plain or "FAILED" in plain or plain.startswith("\u2717"):
+            t.append(plain, style="red")
+        else:
+            t.append(plain)
+        self._write_log(t, f"[AZURE] {plain}")
 
     # ── Azure panel button handlers ────────────────────────────────────────
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Dispatch Azure action buttons that bubble up from AzurePanel."""
-        if event.button.id == "btn-check-azure":
+        if event.button.id == "btn-open-log":
+            event.stop()
+            self._open_log_file()
+        elif event.button.id == "btn-open-readme":
+            event.stop()
+            self._open_readme()
+        elif event.button.id == "btn-check-azure":
             event.stop()
             self._run_check_azure()
         elif event.button.id == "btn-grant-roles":
@@ -199,6 +228,38 @@ class MainScreen(Screen):
         elif event.button.id == "btn-ext-config":
             event.stop()
             self._run_build_azure()
+
+    def _open_readme(self) -> None:
+        """Open readme.md in the system default text editor."""
+        readme = _REPO_ROOT / "readme.md"
+        try:
+            os.startfile(str(readme))
+        except Exception:
+            try:
+                import subprocess
+                subprocess.Popen(["notepad", str(readme)])
+            except Exception:
+                self.log_all(f"[CONFIG] README location: {readme}")
+
+    def _open_log_file(self) -> None:
+        """Open aio_manager.log in the system default text editor.
+
+        This is the recommended way to copy specific az CLI commands from
+        the log — avoids all terminal Ctrl+C conflicts entirely.
+        """
+        # Ensure the file exists so the editor doesn't complain
+        try:
+            _UI_LOG_PATH.touch(exist_ok=True)
+        except Exception:
+            pass
+        try:
+            os.startfile(str(_UI_LOG_PATH))
+        except Exception:
+            try:
+                import subprocess
+                subprocess.Popen(["notepad", str(_UI_LOG_PATH)])
+            except Exception:
+                self.log_all(f"[CONFIG] Log file location: {_UI_LOG_PATH}")
 
     @work
     async def _run_check_azure(self) -> None:
