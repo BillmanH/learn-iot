@@ -12,7 +12,7 @@ Built with [Textual](https://textual.textualize.io/) and runs on the Windows man
 
 The AIO installation workflow spans two machines (the edge device and the Windows management machine) and four separate scripts. AIO Manager puts a TUI on top of it so everything is visible in one place.
 
-
+![alt text](/docs/img/TUI-screen.png)
 
 ### The three panels
 
