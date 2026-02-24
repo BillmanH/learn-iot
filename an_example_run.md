@@ -14,7 +14,7 @@ git clone https://github.com/BillmanH/learn-iot.git
 cd learn-iot
 ```
 
-I have it on both my windows laptop, and also on my edge machine. The windows machine is able to con
+I have it on both my Windows laptop, and also on my edge machine. The Windows machine is able to con
 
 I run the installer.
 ```bash
@@ -41,7 +41,7 @@ It says success, but I got this:
 Wait 2-5 minutes, then check if the node is Ready:
 ```
 
-I know that the kubernetes instance was just installed. But it's not ready yet. It has to do internal Kubernetes things. So I go get a coffee, do some emails, chat with people, etc. 
+I know that the Kubernetes instance was just installed. But it's not ready yet. It has to do internal Kubernetes things. So I go get a coffee, do some emails, chat with people, etc. 
 
 Then I come back and I run it again:
 ```bash
@@ -119,4 +119,33 @@ Your cluster 'bel-aio-work-cluster' is now connected to Azure Arc.
 Custom-locations feature has been enabled via helm.
 ```
 
-Next I run the 
+Now my edge environment is set up. I can return to my Windows workstation and complete the rest of the process. 
+
+# The external process
+
+In a PowerShell window I log in to the Azure CLI using `az login`. 
+I make sure I'm in the right subscription and tenant. 
+
+Then I run the powershell to assign access. 
+
+```
+cd/external_configuration
+.\grant_entra_id_roles.ps1
+```
+
+That grants it for me, but I'm also going to grant it for my friend who will also want access. 
+
+```
+cd/external_configuration
+.\grant_entra_id_roles.ps1 --AddUser 0000-0000-00000-00000 <- my friend's OID
+```
+
+Then I run
+```
+cd/external_configuration
+.\External-Configurator.ps1
+```
+
+I follow the errors and the instructions in those errors. I make changes to the configuration as needed and rerun. 
+
+Finally I see IoT edge module complete and I know that I'm ready to make DataFlows. 
