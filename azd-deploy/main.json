@@ -1,0 +1,1265 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.40.2.10011",
+      "templateHash": "7413897483799106151"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure region for all resources."
+      }
+    },
+    "environmentName": {
+      "type": "string",
+      "metadata": {
+        "description": "azd environment name — used to derive all resource names. Set automatically by `azd init`."
+      }
+    },
+    "clusterName": {
+      "type": "string",
+      "defaultValue": "[parameters('environmentName')]",
+      "metadata": {
+        "description": "Name for the Arc-enabled Kubernetes cluster. Defaults to the azd environment name."
+      }
+    },
+    "keyVaultName": {
+      "type": "string",
+      "defaultValue": "",
+      "maxLength": 24,
+      "metadata": {
+        "description": "Name for the Azure Key Vault (3-24 chars, globally unique). Leave blank to auto-generate."
+      }
+    },
+    "storageAccountName": {
+      "type": "string",
+      "defaultValue": "",
+      "maxLength": 24,
+      "metadata": {
+        "description": "Name for the storage account (3-24 chars, lowercase alphanumeric). Leave blank to auto-generate."
+      }
+    },
+    "schemaRegistryName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Name for the IoT Operations schema registry. Leave blank to auto-generate."
+      }
+    },
+    "managedIdentityName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Name for the user-assigned managed identity. Leave blank to auto-generate."
+      }
+    },
+    "containerRegistryName": {
+      "type": "string",
+      "defaultValue": "",
+      "maxLength": 50,
+      "metadata": {
+        "description": "Name for the Azure Container Registry (5-50 chars, alphanumeric). Leave blank to auto-generate."
+      }
+    },
+    "deviceRegistryNamespaceName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Name for the Device Registry namespace (required for AIO v1.2+ --ns-resource-id). Leave blank to auto-generate."
+      }
+    },
+    "vmAdminUsername": {
+      "type": "string",
+      "defaultValue": "aiouser",
+      "metadata": {
+        "description": "Admin username for the edge VM."
+      }
+    },
+    "vmSshPublicKey": {
+      "type": "securestring",
+      "metadata": {
+        "description": "SSH public key content for the edge VM. Set AZURE_VM_SSH_PUBLIC_KEY in azd env, or leave blank to let pre-provision.ps1 generate one."
+      }
+    },
+    "vmSize": {
+      "type": "string",
+      "defaultValue": "Standard_D4s_v3",
+      "metadata": {
+        "description": "Azure VM size for the edge VM."
+      }
+    },
+    "deployerObjectId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Object ID of the deploying user — granted Key Vault Secrets Officer and IoT Ops Data roles. Set automatically by pre-provision.ps1."
+      }
+    },
+    "openSshPort": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Keep NSG port 22 open after provisioning."
+      }
+    },
+    "installK9s": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Install k9s terminal Kubernetes UI on the VM."
+      }
+    },
+    "installMqttui": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Install mqttui terminal MQTT client on the VM."
+      }
+    },
+    "tags": {
+      "type": "object",
+      "defaultValue": {
+        "deployedBy": "azd",
+        "purpose": "iot-operations-learning"
+      },
+      "metadata": {
+        "description": "Resource tags applied to all resources."
+      }
+    }
+  },
+  "variables": {
+    "kvSuffix": "[take(uniqueString(resourceGroup().id), 8)]",
+    "storSuffix": "[take(uniqueString(resourceGroup().id, 'stor'), 8)]",
+    "acrSuffix": "[take(uniqueString(resourceGroup().id, 'acr'), 8)]",
+    "defaultKeyVaultName": "[format('kv-{0}-{1}', take(parameters('environmentName'), 13), variables('kvSuffix'))]",
+    "defaultStorageAccountName": "[format('st{0}{1}', take(replace(toLower(parameters('environmentName')), '-', ''), 12), variables('storSuffix'))]",
+    "defaultSchemaRegistryName": "[format('{0}-schema-reg', take(parameters('environmentName'), 20))]",
+    "defaultManagedIdentityName": "[format('{0}-aio-mi', take(parameters('environmentName'), 30))]",
+    "defaultAcrName": "[format('acr{0}{1}', take(replace(toLower(parameters('environmentName')), '-', ''), 12), variables('acrSuffix'))]",
+    "defaultNamespaceName": "[format('{0}-dr-ns', take(parameters('environmentName'), 40))]",
+    "resolvedKeyVaultName": "[if(empty(parameters('keyVaultName')), variables('defaultKeyVaultName'), parameters('keyVaultName'))]",
+    "resolvedStorageAccountName": "[if(empty(parameters('storageAccountName')), variables('defaultStorageAccountName'), parameters('storageAccountName'))]",
+    "resolvedSchemaRegistryName": "[if(empty(parameters('schemaRegistryName')), variables('defaultSchemaRegistryName'), parameters('schemaRegistryName'))]",
+    "resolvedManagedIdentityName": "[if(empty(parameters('managedIdentityName')), variables('defaultManagedIdentityName'), parameters('managedIdentityName'))]",
+    "resolvedAcrName": "[if(empty(parameters('containerRegistryName')), variables('defaultAcrName'), parameters('containerRegistryName'))]",
+    "resolvedNamespaceName": "[if(empty(parameters('deviceRegistryNamespaceName')), variables('defaultNamespaceName'), parameters('deviceRegistryNamespaceName'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "network",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "clusterName": {
+            "value": "[parameters('clusterName')]"
+          },
+          "openSshPort": {
+            "value": "[parameters('openSshPort')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.40.2.10011",
+              "templateHash": "9419161462881916440"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string"
+            },
+            "clusterName": {
+              "type": "string"
+            },
+            "openSshPort": {
+              "type": "bool",
+              "defaultValue": true
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {}
+            }
+          },
+          "variables": {
+            "vnetName": "[format('{0}-vnet', parameters('clusterName'))]",
+            "subnetName": "[format('{0}-subnet', parameters('clusterName'))]",
+            "nsgName": "[format('{0}-nsg', parameters('clusterName'))]",
+            "publicIpName": "[format('{0}-pip', parameters('clusterName'))]",
+            "sshRule": "[if(parameters('openSshPort'), createArray(createObject('name', 'allow-ssh', 'properties', createObject('priority', 1000, 'protocol', 'Tcp', 'access', 'Allow', 'direction', 'Inbound', 'sourceAddressPrefix', '*', 'sourcePortRange', '*', 'destinationAddressPrefix', '*', 'destinationPortRange', '22', 'description', 'Allow SSH inbound (set OPEN_SSH_PORT=false to disable)'))), createArray())]",
+            "baseRules": [
+              {
+                "name": "allow-k8s-api-inbound",
+                "properties": {
+                  "priority": 1100,
+                  "protocol": "Tcp",
+                  "access": "Allow",
+                  "direction": "Inbound",
+                  "sourceAddressPrefix": "VirtualNetwork",
+                  "sourcePortRange": "*",
+                  "destinationAddressPrefix": "*",
+                  "destinationPortRange": "6443",
+                  "description": "Allow K3s API server within VNet"
+                }
+              },
+              {
+                "name": "deny-all-inbound",
+                "properties": {
+                  "priority": 4096,
+                  "protocol": "*",
+                  "access": "Deny",
+                  "direction": "Inbound",
+                  "sourceAddressPrefix": "*",
+                  "sourcePortRange": "*",
+                  "destinationAddressPrefix": "*",
+                  "destinationPortRange": "*",
+                  "description": "Deny all other inbound (explicit default deny)"
+                }
+              }
+            ],
+            "securityRules": "[concat(variables('sshRule'), variables('baseRules'))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/networkSecurityGroups",
+              "apiVersion": "2024-01-01",
+              "name": "[variables('nsgName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "securityRules": "[variables('securityRules')]"
+              }
+            },
+            {
+              "type": "Microsoft.Network/publicIPAddresses",
+              "apiVersion": "2024-01-01",
+              "name": "[variables('publicIpName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "sku": {
+                "name": "Standard"
+              },
+              "properties": {
+                "publicIPAllocationMethod": "Static",
+                "dnsSettings": {
+                  "domainNameLabel": "[toLower(parameters('clusterName'))]"
+                }
+              }
+            },
+            {
+              "type": "Microsoft.Network/virtualNetworks",
+              "apiVersion": "2024-01-01",
+              "name": "[variables('vnetName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "addressSpace": {
+                  "addressPrefixes": [
+                    "10.0.0.0/16"
+                  ]
+                },
+                "subnets": [
+                  {
+                    "name": "[variables('subnetName')]",
+                    "properties": {
+                      "addressPrefix": "10.0.0.0/24",
+                      "networkSecurityGroup": {
+                        "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]"
+                      }
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "vnetId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
+            },
+            "subnetId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', variables('vnetName')), '2024-01-01').subnets[0].id]"
+            },
+            "nsgId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]"
+            },
+            "publicIpId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName'))]"
+            },
+            "publicIpAddress": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName')), '2024-01-01').ipAddress]"
+            },
+            "fqdn": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName')), '2024-01-01').dnsSettings.fqdn]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "keyVault",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "keyVaultName": {
+            "value": "[variables('resolvedKeyVaultName')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.40.2.10011",
+              "templateHash": "9286208822283379641"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string"
+            },
+            "keyVaultName": {
+              "type": "string"
+            },
+            "skuName": {
+              "type": "string",
+              "defaultValue": "standard",
+              "allowedValues": [
+                "standard",
+                "premium"
+              ]
+            },
+            "enableSoftDelete": {
+              "type": "bool",
+              "defaultValue": true
+            },
+            "softDeleteRetentionInDays": {
+              "type": "int",
+              "defaultValue": 90
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {}
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.KeyVault/vaults",
+              "apiVersion": "2024-04-01-preview",
+              "name": "[parameters('keyVaultName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "tenantId": "[subscription().tenantId]",
+                "sku": {
+                  "family": "A",
+                  "name": "[parameters('skuName')]"
+                },
+                "enableRbacAuthorization": true,
+                "enableSoftDelete": "[parameters('enableSoftDelete')]",
+                "softDeleteRetentionInDays": "[parameters('softDeleteRetentionInDays')]",
+                "enabledForDeployment": true,
+                "enabledForTemplateDeployment": true,
+                "enabledForDiskEncryption": false,
+                "publicNetworkAccess": "Enabled",
+                "networkAcls": {
+                  "defaultAction": "Allow",
+                  "bypass": "AzureServices"
+                }
+              }
+            }
+          ],
+          "outputs": {
+            "keyVaultId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
+            },
+            "keyVaultName": {
+              "type": "string",
+              "value": "[parameters('keyVaultName')]"
+            },
+            "keyVaultUri": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2024-04-01-preview').vaultUri]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "storageAccount",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "storageAccountName": {
+            "value": "[variables('resolvedStorageAccountName')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.40.2.10011",
+              "templateHash": "7132954378414232197"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string"
+            },
+            "storageAccountName": {
+              "type": "string"
+            },
+            "skuName": {
+              "type": "string",
+              "defaultValue": "Standard_LRS",
+              "allowedValues": [
+                "Standard_LRS",
+                "Standard_GRS",
+                "Standard_ZRS"
+              ]
+            },
+            "containerName": {
+              "type": "string",
+              "defaultValue": "schemas"
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {}
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Storage/storageAccounts",
+              "apiVersion": "2023-05-01",
+              "name": "[parameters('storageAccountName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "sku": {
+                "name": "[parameters('skuName')]"
+              },
+              "kind": "StorageV2",
+              "properties": {
+                "accessTier": "Hot",
+                "supportsHttpsTrafficOnly": true,
+                "allowBlobPublicAccess": false,
+                "isHnsEnabled": true,
+                "minimumTlsVersion": "TLS1_2",
+                "networkAcls": {
+                  "defaultAction": "Allow",
+                  "bypass": "AzureServices"
+                }
+              }
+            },
+            {
+              "type": "Microsoft.Storage/storageAccounts/blobServices",
+              "apiVersion": "2023-05-01",
+              "name": "[format('{0}/{1}', parameters('storageAccountName'), 'default')]",
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+              "apiVersion": "2023-05-01",
+              "name": "[format('{0}/{1}/{2}', parameters('storageAccountName'), 'default', parameters('containerName'))]",
+              "properties": {
+                "publicAccess": "None"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts/blobServices', parameters('storageAccountName'), 'default')]"
+              ]
+            }
+          ],
+          "outputs": {
+            "storageAccountId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
+            },
+            "storageAccountName": {
+              "type": "string",
+              "value": "[parameters('storageAccountName')]"
+            },
+            "primaryBlobEndpoint": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), '2023-05-01').primaryEndpoints.blob]"
+            },
+            "schemaContainerName": {
+              "type": "string",
+              "value": "[parameters('containerName')]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "managedIdentity",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "managedIdentityName": {
+            "value": "[variables('resolvedManagedIdentityName')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.40.2.10011",
+              "templateHash": "3252255986184492424"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string"
+            },
+            "managedIdentityName": {
+              "type": "string"
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {}
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+              "apiVersion": "2023-01-31",
+              "name": "[parameters('managedIdentityName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]"
+            }
+          ],
+          "outputs": {
+            "managedIdentityId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName'))]"
+            },
+            "managedIdentityName": {
+              "type": "string",
+              "value": "[parameters('managedIdentityName')]"
+            },
+            "principalId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), '2023-01-31').principalId]"
+            },
+            "clientId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), '2023-01-31').clientId]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "containerRegistry",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "containerRegistryName": {
+            "value": "[variables('resolvedAcrName')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.40.2.10011",
+              "templateHash": "17212449484661718020"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string"
+            },
+            "containerRegistryName": {
+              "type": "string"
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {}
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.ContainerRegistry/registries",
+              "apiVersion": "2023-07-01",
+              "name": "[parameters('containerRegistryName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "sku": {
+                "name": "Basic"
+              },
+              "properties": {
+                "adminUserEnabled": false,
+                "publicNetworkAccess": "Enabled",
+                "zoneRedundancy": "Disabled"
+              }
+            }
+          ],
+          "outputs": {
+            "acrId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.ContainerRegistry/registries', parameters('containerRegistryName'))]"
+            },
+            "acrName": {
+              "type": "string",
+              "value": "[parameters('containerRegistryName')]"
+            },
+            "loginServer": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.ContainerRegistry/registries', parameters('containerRegistryName')), '2023-07-01').loginServer]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "deviceRegistryNamespace",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "namespaceName": {
+            "value": "[variables('resolvedNamespaceName')]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.40.2.10011",
+              "templateHash": "1122064944450542320"
+            }
+          },
+          "parameters": {
+            "namespaceName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the Device Registry namespace."
+              }
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "[resourceGroup().location]",
+              "metadata": {
+                "description": "Azure region for the namespace."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Resource tags."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.DeviceRegistry/namespaces",
+              "apiVersion": "2025-10-01",
+              "name": "[parameters('namespaceName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {}
+            }
+          ],
+          "outputs": {
+            "namespaceId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.DeviceRegistry/namespaces', parameters('namespaceName'))]"
+            },
+            "namespaceName": {
+              "type": "string",
+              "value": "[parameters('namespaceName')]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "schemaRegistry",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "schemaRegistryName": {
+            "value": "[variables('resolvedSchemaRegistryName')]"
+          },
+          "storageAccountName": {
+            "value": "[variables('resolvedStorageAccountName')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.40.2.10011",
+              "templateHash": "5579645029311276005"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string"
+            },
+            "schemaRegistryName": {
+              "type": "string"
+            },
+            "storageAccountName": {
+              "type": "string"
+            },
+            "containerName": {
+              "type": "string",
+              "defaultValue": "schemas"
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {}
+            }
+          },
+          "variables": {
+            "storageSuffix": "[environment().suffixes.storage]",
+            "blobEndpoint": "[format('https://{0}.blob.{1}/{2}', parameters('storageAccountName'), variables('storageSuffix'), parameters('containerName'))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.DeviceRegistry/schemaRegistries",
+              "apiVersion": "2025-10-01",
+              "name": "[parameters('schemaRegistryName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "identity": {
+                "type": "SystemAssigned"
+              },
+              "properties": {
+                "namespace": "[take(parameters('schemaRegistryName'), 32)]",
+                "storageAccountContainerUrl": "[variables('blobEndpoint')]"
+              }
+            }
+          ],
+          "outputs": {
+            "schemaRegistryId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.DeviceRegistry/schemaRegistries', parameters('schemaRegistryName'))]"
+            },
+            "schemaRegistryName": {
+              "type": "string",
+              "value": "[parameters('schemaRegistryName')]"
+            },
+            "schemaRegistryPrincipalId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.DeviceRegistry/schemaRegistries', parameters('schemaRegistryName')), '2025-10-01', 'full').identity.principalId]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'storageAccount')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "vm",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "clusterName": {
+            "value": "[parameters('clusterName')]"
+          },
+          "adminUsername": {
+            "value": "[parameters('vmAdminUsername')]"
+          },
+          "sshPublicKey": {
+            "value": "[parameters('vmSshPublicKey')]"
+          },
+          "vmSize": {
+            "value": "[parameters('vmSize')]"
+          },
+          "subnetId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'network'), '2025-04-01').outputs.subnetId.value]"
+          },
+          "publicIpId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'network'), '2025-04-01').outputs.publicIpId.value]"
+          },
+          "nsgId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'network'), '2025-04-01').outputs.nsgId.value]"
+          },
+          "installK9s": {
+            "value": "[parameters('installK9s')]"
+          },
+          "installMqttui": {
+            "value": "[parameters('installMqttui')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.40.2.10011",
+              "templateHash": "11768609453248365267"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string"
+            },
+            "clusterName": {
+              "type": "string"
+            },
+            "adminUsername": {
+              "type": "string",
+              "defaultValue": "aiouser"
+            },
+            "sshPublicKey": {
+              "type": "securestring"
+            },
+            "vmSize": {
+              "type": "string",
+              "defaultValue": "Standard_D4s_v3"
+            },
+            "subnetId": {
+              "type": "string"
+            },
+            "publicIpId": {
+              "type": "string"
+            },
+            "nsgId": {
+              "type": "string"
+            },
+            "installK9s": {
+              "type": "bool",
+              "defaultValue": false
+            },
+            "installMqttui": {
+              "type": "bool",
+              "defaultValue": false
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {}
+            }
+          },
+          "variables": {
+            "vmName": "[format('{0}-vm', parameters('clusterName'))]",
+            "nicName": "[format('{0}-nic', parameters('clusterName'))]",
+            "osDiskName": "[format('{0}-osdisk', parameters('clusterName'))]",
+            "cloudInitBase": "#cloud-config\r\npackages:\r\n  - curl\r\n  - apt-transport-https\r\n  - jq\r\n  - unzip\r\n  - git\r\n\r\nruncmd:\r\n  # -----------------------------------------------------------------------\r\n  # Sysctl settings required by Azure IoT Operations\r\n  # (mirrors configure_system_settings in installer.sh)\r\n  # -----------------------------------------------------------------------\r\n  - [ bash, -c, \"cat > /etc/sysctl.d/99-azure-iot-operations.conf << 'EOF'\\nnet.ipv4.ip_forward = 1\\nnet.bridge.bridge-nf-call-iptables = 1\\nnet.bridge.bridge-nf-call-ip6tables = 1\\nfs.inotify.max_user_instances = 8192\\nfs.inotify.max_user_watches = 524288\\nvm.max_map_count = 262144\\nEOF\" ]\r\n  - [ bash, -c, \"sysctl --system\" ]\r\n\r\n  # -----------------------------------------------------------------------\r\n  # Install K3s — traefik disabled (not needed by AIO, saves resources)\r\n  # -----------------------------------------------------------------------\r\n  - [ bash, -c, \"curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION='v1.30.6+k3s1' sh -s - --disable traefik --write-kubeconfig-mode 644\" ]\r\n\r\n  # Wait for K3s node to be Ready\r\n  - [ bash, -c, \"until k3s kubectl get nodes | grep -q ' Ready '; do echo 'Waiting for K3s node...'; sleep 10; done\" ]\r\n\r\n  # Copy kubeconfig for the admin user (needed when az vm run-command runs as that user)\r\n  - [ bash, -c, \"mkdir -p /root/.kube && cp /etc/rancher/k3s/k3s.yaml /root/.kube/config\" ]\r\n\r\n  # -----------------------------------------------------------------------\r\n  # Install Helm\r\n  # -----------------------------------------------------------------------\r\n  - [ bash, -c, \"curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash\" ]\r\n\r\n  # -----------------------------------------------------------------------\r\n  # Install CSI Secrets Store driver + Azure Key Vault provider\r\n  # Release names match installer.sh: csi-secrets-store-driver / azure-csi-provider\r\n  # -----------------------------------------------------------------------\r\n  - [ bash, -c, \"helm repo add secrets-store-csi-driver https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts\" ]\r\n  - [ bash, -c, \"helm repo add csi-secrets-store-provider-azure https://azure.github.io/secrets-store-csi-driver-provider-azure/charts\" ]\r\n  - [ bash, -c, \"helm repo update\" ]\r\n  - [ bash, -c, \"helm install csi-secrets-store-driver secrets-store-csi-driver/secrets-store-csi-driver --namespace kube-system --set syncSecret.enabled=true --set enableSecretRotation=true\" ]\r\n  - [ bash, -c, \"kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=secrets-store-csi-driver -n kube-system --timeout=120s\" ]\r\n  - [ bash, -c, \"helm install azure-csi-provider csi-secrets-store-provider-azure/csi-secrets-store-provider-azure --namespace kube-system --set secrets-store-csi-driver.install=false\" ]\r\n  - [ bash, -c, \"kubectl wait --for=condition=ready pod -l app=csi-secrets-store-provider-azure -n kube-system --timeout=120s\" ]\r\n\r\n  # -----------------------------------------------------------------------\r\n  # Install Azure CLI (needed when az connectedk8s connect runs via run-command)\r\n  # -----------------------------------------------------------------------\r\n  - [ bash, -c, \"curl -sL https://aka.ms/InstallAzureCLIDeb | bash\" ]\r\n",
+            "k9sBlock": "[if(parameters('installK9s'), '  # Install k9s — terminal K8s UI\r\n  - [ bash, -c, \"K9S_VER=$(curl -s https://api.github.com/repos/derailed/k9s/releases/latest | jq -r .tag_name) && curl -sL https://github.com/derailed/k9s/releases/download/${K9S_VER}/k9s_Linux_amd64.tar.gz | tar -xz -C /usr/local/bin k9s\" ]\r\n', '')]",
+            "mqttuiBlock": "[if(parameters('installMqttui'), '  # Install mqttui — terminal MQTT client\r\n  - [ bash, -c, \"MQTTUI_VER=$(curl -s https://api.github.com/repos/EdJoPaTo/mqttui/releases/latest | jq -r .tag_name) && curl -sL https://github.com/EdJoPaTo/mqttui/releases/download/${MQTTUI_VER}/mqttui-${MQTTUI_VER}-x86_64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin mqttui\" ]\r\n', '')]",
+            "cloudInitFooter": "  # Signal bootstrap complete — post-provision.ps1 polls for this file\r\n  - [ bash, -c, \"touch /tmp/k3s-ready\" ]\r\n",
+            "cloudInitContent": "[format('{0}{1}{2}{3}', variables('cloudInitBase'), variables('k9sBlock'), variables('mqttuiBlock'), variables('cloudInitFooter'))]",
+            "cloudInitBase64": "[base64(variables('cloudInitContent'))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/networkInterfaces",
+              "apiVersion": "2024-01-01",
+              "name": "[variables('nicName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "ipConfigurations": [
+                  {
+                    "name": "ipconfig1",
+                    "properties": {
+                      "privateIPAllocationMethod": "Dynamic",
+                      "subnet": {
+                        "id": "[parameters('subnetId')]"
+                      },
+                      "publicIPAddress": {
+                        "id": "[parameters('publicIpId')]"
+                      }
+                    }
+                  }
+                ],
+                "networkSecurityGroup": {
+                  "id": "[parameters('nsgId')]"
+                }
+              }
+            },
+            {
+              "type": "Microsoft.Compute/virtualMachines",
+              "apiVersion": "2024-07-01",
+              "name": "[variables('vmName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "identity": {
+                "type": "SystemAssigned"
+              },
+              "properties": {
+                "hardwareProfile": {
+                  "vmSize": "[parameters('vmSize')]"
+                },
+                "storageProfile": {
+                  "imageReference": {
+                    "publisher": "Canonical",
+                    "offer": "ubuntu-24_04-lts",
+                    "sku": "server",
+                    "version": "latest"
+                  },
+                  "osDisk": {
+                    "name": "[variables('osDiskName')]",
+                    "createOption": "FromImage",
+                    "managedDisk": {
+                      "storageAccountType": "Premium_LRS"
+                    },
+                    "diskSizeGB": 64
+                  }
+                },
+                "osProfile": {
+                  "computerName": "[parameters('clusterName')]",
+                  "adminUsername": "[parameters('adminUsername')]",
+                  "customData": "[variables('cloudInitBase64')]",
+                  "linuxConfiguration": {
+                    "disablePasswordAuthentication": true,
+                    "ssh": {
+                      "publicKeys": [
+                        {
+                          "path": "[format('/home/{0}/.ssh/authorized_keys', parameters('adminUsername'))]",
+                          "keyData": "[parameters('sshPublicKey')]"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "networkProfile": {
+                  "networkInterfaces": [
+                    {
+                      "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('nicName'))]"
+                    }
+                  ]
+                },
+                "diagnosticsProfile": {
+                  "bootDiagnostics": {
+                    "enabled": true
+                  }
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/networkInterfaces', variables('nicName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "vmId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Compute/virtualMachines', variables('vmName'))]"
+            },
+            "vmName": {
+              "type": "string",
+              "value": "[variables('vmName')]"
+            },
+            "systemIdentityPrincipalId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Compute/virtualMachines', variables('vmName')), '2024-07-01', 'full').identity.principalId]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'network')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "roleAssignments",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "keyVaultName": {
+            "value": "[variables('resolvedKeyVaultName')]"
+          },
+          "storageAccountName": {
+            "value": "[variables('resolvedStorageAccountName')]"
+          },
+          "containerRegistryName": {
+            "value": "[variables('resolvedAcrName')]"
+          },
+          "aioManagedIdentityPrincipalId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'managedIdentity'), '2025-04-01').outputs.principalId.value]"
+          },
+          "schemaRegistryPrincipalId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'schemaRegistry'), '2025-04-01').outputs.schemaRegistryPrincipalId.value]"
+          },
+          "vmSystemIdentityPrincipalId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'vm'), '2025-04-01').outputs.systemIdentityPrincipalId.value]"
+          },
+          "deployerObjectId": {
+            "value": "[parameters('deployerObjectId')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.40.2.10011",
+              "templateHash": "9701205979151337340"
+            }
+          },
+          "parameters": {
+            "keyVaultName": {
+              "type": "string"
+            },
+            "storageAccountName": {
+              "type": "string"
+            },
+            "containerRegistryName": {
+              "type": "string"
+            },
+            "aioManagedIdentityPrincipalId": {
+              "type": "string",
+              "metadata": {
+                "description": "Principal ID of the AIO user-assigned managed identity."
+              }
+            },
+            "schemaRegistryPrincipalId": {
+              "type": "string",
+              "metadata": {
+                "description": "System-assigned principal ID of the schema registry (for Storage Blob Data Contributor)."
+              }
+            },
+            "vmSystemIdentityPrincipalId": {
+              "type": "string",
+              "metadata": {
+                "description": "System-assigned principal ID of the edge VM (for AcrPull)."
+              }
+            },
+            "deployerObjectId": {
+              "type": "string",
+              "metadata": {
+                "description": "Object ID of the deploying user (for Key Vault Secrets Officer)."
+              }
+            }
+          },
+          "variables": {
+            "kvSecretsUserRoleId": "4633458b-17de-408a-b874-0445c86b69e6",
+            "kvSecretsOfficerRoleId": "b86a8fe4-44ce-4948-aee5-eccb2c155cd7",
+            "storBlobContribRoleId": "ba92f5b4-2d11-453d-a403-e96b0029c9fe",
+            "acrPullRoleId": "7f951dda-4ed3-4680-a7ca-43fe172d538d"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]",
+              "name": "[guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), parameters('aioManagedIdentityPrincipalId'), variables('kvSecretsUserRoleId'))]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('kvSecretsUserRoleId'))]",
+                "principalId": "[parameters('aioManagedIdentityPrincipalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]",
+              "name": "[guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), parameters('deployerObjectId'), variables('kvSecretsOfficerRoleId'))]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('kvSecretsOfficerRoleId'))]",
+                "principalId": "[parameters('deployerObjectId')]",
+                "principalType": "User"
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]",
+              "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), parameters('schemaRegistryPrincipalId'), variables('storBlobContribRoleId'))]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storBlobContribRoleId'))]",
+                "principalId": "[parameters('schemaRegistryPrincipalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[resourceId('Microsoft.ContainerRegistry/registries', parameters('containerRegistryName'))]",
+              "name": "[guid(resourceId('Microsoft.ContainerRegistry/registries', parameters('containerRegistryName')), parameters('vmSystemIdentityPrincipalId'), variables('acrPullRoleId'))]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('acrPullRoleId'))]",
+                "principalId": "[parameters('vmSystemIdentityPrincipalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'managedIdentity')]",
+        "[resourceId('Microsoft.Resources/deployments', 'schemaRegistry')]",
+        "[resourceId('Microsoft.Resources/deployments', 'vm')]"
+      ]
+    }
+  ],
+  "outputs": {
+    "AZURE_VM_NAME": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'vm'), '2025-04-01').outputs.vmName.value]"
+    },
+    "AZURE_VM_PUBLIC_IP": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'network'), '2025-04-01').outputs.publicIpAddress.value]"
+    },
+    "AIO_CLUSTER_NAME": {
+      "type": "string",
+      "value": "[parameters('clusterName')]"
+    },
+    "AIO_KEY_VAULT_URI": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'keyVault'), '2025-04-01').outputs.keyVaultUri.value]"
+    },
+    "AIO_KEY_VAULT_NAME": {
+      "type": "string",
+      "value": "[variables('resolvedKeyVaultName')]"
+    },
+    "AIO_SCHEMA_REGISTRY_NAME": {
+      "type": "string",
+      "value": "[variables('resolvedSchemaRegistryName')]"
+    },
+    "AIO_MANAGED_IDENTITY_NAME": {
+      "type": "string",
+      "value": "[variables('resolvedManagedIdentityName')]"
+    },
+    "AIO_MANAGED_IDENTITY_CLIENT_ID": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'managedIdentity'), '2025-04-01').outputs.clientId.value]"
+    },
+    "AZURE_CONTAINER_REGISTRY_LOGIN_SERVER": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'containerRegistry'), '2025-04-01').outputs.loginServer.value]"
+    },
+    "AZURE_CONTAINER_REGISTRY_NAME": {
+      "type": "string",
+      "value": "[variables('resolvedAcrName')]"
+    },
+    "AIO_DEVICE_REGISTRY_NAMESPACE_ID": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'deviceRegistryNamespace'), '2025-04-01').outputs.namespaceId.value]"
+    },
+    "AIO_DEVICE_REGISTRY_NAMESPACE_NAME": {
+      "type": "string",
+      "value": "[variables('resolvedNamespaceName')]"
+    }
+  }
+}

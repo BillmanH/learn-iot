@@ -1,0 +1,69 @@
+# ==============================================================================
+# azd-deploy/config.yaml
+# User-facing configuration for the `azd up` deployment path.
+#
+# Edit this file before running `azd up`. The pre-provision hook reads it
+# and writes the values into the azd environment automatically.
+#
+# Values set here are applied only if the corresponding azd env variable is
+# not already set — so `azd env set KEY value` always takes precedence.
+#
+# Secrets (SSH keys, connection strings) are never stored here.
+# ==============================================================================
+
+# ------------------------------------------------------------
+# Core Azure Settings
+# Required — azd will prompt interactively if left blank.
+# ------------------------------------------------------------
+
+# Your Azure subscription ID.
+# Find it with: az account show --query id -o tsv
+subscription_id: 5c043aac-3d88-43d5-aec8-cd02ee6c914a
+
+# Azure region for all resources.
+# Common choices: eastus, westus2, westeurope, australiaeast
+location: eastus
+
+# Resource group name. Created automatically if it does not exist.
+# Leave blank to let azd generate one from the environment name (rg-<env-name>).
+resource_group: instant-aio-rg
+
+# ------------------------------------------------------------
+# VM Settings
+# ------------------------------------------------------------
+
+# Azure VM size. Standard_D4s_v3 (4 vCPU / 16 GB) is the AIO minimum.
+# Larger sizes: Standard_D8s_v3 (8 vCPU / 32 GB) for heavier workloads.
+vm_size: Standard_D4s_v3
+
+# Linux admin username for the VM.
+vm_admin_username: aiouser
+
+# Keep SSH port 22 open in the NSG after provisioning.
+# Set to false if you want a locked-down VM (all automation uses
+# az vm run-command and az connectedk8s proxy, no SSH required).
+open_ssh_port: true
+
+# ------------------------------------------------------------
+# Optional Tools (installed on the VM during first boot)
+# ------------------------------------------------------------
+
+# k9s — terminal-based Kubernetes dashboard (https://k9scli.io/)
+# Useful for exploring AIO pods, logs, and resource state interactively.
+install_k9s: false
+
+# mqttui — terminal MQTT client (https://github.com/EdJoPaTo/mqttui)
+# Useful for verifying the AIO MQTT broker and watching module messages.
+install_mqttui: false
+
+# ------------------------------------------------------------
+# Edge Module Deployment
+# Set to true to build, push, and deploy a module during `azd up`.
+# Modules can also be deployed later with:
+#   pwsh azd-deploy/scripts/deploy-modules.ps1 -OnlyModule <name>
+# ------------------------------------------------------------
+
+deploy_module_edgemqttsim: false
+deploy_module_sputnik: false
+deploy_module_hello_flask: false
+deploy_module_demohistorian: false

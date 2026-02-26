@@ -1,0 +1,27 @@
+# Azure Developer CLI project manifest
+# Run `azd up` from this directory to deploy the full AIO stack.
+# See README.md for prerequisites and parameter guide.
+
+name: learn-iothub-azd
+metadata:
+  template: learn-iothub-azd@0.1.0
+
+infra:
+  provider: bicep
+  path: .
+  module: main
+
+hooks:
+  # pre-provision: generate SSH key pair (if not supplied) and resolve deployer object ID
+  preProvision:
+    shell: pwsh
+    run: scripts/pre-provision.ps1
+    interactive: true
+    continueOnError: false
+
+  # post-provision: Arc connection, AIO install, optional module deployment
+  postProvision:
+    shell: pwsh
+    run: scripts/post-provision.ps1
+    interactive: true
+    continueOnError: false
