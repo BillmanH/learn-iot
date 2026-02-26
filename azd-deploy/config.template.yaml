@@ -1,14 +1,18 @@
 # ==============================================================================
-# azd-deploy/config.yaml
-# User-facing configuration for the `azd up` deployment path.
+# azd-deploy/config.template.yaml
 #
-# Edit this file before running `azd up`. The pre-provision hook reads it
-# and writes the values into the azd environment automatically.
+# USAGE:
+#   cp azd-deploy/config.template.yaml azd-deploy/config.yaml
+#   # Edit config.yaml with your values, then run:
+#   azd up
 #
-# Values set here are applied only if the corresponding azd env variable is
-# not already set — so `azd env set KEY value` always takes precedence.
+# The pre-provision hook (scripts/pre-provision.ps1) reads config.yaml and
+# writes the values into the azd environment before Bicep runs.
+# Values here are applied only if the corresponding azd env variable is not
+# already set — so `azd env set KEY value` always takes precedence.
 #
-# Secrets (SSH keys, connection strings) are never stored here.
+# config.yaml is gitignored (contains your subscription ID and resource names).
+# This template file is the version you commit.
 # ==============================================================================
 
 # ------------------------------------------------------------
@@ -17,31 +21,31 @@
 # ------------------------------------------------------------
 
 # Your Azure subscription ID.
-# Find it with: az account show --query id -o tsv
-subscription_id: 0000-0000-0000-0000-000000000000
+# Get it with: az account show --query id -o tsv
+subscription_id: ""
 
 # Azure region for all resources.
 # Common choices: eastus, westus2, westeurope, australiaeast
 location: eastus
 
 # Resource group name. Created automatically if it does not exist.
-# Leave blank to let azd generate one from the environment name (rg-<env-name>).
-resource_group: instant-aio-rg
+# Leave blank to let azd generate one: rg-<env-name>
+resource_group: ""
 
 # ------------------------------------------------------------
 # VM Settings
 # ------------------------------------------------------------
 
 # Azure VM size. Standard_D4s_v3 (4 vCPU / 16 GB) is the AIO minimum.
-# Larger sizes: Standard_D8s_v3 (8 vCPU / 32 GB) for heavier workloads.
+# Upgrade to Standard_D8s_v3 (8 vCPU / 32 GB) for heavier workloads.
 vm_size: Standard_D4s_v3
 
 # Linux admin username for the VM.
 vm_admin_username: aiouser
 
 # Keep SSH port 22 open in the NSG after provisioning.
-# Set to false if you want a locked-down VM (all automation uses
-# az vm run-command and az connectedk8s proxy, no SSH required).
+# Set to false for a locked-down VM. All automation uses
+# az vm run-command and az connectedk8s proxy — SSH is never required.
 open_ssh_port: true
 
 # ------------------------------------------------------------
@@ -59,8 +63,8 @@ install_mqttui: false
 # ------------------------------------------------------------
 # Edge Module Deployment
 # Set to true to build, push, and deploy a module during `azd up`.
-# Modules can also be deployed later with:
-#   pwsh azd-deploy/scripts/deploy-modules.ps1 -OnlyModule <name>
+# Modules can also be deployed later without re-running azd:
+#   pwsh azd-deploy/scripts/deploy-modules.ps1 -Module edgemqttsim
 # ------------------------------------------------------------
 
 deploy_module_edgemqttsim: false
