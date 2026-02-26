@@ -400,13 +400,16 @@ class _BuildContext:
                 f.write(")\n")
                 f.write("echo ================================================\n")
                 f.write("echo.\n")
-                f.write("pause\n")
+                f.write("echo   Close this window when you are done reading.\n")
+                f.write("echo.\n")
 
             loop = asyncio.get_event_loop()
             proc = await loop.run_in_executor(
                 None,
                 lambda: subprocess.Popen(
-                    ["cmd.exe", "/c", bat_path],
+                    # /k runs the script then keeps the window open with a
+                    # prompt — survives even if the child calls exit internally
+                    ["cmd.exe", "/k", bat_path],
                     creationflags=subprocess.CREATE_NEW_CONSOLE,
                 ),
             )
