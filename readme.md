@@ -21,6 +21,24 @@ The docs have a very clean "one click" deployment in the MSFT docs. It's a great
 
 As the end-goal is an IoT solution, this repo has a preference for installing on hardware over virtualization. The goal is that you can put this in your IoT environment, validate the build, and then migrate to a production version. 
 
+---
+
+## Choose Your Deployment Path
+
+| | Manual Path | `azd up` Path |
+|---|---|---|
+| **Edge device** | Physical/pre-existing Ubuntu machine | Azure VM provisioned automatically |
+| **Setup time** | Hours (multi-step across machines) | ~30 minutes (single command) |
+| **K3s install** | `installer.sh` run by hand | Cloud-init baked into VM provisioning |
+| **Arc connection** | `arc_enable.ps1` on the device | Post-provision hook |
+| **Azure resources** | `External-Configurator.ps1` + ARM | Bicep templates (`azd up`) |
+| **Best for** | Physical hardware, production | Learning, demos, development |
+
+> **Using an Azure VM?** → See **[azd-deploy/README.md](azd-deploy/README.md)** for the one-command path.
+
+> **Using your own hardware?** → Continue with the [Quick Start](#quick-start) below.
+
+---
 
 # Quick Start
 The goal here is to install AIO on an Ubuntu machine (like a local NUC, PC, or a VM) so that you can get working quickly on your dataflow pipelines and get data into Fabric quickly. 

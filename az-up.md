@@ -279,7 +279,7 @@ This mirrors what `Deploy-EdgeModules.ps1` does in the manual path, but is self-
 
 ---
 
-### Phase 5 — `azure.yaml` Manifest
+### Phase 5 — `azure.yaml` Manifest ✅
 
 ```yaml
 # azure.yaml
@@ -322,7 +322,7 @@ hooks:
 
 ---
 
-### Phase 6 — Documentation & Testing
+### Phase 6 — Documentation & Testing ✅ (docs done; testing pending)
 
 - `azd-deploy/README.md` — step-by-step user guide for the `azd up` path
 - Update root `readme.md` to show both paths side by side
@@ -382,8 +382,8 @@ These need to be resolved before implementation begins:
 [x] 5. Write post-provision.ps1 (Arc + AIO + optional modules)                   ← Phase 2 ✅
 [x] 6. Write deploy-modules.ps1 (standalone module deploy/redeploy)              ← Phase 2 ✅
 [x] 7. Write suspend.ps1 + resume.ps1 (VM cost-saving scripts)                   ← Phase 2 ✅
-[ ] 8. Write azd-deploy/README.md (includes suspend/resume workflow, Bastion note)
-[ ] 9. Update root readme.md with path comparison
+[x] 8. Write azd-deploy/README.md (includes suspend/resume workflow, Bastion note)
+[x] 9. Update root readme.md with path comparison
 [ ] 10. End-to-end test (platform only)
 [ ] 11. End-to-end test (platform + all modules)
 [ ] 12. Test standalone module redeploy after initial azd up
