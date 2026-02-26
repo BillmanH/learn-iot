@@ -571,14 +571,35 @@ EdgeStepRow {
             config_data = getattr(self.state.config.loaded, "data", {})
         azure_cfg = config_data.get("azure", {})
 
+        # Only trust the deployment summary when it was written for the same
+        # cluster as the current config — otherwise it's stale data from a
+        # previous deployment against a different cluster.
+        cfg_cluster = azure_cfg.get("cluster_name", "")
+        sum_cluster = summary.get("cluster_name", "")
+        _summary_matches = bool(sum_cluster and sum_cluster == cfg_cluster)
+
         resource_group = (
-            summary.get("resource_group")
+            (_summary_matches and summary.get("resource_group"))
             or azure_cfg.get("resource_group", "")
         )
-        key_vault      = summary.get("key_vault") or azure_cfg.get("key_vault_name", "")
-        storage        = summary.get("storage_account", "")
-        schema         = summary.get("schema_registry", "")
-        iot_instance   = summary.get("iot_operations_instance", "")
+        key_vault = (
+            (_summary_matches and summary.get("key_vault"))
+            or azure_cfg.get("key_vault_name", "")
+        )
+        cluster_clean = re.sub(r"[^a-z0-9]", "", cfg_cluster.lower()) if cfg_cluster else ""
+        storage = (
+            (_summary_matches and summary.get("storage_account"))
+            or azure_cfg.get("storage_account_name", "")
+            or (cluster_clean + "storage")[:24]
+        )
+        schema = (
+            (_summary_matches and summary.get("schema_registry"))
+            or (f"{cfg_cluster}-schema-registry" if cfg_cluster else "")
+        )
+        iot_instance = (
+            (_summary_matches and summary.get("iot_operations_instance"))
+            or (f"{cfg_cluster}-aio" if cfg_cluster else "")
+        )
 
         if not resource_group:
             self.log_azure("[ERROR] resource_group not found in config — cannot check.")
@@ -641,14 +662,19 @@ EdgeStepRow {
     async def _run_grant_entra_id(self) -> None:
         """Show OID popup then stream grant_entra_id_roles.ps1 to the Azure log."""
         oid = await self.app.push_screen_wait(OIDInputModal())
-        if not oid:
+        if oid is None:
             self.log_azure("Grant Entra ID Permissions cancelled.")
             return
 
         panel = self.query_one("#panel-azure", AzurePanel)
         panel.set_buttons_enabled(False)
         panel.set_roles_running()
-        self.log_azure(f"Starting Grant Entra ID Permissions (OID: {oid})...")
+        if oid:
+            self.log_azure(f"Starting Grant Entra ID Permissions (OID: {oid})...")
+            ps_args = ["-AddUser", oid]
+        else:
+            self.log_azure("Starting Grant Entra ID Permissions (current logged-in user)...")
+            ps_args = []
 
         script = _SCRIPT_DIR / "grant_entra_id_roles.ps1"
 
@@ -656,7 +682,7 @@ EdgeStepRow {
             self.log_azure(line)
             self._apply_azure_line(line, panel, for_roles=True)
 
-        exit_code = await run_powershell(str(script), ["-AddUser", oid], on_line)
+        exit_code = await run_powershell(str(script), ps_args, on_line)
 
         if exit_code == 0:
             self.log_azure("Grant Entra ID Permissions completed successfully.")

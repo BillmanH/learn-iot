@@ -18,9 +18,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import pathlib
 import re
 import shutil
+import subprocess
+import tempfile
 from typing import Callable
 
 from models.state import StepState
@@ -84,33 +87,41 @@ class _BuildContext:
         azure_cfg = config_data.get("azure", {})
         cluster   = config_data.get("cluster",  {})
 
-        self._rg       = summary.get("resource_group")  or azure_cfg.get("resource_group", "")
-        self._location = summary.get("location")        or azure_cfg.get("location", "")
+        # Only use deployment_summary values if the summary was written for the
+        # same cluster as the current config.  If the cluster names differ the
+        # summary is stale (left over from a previous deployment) and must be
+        # ignored so we don't check/build the wrong resources.
+        cfg_cluster = azure_cfg.get("cluster_name", "")
+        sum_cluster = summary.get("cluster_name", "")
+        _summary_matches = (sum_cluster == cfg_cluster) if sum_cluster else False
+
+        self._rg       = (_summary_matches and summary.get("resource_group"))  or azure_cfg.get("resource_group", "")
+        self._location = (_summary_matches and summary.get("location"))        or azure_cfg.get("location", "")
         self._sub_id   = azure_cfg.get("subscription_id", "")
 
-        # Cluster name — prefer summary (reflects what was actually Arc-connected)
-        self._cluster  = summary.get("cluster_name") or azure_cfg.get("cluster_name", "")
+        # Cluster name — prefer summary only when it matches config
+        self._cluster  = (_summary_matches and sum_cluster) or cfg_cluster
 
         # Derive resource names following the same rules as External-Configurator.ps1
         cluster_clean = re.sub(r"[^a-z0-9]", "", self._cluster.lower())
         rg_clean      = re.sub(r"[^a-z0-9]", "", self._rg.lower())
 
         self._kv_name = (
-            summary.get("key_vault")
+            (_summary_matches and summary.get("key_vault"))
             or azure_cfg.get("key_vault_name", "")
             or ("kv" + rg_clean)[:24]
         )
         self._storage_name = (
-            summary.get("storage_account")
+            (_summary_matches and summary.get("storage_account"))
             or azure_cfg.get("storage_account_name", "")
             or (cluster_clean + "storage")[:24]
         )
         self._schema_name = (
-            summary.get("schema_registry")
+            (_summary_matches and summary.get("schema_registry"))
             or f"{self._cluster}-schema-registry"
         )
         self._iot_instance = (
-            summary.get("iot_operations_instance")
+            (_summary_matches and summary.get("iot_operations_instance"))
             or f"{self._cluster}-aio"
         )
 
@@ -312,7 +323,8 @@ class _BuildContext:
         sr_id = await self._get_schema_registry_id()
 
         # Step A: az iot ops init (idempotent — safe to re-run)
-        self._log("    Running: az iot ops init ...")
+        # Runs in a new visible terminal window so progress can be watched live.
+        self._log("    Running: az iot ops init  (opening terminal window — this takes ~3 min)")
         init_cmd = [
             "az", "iot", "ops", "init",
             "--cluster", self._cluster,
@@ -321,13 +333,14 @@ class _BuildContext:
         if self._sub_id:
             init_cmd += ["--subscription", self._sub_id]
 
-        rc_init = await self._run_az(init_cmd)
+        rc_init = await self._run_az_visible(init_cmd, title="az iot ops init")
         if rc_init != 0:
-            self._log("    [ERROR] az iot ops init failed")
+            self._log(f"    [ERROR] az iot ops init failed (exit {rc_init})")
             return False
+        self._log("    az iot ops init completed successfully")
 
         # Step B: az iot ops create
-        self._log("    Running: az iot ops create ...")
+        self._log("    Running: az iot ops create  (opening terminal window)")
         create_cmd = [
             "az", "iot", "ops", "create",
             "--cluster", self._cluster,
@@ -339,12 +352,82 @@ class _BuildContext:
         if self._sub_id:
             create_cmd += ["--subscription", self._sub_id]
 
-        rc_create = await self._run_az(create_cmd)
+        rc_create = await self._run_az_visible(create_cmd, title="az iot ops create")
         if rc_create != 0:
-            self._log("    [ERROR] az iot ops create failed")
+            self._log(f"    [ERROR] az iot ops create failed (exit {rc_create})")
             return False
+        self._log("    az iot ops create completed successfully")
 
         return True
+
+    async def _run_az_visible(self, cmd: list[str], title: str = "az") -> int:
+        """
+        Run an az CLI command in a new visible CMD window so the user can watch
+        the live output (e.g. rich progress bars from az iot ops init/create).
+
+        - Sets UTF-8 code page (chcp 65001) to avoid encoding crashes.
+        - Writes the exit code to a temp file so we can retrieve it.
+        - Pauses at the end so the user can read the output before the window closes.
+        - Returns the command's numeric exit code (or -1 on error).
+        """
+        resolved = [self._az if c == "az" else c for c in cmd]
+
+        # Quote any token that contains a space
+        def _q(s: str) -> str:
+            return f'"{s}"' if " " in s else s
+
+        cmd_line = " ".join(_q(c) for c in resolved)
+
+        # Temp files: batch script + exit-code sidecar
+        fd_bat, bat_path = tempfile.mkstemp(suffix=".bat", prefix="aio_")
+        exitcode_path = bat_path + ".rc"
+        try:
+            with os.fdopen(fd_bat, "w") as f:
+                f.write("@echo off\n")
+                f.write("chcp 65001 >nul\n")
+                f.write(f"title {title}\n")
+                f.write(f"{cmd_line}\n")
+                # Capture ERRORLEVEL immediately before any echo resets it
+                f.write("set _RC=%ERRORLEVEL%\n")
+                f.write(f"echo %_RC% > \"{exitcode_path}\"\n")
+                f.write("echo.\n")
+                f.write("echo ================================================\n")
+                f.write("if %_RC% NEQ 0 (\n")
+                f.write("    echo   FAILED with exit code %_RC%\n")
+                f.write("    echo   Scroll up to read the error output above.\n")
+                f.write(") else (\n")
+                f.write("    echo   Command completed successfully.\n")
+                f.write(")\n")
+                f.write("echo ================================================\n")
+                f.write("echo.\n")
+                f.write("pause\n")
+
+            loop = asyncio.get_event_loop()
+            proc = await loop.run_in_executor(
+                None,
+                lambda: subprocess.Popen(
+                    ["cmd.exe", "/c", bat_path],
+                    creationflags=subprocess.CREATE_NEW_CONSOLE,
+                ),
+            )
+            # Wait for the window to be closed by the user
+            await loop.run_in_executor(None, proc.wait)
+
+            # Read exit code written by the batch file
+            try:
+                with open(exitcode_path, "r") as f:
+                    return int(f.read().strip())
+            except Exception:
+                return proc.returncode if proc.returncode is not None else -1
+        except Exception as exc:
+            self._log(f"    [ERROR] Failed to open terminal window: {exc}")
+            return -1
+        finally:
+            for p in (bat_path, exitcode_path):
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
 
     # ── ARM template helper ────────────────────────────────────────────────────
 

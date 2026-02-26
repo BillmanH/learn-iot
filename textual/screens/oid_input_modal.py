@@ -64,7 +64,7 @@ class OIDInputModal(ModalScreen[str | None]):
             yield Label("Grant Entra ID Permissions", classes="modal-title")
             yield Static(
                 "Enter the Object ID (OID) of the user or service principal that "
-                "should receive permissions.",
+                "should receive permissions, or leave blank to use your logged-in account.",
                 classes="modal-body",
             )
             yield Static(
@@ -72,7 +72,7 @@ class OIDInputModal(ModalScreen[str | None]):
                 classes="oid-hint",
             )
             yield Input(
-                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+                placeholder="Leave blank to use your logged-in account",
                 id="oid-input",
             )
             with Horizontal(classes="button-row"):
@@ -85,11 +85,11 @@ class OIDInputModal(ModalScreen[str | None]):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-run":
             oid = self.query_one("#oid-input", Input).value.strip()
-            self.dismiss(oid if oid else None)
+            self.dismiss(oid)  # empty string = use logged-in user; None = cancel
         elif event.button.id == "btn-cancel":
             self.dismiss(None)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Allow pressing Enter in the input to confirm."""
+        """Allow pressing Enter in the input to confirm (blank = use logged-in user)."""
         oid = event.value.strip()
-        self.dismiss(oid if oid else None)
+        self.dismiss(oid)  # empty string = use logged-in user; None = cancel
