@@ -3,6 +3,7 @@ config/*.json
 config/README.txt
 fabric_setup/fabric_config.json
 config/deployment_summary.yaml
+azd-deploy/scripts/config.yaml
 
 
 # ARM template parameters (contain secrets)
@@ -99,3 +100,4 @@ error.json
 *.swp
 *.swo
 *~
+
