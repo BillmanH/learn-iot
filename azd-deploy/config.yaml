@@ -18,7 +18,7 @@
 
 # Your Azure subscription ID.
 # Find it with: az account show --query id -o tsv
-subscription_id: 5c043aac-3d88-43d5-aec8-cd02ee6c914a
+subscription_id: 0000-0000-0000-0000-000000000000
 
 # Azure region for all resources.
 # Common choices: eastus, westus2, westeurope, australiaeast
