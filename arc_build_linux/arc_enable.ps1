@@ -355,20 +355,22 @@ function Enable-ArcForCluster {
         }
         
         # Check if custom-locations was enabled (idempotency check)
+        # NOTE: The ConnectedCluster object (Az.ConnectedKubernetes 0.15.0) has NO .Feature property.
+        # The only authoritative check is Helm - done later in Enable-CustomLocations.
+        # Here we do a quick Helm check to give the user early feedback.
         $hasCustomLocations = $false
-        if ($existingArc.Feature) {
-            foreach ($feature in $existingArc.Feature) {
-                if ($feature.Name -eq "custom-locations" -and ($feature.State -eq "Installed" -or $feature.State -eq "Enabled")) {
-                    $hasCustomLocations = $true
-                    Write-Success "Custom-locations feature is enabled"
-                }
+        try {
+            $helmValues = helm get values azure-arc --namespace azure-arc-release -o json 2>$null | ConvertFrom-Json
+            if ($helmValues.systemDefaultValues.customLocations.enabled -eq $true) {
+                $hasCustomLocations = $true
+                Write-Success "Custom-locations feature is already enabled (verified via Helm)"
             }
+        } catch {
+            # helm not available or chart not found - will check again in Enable-CustomLocations
         }
         
-        if (-not $hasCustomLocations -and -not [string]::IsNullOrEmpty($customLocationsOid)) {
-            # Cluster exists but custom-locations not enabled according to Azure API
-            # This is OK - we'll try to enable it later with az connectedk8s enable-features
-            Write-InfoLog "Custom-locations not yet enabled - will enable via Azure CLI later in script"
+        if (-not $hasCustomLocations) {
+            Write-InfoLog "Custom-locations not yet confirmed enabled - will enable via Azure CLI later in script"
         }
         
         # Store OID for later use in Enable-ArcFeatures
@@ -391,7 +393,7 @@ function Enable-ArcForCluster {
                 AcceptEULA = $true
                 OidcIssuerProfileEnabled = $true
                 WorkloadIdentityEnabled = $true
-                AzureRbacEnabled = $true
+                AadProfileEnableAzureRbac = $true  # renamed from AzureRbacEnabled in Az.ConnectedKubernetes 0.11+
             }
             
             # Add custom-locations OID if we have it
@@ -449,7 +451,7 @@ function Enable-AzureRbac {
     try {
         $clusterInfo = Get-AzConnectedKubernetes -ResourceGroupName $script:ResourceGroup -ClusterName $script:ClusterName -ErrorAction Stop
         
-        if ($clusterInfo.AzureRbacEnabled -eq $true) {
+        if ($clusterInfo.AadProfileEnableAzureRbac -eq $true) {
             Write-Success "Azure RBAC is already enabled"
             return
         }
@@ -465,12 +467,12 @@ function Enable-AzureRbac {
         Set-AzConnectedKubernetes `
             -ResourceGroupName $script:ResourceGroup `
             -ClusterName $script:ClusterName `
-            -AzureRbacEnabled $true `
+            -AadProfileEnableAzureRbac $true `  # renamed from AzureRbacEnabled in Az.ConnectedKubernetes 0.11+
             -ErrorAction Stop | Out-Null
         
         # Verify
         $updated = Get-AzConnectedKubernetes -ResourceGroupName $script:ResourceGroup -ClusterName $script:ClusterName -ErrorAction Stop
-        if ($updated.AzureRbacEnabled -eq $true) {
+        if ($updated.AadProfileEnableAzureRbac -eq $true) {
             Write-Success "Azure RBAC enabled successfully via PowerShell module"
             return
         } else {
@@ -565,40 +567,39 @@ function Enable-ArcFeatures {
             return
         }
         
-        # Check if custom-locations feature is present
-        $customLocationsEnabled = $false
-        if ($clusterInfo.Feature) {
-            foreach ($feature in $clusterInfo.Feature) {
-                if ($feature.Name -eq "custom-locations") {
-                    Write-InfoLog "  custom-locations: $($feature.State)"
-                    if ($feature.State -eq "Installed" -or $feature.State -eq "Enabled") {
-                        $customLocationsEnabled = $true
-                    }
-                }
-                if ($feature.Name -eq "cluster-connect") {
-                    Write-InfoLog "  cluster-connect: $($feature.State)"
-                }
-            }
-        }
+        # NOTE: The ConnectedCluster object has NO .Feature property in Az.ConnectedKubernetes 0.15.0.
+        # Custom-locations state is NOT readable from the PS object - Helm is the authoritative source.
+        # Use direct flat properties for what IS available:
         
         # Check OIDC issuer profile
-        if ($clusterInfo.OidcIssuerProfileEnabled) {
-            Write-InfoLog "  OIDC Issuer: Enabled"
-        }
-        
-        if ($clusterInfo.WorkloadIdentityEnabled) {
-            Write-InfoLog "  Workload Identity: Enabled"
-        }
-        
-        # If features were enabled during New-AzConnectedKubernetes, we're good
-        # The features are typically enabled immediately when specified during connection
-        if ($customLocationsEnabled) {
-            Write-Success "Custom-locations feature is registered in Azure"
+        if ($clusterInfo.OidcIssuerProfileEnabled -eq $true) {
+            Write-InfoLog "  OIDC Issuer: Enabled (URL: $($clusterInfo.OidcIssuerProfileIssuerUrl))"
         } else {
-            # Azure API doesn't always show feature state correctly
-            # The helm values check in Enable-CustomLocations is the authoritative source
-            Write-InfoLog "Custom-locations feature state not reported by Azure API"
-            Write-InfoLog "Will enable and verify via Azure CLI next..."
+            Write-WarnLog "  OIDC Issuer: NOT enabled"
+        }
+        
+        if ($clusterInfo.WorkloadIdentityEnabled -eq $true) {
+            Write-InfoLog "  Workload Identity (ARM flag): Enabled"
+        } else {
+            Write-WarnLog "  Workload Identity: NOT enabled in ARM"
+        }
+        
+        if ($clusterInfo.AadProfileEnableAzureRbac -eq $true) {
+            Write-InfoLog "  Azure RBAC (ARM flag): Enabled"
+        } else {
+            Write-WarnLog "  Azure RBAC: NOT enabled in ARM"
+        }
+        
+        # custom-locations: check via Helm (the only reliable source)
+        try {
+            $helmValues = helm get values azure-arc --namespace azure-arc-release -o json 2>$null | ConvertFrom-Json
+            if ($helmValues.systemDefaultValues.customLocations.enabled -eq $true) {
+                Write-Success "  Custom-locations (Helm): Enabled"
+            } else {
+                Write-InfoLog "  Custom-locations (Helm): NOT enabled - will enable via Azure CLI next..."
+            }
+        } catch {
+            Write-InfoLog "  Custom-locations: Could not check Helm state - will enable via Azure CLI next..."
         }
     } catch {
         Write-ErrorLog "Could not verify cluster feature state: $_"
