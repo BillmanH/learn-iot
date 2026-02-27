@@ -54,23 +54,29 @@ cd azd-deploy
 cp config.template.yaml config.yaml
 ```
 
-Open `config.yaml` and set at minimum:
+Open `config.yaml` and set these required fields:
 
 ```yaml
-subscription_id: "your-subscription-id-here"   # az account show --query id -o tsv
-resource_group: "rg-aio-dev"                   # created if it does not exist
+env_name: aio-dev                                 # short label for this deployment
+subscription_id: "your-subscription-id-here"     # az account show --query id -o tsv
+resource_group: "rg-aio-dev"                      # created if it does not exist
 ```
 
 Everything else has safe defaults. See the [Parameter Reference](#parameter-reference) below.
 
-### 2. Run `azd up`
+### 2. Run the deployment
 
 ```powershell
 # From the azd-deploy/ directory:
-azd up
+.\Deploy.ps1
 ```
 
-`azd` will prompt for an environment name (short alphanumeric, e.g. `aio-dev`). This name is used to generate unique resource names.
+That's it. `Deploy.ps1` handles everything: creating the azd environment, seeding all
+variables from `config.yaml`, generating an SSH key pair, and running `azd up --no-prompt`.
+No interactive prompts will appear.
+
+> **Prerequisites:** Run `az login` and `azd auth login` once before the first deployment.
+> `azd` can be installed with: `winget install Microsoft.Azd`
 
 **What happens:**
 1. `pre-provision.ps1` reads `config.yaml`, generates an SSH key pair, and stores your settings in the azd environment

@@ -111,23 +111,22 @@ Write-Host "  Deployer Object ID: $deployerObjectId"
 Write-Host "[2/3] Checking SSH key..."
 
 $existingSshKey = azd env get-value AZURE_VM_SSH_PUBLIC_KEY 2>$null
-if ($existingSshKey) {
-    Write-Host "  AZURE_VM_SSH_PUBLIC_KEY already set - using existing key."
+if ($existingSshKey -and $existingSshKey -match '^ssh-') {
+    Write-Host "  AZURE_VM_SSH_PUBLIC_KEY already set (valid) - using existing key."
 } else {
-    Write-Host "  Generating new RSA-4096 SSH key pair..."
-    $keyPath = Join-Path $PSScriptRoot '.azure-vm-key'
-    if (Test-Path $keyPath)        { Remove-Item $keyPath -Force }
-    if (Test-Path "$keyPath.pub")  { Remove-Item "$keyPath.pub" -Force }
-
-    ssh-keygen -t rsa -b 4096 -f $keyPath -N '""' -C 'azd-aio-vm' | Out-Null
-    $pubKey = Get-Content "$keyPath.pub"
+    Write-Host "  Generating RSA-4096 SSH public key (no ssh-keygen required)..."
+    $rsa    = New-Object System.Security.Cryptography.RSACryptoServiceProvider(4096)
+    $params = $rsa.ExportParameters($false)
+    function _SshBytes([byte[]]$b) { $l=[System.BitConverter]::GetBytes([uint32]$b.Length); if([System.BitConverter]::IsLittleEndian){[Array]::Reverse($l)}; return [byte[]]$l+[byte[]]$b }
+    function _SshMPInt([byte[]]$b) { $s=0; while($s -lt $b.Length-1 -and $b[$s] -eq 0){$s++}; $t=$b[$s..($b.Length-1)]; if($t[0] -band 0x80){$t=[byte[]]@(0)+$t}; return _SshBytes $t }
+    $blob   = (_SshBytes ([System.Text.Encoding]::ASCII.GetBytes('ssh-rsa'))) + (_SshMPInt $params.Exponent) + (_SshMPInt $params.Modulus)
+    $pubKey = "ssh-rsa $([Convert]::ToBase64String($blob)) azd-aio-vm"
+    $rsa.Dispose()
 
     if (-not $DryRun) {
         azd env set AZURE_VM_SSH_PUBLIC_KEY $pubKey
-        azd env set AZURE_VM_SSH_PRIVATE_KEY_PATH $keyPath
     }
-    Write-Host "  SSH key generated: $keyPath"
-    Write-Host "  NOTE: Keep this private key file - it is NOT stored in Key Vault."
+    Write-Host "  Public key generated. Use az vm run-command for all VM access (SSH not needed)."
 }
 
 # ---------------------------------------------------------------------------

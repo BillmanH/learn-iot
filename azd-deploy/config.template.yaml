@@ -20,6 +20,10 @@
 # Required — azd will prompt interactively if left blank.
 # ------------------------------------------------------------
 
+# Short label for this deployment. Used as the azd environment name.
+# Lowercase alphanumeric and hyphens only, e.g.: aio-dev
+env_name: ""
+
 # Your Azure subscription ID.
 # Get it with: az account show --query id -o tsv
 subscription_id: ""
