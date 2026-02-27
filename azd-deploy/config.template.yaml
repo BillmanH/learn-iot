@@ -8,8 +8,8 @@
 #
 # The pre-provision hook (scripts/pre-provision.ps1) reads config.yaml and
 # writes the values into the azd environment before Bicep runs.
-# Values here are applied only if the corresponding azd env variable is not
-# already set — so `azd env set KEY value` always takes precedence.
+# config.yaml values ALWAYS overwrite the azd environment — this file is the
+# authoritative source of truth and prevents stale env state from winning.
 #
 # config.yaml is gitignored (contains your subscription ID and resource names).
 # This template file is the version you commit.
@@ -35,6 +35,13 @@ location: eastus
 # Resource group name. Created automatically if it does not exist.
 # Leave blank to let azd generate one: rg-<env-name>
 resource_group: ""
+
+# Azure Key Vault name (3-24 chars, globally unique across ALL of Azure).
+# Key Vault names are held in soft-delete for 90 days after the vault is deleted.
+# If you re-deploy into a new RG you MUST choose a new name (or purge the old vault first).
+# Pick something unique, e.g.: kv-aio-<yourname or team>-<env>
+# Required — deployment will fail if left blank.
+key_vault_name: ""
 
 # ------------------------------------------------------------
 # VM Settings

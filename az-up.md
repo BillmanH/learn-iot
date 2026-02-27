@@ -384,7 +384,7 @@ These need to be resolved before implementation begins:
 [x] 7. Write suspend.ps1 + resume.ps1 (VM cost-saving scripts)                   ← Phase 2 ✅
 [x] 8. Write azd-deploy/README.md (includes suspend/resume workflow, Bastion note)
 [x] 9. Update root readme.md with path comparison
-[ ] 10. End-to-end test (platform only)
+[x] 10. End-to-end test (platform only)
 [ ] 11. End-to-end test (platform + all modules)
 [ ] 12. Test standalone module redeploy after initial azd up
 [ ] 13. Test suspend + resume cycle

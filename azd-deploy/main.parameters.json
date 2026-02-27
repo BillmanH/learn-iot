@@ -20,6 +20,9 @@
     "vmSize": {
       "value": "${AZURE_VM_SIZE}"
     },
+    "keyVaultName": {
+      "value": "${AZURE_KEY_VAULT_NAME}"
+    },
     "openSshPort": {
       "value": "${OPEN_SSH_PORT}"
     },

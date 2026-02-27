@@ -18,6 +18,8 @@ param(
 $ErrorActionPreference = 'Stop'
 
 function Set-AzdEnvIfEmpty {
+    # Used only for programmatic fallback defaults (SSH key, etc.)
+    # config.yaml values should use Set-AzdEnvFromConfig instead.
     param([string]$Key, [string]$Value)
     $current = azd env get-value $Key 2>$null
     if (-not $current) {
@@ -27,6 +29,25 @@ function Set-AzdEnvIfEmpty {
         Write-Host "  set   $Key = $Value"
     } else {
         Write-Host "  skip  $Key (already set)"
+    }
+}
+
+function Set-AzdEnvFromConfig {
+    # config.yaml is the user's authoritative source — always overwrite.
+    # This prevents stale azd env values from silently winning over config.yaml.
+    param([string]$Key, [string]$Value)
+    $current = azd env get-value $Key 2>$null
+    if ($current -eq $Value) {
+        Write-Host "  ok    $Key = $Value"
+    } else {
+        if (-not $DryRun) {
+            azd env set $Key $Value
+        }
+        if ($current) {
+            Write-Host "  update $Key = $Value  (was: $current)"
+        } else {
+            Write-Host "  set   $Key = $Value"
+        }
     }
 }
 
@@ -69,6 +90,8 @@ $configMap = @{
     'subscription_id'            = 'AZURE_SUBSCRIPTION_ID'
     'location'                   = 'AZURE_LOCATION'
     'resource_group'             = 'AZURE_RESOURCE_GROUP'
+    # Globally-unique resource names (user must set these; avoids soft-delete collisions)
+    'key_vault_name'             = 'AZURE_KEY_VAULT_NAME'
     # VM
     'vm_size'                    = 'AZURE_VM_SIZE'
     'vm_admin_username'          = 'AZURE_VM_ADMIN_USERNAME'
@@ -87,9 +110,32 @@ foreach ($yamlKey in $configMap.Keys) {
     if ($config.ContainsKey($yamlKey)) {
         $val = $config[$yamlKey] -replace '^["'']|["'']$', ''   # strip surrounding quotes
         if ($val -ne '') {
-            Set-AzdEnvIfEmpty -Key $configMap[$yamlKey] -Value $val
+            Set-AzdEnvFromConfig -Key $configMap[$yamlKey] -Value $val
         }
     }
+}
+
+# ---------------------------------------------------------------------------
+# Validate required user-set values
+# ---------------------------------------------------------------------------
+
+# Key Vault names are globally unique and held in soft-delete for 90 days.
+# Require the user to choose an explicit name so they can track and purge it.
+$kvName = azd env get-value AZURE_KEY_VAULT_NAME 2>$null
+if (-not $kvName) {
+    Write-Error @"
+ERROR: 'key_vault_name' is not set in config.yaml.
+
+Key Vault names are globally unique across ALL of Azure and are held in
+soft-delete for 90 days after deletion. Using a generated random name makes
+it impossible to reliably clean up and redeploy.
+
+Please set a unique name in azd-deploy/config.yaml:
+  key_vault_name: kv-aio-<yourname>-<env>
+
+Requirements: 3-24 characters, letters, numbers, and hyphens only.
+"@
+    exit 1
 }
 
 # ---------------------------------------------------------------------------
