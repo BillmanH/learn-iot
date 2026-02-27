@@ -51,7 +51,7 @@ if ($OnlyModule) {
 }
 
 # ---------------------------------------------------------------------------
-# Module definitions: folder → image tag + K8s deployment YAML path
+# Module definitions: folder -> image tag + K8s deployment YAML path
 # Paths are relative to the repo root
 # ---------------------------------------------------------------------------
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '../..')
@@ -85,7 +85,7 @@ foreach ($moduleName in $modules.Keys) {
     Write-Host "=== Module: $moduleName ==="
 
     if (-not (Test-Path $folder)) {
-        Write-Warning "  Module folder not found: $folder — skipping."
+        Write-Warning "  Module folder not found: $folder - skipping."
         continue
     }
 
@@ -115,7 +115,7 @@ foreach ($moduleName in $modules.Keys) {
         }
         Remove-Item $tmpYaml -Force
     } else {
-        Write-Warning "  No deployment.yaml found at $deployYaml — image pushed but not deployed to K8s."
+        Write-Warning "  No deployment.yaml found at $deployYaml - image pushed but not deployed to K8s."
     }
 
     Write-Host "  $moduleName deployed."

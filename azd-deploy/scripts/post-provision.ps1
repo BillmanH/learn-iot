@@ -122,11 +122,11 @@ function Invoke-VmScript {
 }
 
 # ===========================================================================
-# STEP 1 — Wait for cloud-init bootstrap
+# STEP 1 - Wait for cloud-init bootstrap
 # ===========================================================================
 Write-Step "Step 1/12: Waiting for cloud-init bootstrap (/tmp/k3s-ready)"
 
-$maxWait  = 1200   # 20 minutes — VM provisioning + K3s install + CSI driver install
+$maxWait  = 1200   # 20 minutes - VM provisioning + K3s install + CSI driver install
 $elapsed  = 0
 $interval = 30
 
@@ -142,7 +142,7 @@ while ($elapsed -lt $maxWait) {
             --output json 2>$null | ConvertFrom-Json
 
         if ($pollResult.value[0].message -match 'K3S_READY') {
-            Write-OK "Cloud-init complete — K3s is ready."
+            Write-OK "Cloud-init complete - K3s is ready."
             break
         }
     } else {
@@ -150,7 +150,7 @@ while ($elapsed -lt $maxWait) {
         break
     }
 
-    Write-Info "Not ready yet (${elapsed}s elapsed) — waiting ${interval}s..."
+    Write-Info "Not ready yet (${elapsed}s elapsed) - waiting ${interval}s..."
     Start-Sleep -Seconds $interval
     $elapsed += $interval
 }
@@ -162,7 +162,7 @@ if (-not $DryRun -and $elapsed -ge $maxWait) {
 if (-not $SkipArc) {
 
     # =======================================================================
-    # STEP 2 — Connect K3s cluster to Azure Arc
+    # STEP 2 - Connect K3s cluster to Azure Arc
     #
     # Runs ON the VM via az vm run-command (no SSH required).
     # The VM has:
@@ -211,7 +211,7 @@ echo "[ARC CONNECT] Done."
     if (-not $DryRun) { Start-Sleep -Seconds 30 }
 
     # =======================================================================
-    # STEP 3 — Reconfigure K3s with the Arc OIDC issuer URL
+    # STEP 3 - Reconfigure K3s with the Arc OIDC issuer URL
     #
     # `az connectedk8s connect --enable-oidc-issuer` creates an OIDC discovery
     # endpoint in Azure for the cluster. But K3s still issues service account
@@ -223,7 +223,7 @@ echo "[ARC CONNECT] Done."
     # /etc/rancher/k3s/config.yaml, restart K3s, wait for ready.
     #
     # Ref: Known issue in copilot-instructions.md
-    #      — Az.ConnectedKubernetes WorkloadIdentityEnabled gap
+    #      - Az.ConnectedKubernetes WorkloadIdentityEnabled gap
     # =======================================================================
     Write-Step "Step 3/12: Reconfiguring K3s OIDC issuer (required for secret sync)"
 
@@ -239,7 +239,7 @@ echo "[ARC CONNECT] Done."
                 --resource-group $resourceGroup `
                 --query "oidcIssuerProfile.issuerUrl" -o tsv 2>$null
             if ($oidcIssuerUrl) { break }
-            Write-Info "OIDC issuer URL not yet available (${oidcElapsed}s) — waiting 15s..."
+            Write-Info "OIDC issuer URL not yet available (${oidcElapsed}s) - waiting 15s..."
             Start-Sleep -Seconds 15
             $oidcElapsed += 15
         }
@@ -305,7 +305,7 @@ echo "[K3S-OIDC] Done."
     Write-OK "K3s OIDC issuer configured."
 
     # =======================================================================
-    # STEP 4 — Enable custom-locations + cluster-connect features
+    # STEP 4 - Enable custom-locations + cluster-connect features
     #
     # CRITICAL: Must run ON the VM (or any machine with kubectl access).
     # `az connectedk8s enable-features` uses the Azure CLI which:
@@ -313,11 +313,11 @@ echo "[K3S-OIDC] Done."
     #   2. Runs `helm upgrade azure-arc` to update the release in the cluster
     # Running from Windows without local kubectl access only does step 1 and
     # leaves the cluster helm chart unconfigured.
-    # Ref: Known issue — Az.ConnectedKubernetes custom-locations Helm gap
+    # Ref: Known issue - Az.ConnectedKubernetes custom-locations Helm gap
     # =======================================================================
     Write-Step "Step 4/12: Enabling custom-locations + cluster-connect (CLI updates ARM + Helm)"
 
-    # Resolve OID on Windows — just an Azure AD read, no VM access needed.
+    # Resolve OID on Windows - just an Azure AD read, no VM access needed.
     $customLocationsAppId = 'bc313c14-388c-4e7d-a58e-70017303ee3b'
     $customLocationsOid   = $null
     if (-not $DryRun) {
@@ -360,12 +360,12 @@ echo "[CUSTOM-LOC] Done."
     Invoke-VmScript -Description "az connectedk8s enable-features (custom-locations + Helm update)" -BashScript $enableFeaturesScript
 
     # =======================================================================
-    # STEP 5 — Enable workload identity webhook
+    # STEP 5 - Enable workload identity webhook
     #
     # `az connectedk8s update --enable-workload-identity` is an Azure ARM call
     # that triggers the Arc agent to deploy the workload identity webhook
     # DaemonSet into the cluster. Safe to run from Windows.
-    # Ref: Known issue — Az.ConnectedKubernetes WorkloadIdentityEnabled gap
+    # Ref: Known issue - Az.ConnectedKubernetes WorkloadIdentityEnabled gap
     # =======================================================================
     Write-Step "Step 5/12: Enabling workload identity webhook (az connectedk8s update)"
 
@@ -384,7 +384,7 @@ echo "[CUSTOM-LOC] Done."
     Write-OK "Workload identity webhook deployment triggered."
 
     # =======================================================================
-    # STEP 6 — Grant KV Secrets User to Arc cluster identity
+    # STEP 6 - Grant KV Secrets User to Arc cluster identity
     #
     # The Arc cluster receives a system-assigned identity when connected.
     # Its principal ID is only known after Step 2, so Bicep cannot pre-assign
@@ -419,7 +419,7 @@ echo "[CUSTOM-LOC] Done."
 if (-not $SkipAio) {
 
     # =======================================================================
-    # STEP 7 — az iot ops init
+    # STEP 7 - az iot ops init
     # Installs the AIO Arc extensions (iot-operations, cert-manager, etc.)
     # onto the connected cluster. Pure ARM API call - no kubectl needed.
     # If the instance already exists, runs upgrade instead.
@@ -449,7 +449,7 @@ if (-not $SkipAio) {
     Write-OK "az iot ops init done."
 
     # =======================================================================
-    # STEP 8 — az iot ops create
+    # STEP 8 - az iot ops create
     # Deploys the AIO instance onto the Arc-connected cluster.
     #   --sr-resource-id   : Schema Registry (required)
     #   --ns-resource-id   : Device Registry namespace (AIO v1.2+ portal asset API)
@@ -506,12 +506,12 @@ if (-not $SkipAio) {
     Write-OK "AIO instance ready."
 
     # =======================================================================
-    # STEP 9 — Enable AIO secret sync
+    # STEP 9 - Enable AIO secret sync
     #
     # IMPORTANT CLI SIGNATURE: use --name <aio-instance-name>, NOT --cluster.
     # The managed identity used here is the user-assigned identity provisioned
     # by Bicep (managedIdentity.bicep). Its KV Secrets User role was assigned
-    # in Bicep (roleAssignments.bicep) — no additional role grant needed here.
+    # in Bicep (roleAssignments.bicep) - no additional role grant needed here.
     # =======================================================================
     Write-Step "Step 9/12: Enabling AIO secret sync"
 
@@ -524,7 +524,7 @@ if (-not $SkipAio) {
             --output none 2>&1
 
         if ($LASTEXITCODE -ne 0) {
-            Write-Warn "secretsync enable returned non-zero — may already be enabled. Continuing."
+            Write-Warn "secretsync enable returned non-zero - may already be enabled. Continuing."
         } else {
             Write-OK "Secret sync enabled."
         }
@@ -533,7 +533,7 @@ if (-not $SkipAio) {
     }
 
     # =======================================================================
-    # STEP 10 — Grant KV Secrets User to AIO instance identity
+    # STEP 10 - Grant KV Secrets User to AIO instance identity
     #
     # The AIO instance receives its own system-assigned identity after
     # `az iot ops create`. Its principal ID is only known at runtime.
@@ -564,7 +564,7 @@ if (-not $SkipAio) {
     }
 
     # =======================================================================
-    # STEP 11 — Seed placeholder secrets in Key Vault
+    # STEP 11 - Seed placeholder secrets in Key Vault
     # Replace these with real values before deploying Fabric RTI dataflows.
     # See: issues/fabric_entra_id_gap.md and SASL_AUTH_AND_KV_Review.md
     # =======================================================================
@@ -596,7 +596,7 @@ if (-not $SkipAio) {
     }
 
     # =======================================================================
-    # STEP 12 — Optional edge module deployment
+    # STEP 12 - Optional edge module deployment
     # =======================================================================
     Write-Step "Step 12/12: Edge module deployment"
 

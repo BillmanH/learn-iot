@@ -2,8 +2,8 @@
 # pre-provision.ps1
 # Runs before `azd provision` (Bicep deployment).
 # Responsibilities:
-#   1. Resolve the deploying user's Entra Object ID  → AZURE_DEPLOYER_OBJECT_ID
-#   2. Generate an RSA SSH key pair and store in azd env → AZURE_VM_SSH_PUBLIC_KEY
+#   1. Resolve the deploying user's Entra Object ID  -> AZURE_DEPLOYER_OBJECT_ID
+#   2. Generate an RSA SSH key pair and store in azd env -> AZURE_VM_SSH_PUBLIC_KEY
 #      Skip generation if AZURE_VM_SSH_PUBLIC_KEY is already set (user-supplied key).
 #   3. Apply sensible defaults for optional env vars that have not been set.
 # ==============================================================================
@@ -31,7 +31,7 @@ function Set-AzdEnvIfEmpty {
 }
 
 # ---------------------------------------------------------------------------
-# Simple flat-YAML reader — handles lines of the form:  key: value
+# Simple flat-YAML reader - handles lines of the form:  key: value
 # Lines starting with # or blank lines are ignored.
 # ---------------------------------------------------------------------------
 function Read-ConfigYaml {
@@ -60,12 +60,12 @@ $config = Read-ConfigYaml -Path $configPath
 if ($config.Count -gt 0) {
     Write-Host "[0] Loaded config.yaml ($($config.Count) values)"
 } else {
-    Write-Host "[0] No config.yaml found — using defaults"
+    Write-Host "[0] No config.yaml found - using defaults"
 }
 
-# Map config.yaml keys → azd env variable names
+# Map config.yaml keys -> azd env variable names
 $configMap = @{
-    # Core Azure — azd built-ins
+    # Core Azure - azd built-ins
     'subscription_id'            = 'AZURE_SUBSCRIPTION_ID'
     'location'                   = 'AZURE_LOCATION'
     'resource_group'             = 'AZURE_RESOURCE_GROUP'
@@ -106,13 +106,13 @@ Set-AzdEnvIfEmpty -Key 'AZURE_DEPLOYER_OBJECT_ID' -Value $deployerObjectId
 Write-Host "  Deployer Object ID: $deployerObjectId"
 
 # ---------------------------------------------------------------------------
-# 2. SSH key — generate if not already provided
+# 2. SSH key - generate if not already provided
 # ---------------------------------------------------------------------------
 Write-Host "[2/3] Checking SSH key..."
 
 $existingSshKey = azd env get-value AZURE_VM_SSH_PUBLIC_KEY 2>$null
 if ($existingSshKey) {
-    Write-Host "  AZURE_VM_SSH_PUBLIC_KEY already set — using existing key."
+    Write-Host "  AZURE_VM_SSH_PUBLIC_KEY already set - using existing key."
 } else {
     Write-Host "  Generating new RSA-4096 SSH key pair..."
     $keyPath = Join-Path $PSScriptRoot '.azure-vm-key'
@@ -126,8 +126,8 @@ if ($existingSshKey) {
         azd env set AZURE_VM_SSH_PUBLIC_KEY $pubKey
         azd env set AZURE_VM_SSH_PRIVATE_KEY_PATH $keyPath
     }
-    Write-Host "  SSH key generated -> $keyPath"
-    Write-Host "  NOTE: Keep this private key file — it is NOT stored in Key Vault."
+    Write-Host "  SSH key generated: $keyPath"
+    Write-Host "  NOTE: Keep this private key file - it is NOT stored in Key Vault."
 }
 
 # ---------------------------------------------------------------------------
