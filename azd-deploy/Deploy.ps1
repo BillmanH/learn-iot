@@ -206,7 +206,23 @@ if ($rg -and $rg -ne '') {
 }
 
 # ---------------------------------------------------------------------------
-# 6. Run azd up
+# 6. Pre-flight permission check
+# ---------------------------------------------------------------------------
+Write-Host "[6] Running pre-flight permission check..."
+$checkScript = Join-Path $PSScriptRoot 'Check-Permissions.ps1'
+if (Test-Path $checkScript) {
+    & $checkScript
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host ""
+        Write-Host "Deployment aborted: resolve the issues above and re-run .\Deploy.ps1" -ForegroundColor Red
+        exit 1
+    }
+} else {
+    Write-Host "  Check-Permissions.ps1 not found - skipping preflight check."
+}
+
+# ---------------------------------------------------------------------------
+# 7. Run azd up
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "=== All variables set. Starting deployment... ==="
