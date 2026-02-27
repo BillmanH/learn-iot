@@ -999,16 +999,19 @@ $script:CustomLocationsEnabled = $false
 function Enable-CustomLocations {
     <#
     .SYNOPSIS
-        Enables custom-locations feature using Azure CLI.
+        Enables custom-locations feature using PowerShell + Helm.
     
     .DESCRIPTION
-        IMPORTANT: The Az.ConnectedKubernetes PowerShell module has a bug/gap.
-        When you use New-AzConnectedKubernetes with -CustomLocationsOid, it:
-          1. Registers the OID with Azure ARM (done)
-          2. Does NOT run 'helm upgrade' to actually enable the feature in the cluster (MISSING)
+        The Az.ConnectedKubernetes module gap means New-AzConnectedKubernetes -CustomLocationsOid:
+          1. Registers the OID with Azure ARM  (done by PS module)
+          2. Does NOT run 'helm upgrade' to enable the feature in the cluster (MISSING from PS module)
         
-        The Azure CLI 'az connectedk8s enable-features' does BOTH steps.
-        This function uses the Azure CLI to properly enable custom-locations.
+        This function replicates what 'az connectedk8s enable-features' does internally,
+        using pure PowerShell + Helm:
+          Step 1: Set-AzConnectedKubernetes -CustomLocationsOid  (ARM registration)
+          Step 2: helm upgrade --reuse-values with customLocations flags  (cluster enablement)
+        
+        Helm is the authoritative source - verified after both steps.
     #>
     
     Write-Log "Enabling custom-locations feature..."
@@ -1026,78 +1029,88 @@ function Enable-CustomLocations {
     
     Write-InfoLog "Custom Locations OID: $customLocationsOid"
     
-    # Check current status
+    # Check current status via Helm (authoritative source)
     Write-InfoLog "Checking current custom-locations status..."
     try {
         $currentValues = helm get values azure-arc --namespace azure-arc-release -o json 2>$null | ConvertFrom-Json
-        $currentEnabled = $currentValues.systemDefaultValues.customLocations.enabled
-        
-        if ($currentEnabled -eq $true) {
+        if ($currentValues.systemDefaultValues.customLocations.enabled -eq $true) {
             Write-Success "Custom-locations is already enabled!"
-            Write-InfoLog "Current configuration:"
-            helm get values azure-arc --namespace azure-arc-release -o json | jq '.systemDefaultValues.customLocations'
+            Write-InfoLog "Current OID: $($currentValues.systemDefaultValues.customLocations.oid)"
             $script:CustomLocationsEnabled = $true
             return
         }
     } catch {
-        Write-InfoLog "Could not check current status, proceeding with enablement..."
+        Write-InfoLog "Could not check current Helm state, proceeding with enablement..."
     }
     
     if ($DryRun) {
-        Write-Host "[DRY-RUN] Would run: az connectedk8s enable-features --name $script:ClusterName --resource-group $script:ResourceGroup --features cluster-connect custom-locations --custom-locations-oid $customLocationsOid" -ForegroundColor Yellow
+        Write-InfoLog "[DRY-RUN] Step 1: Would run Set-AzConnectedKubernetes -CustomLocationsOid $customLocationsOid"
+        Write-InfoLog "[DRY-RUN] Step 2: Would run helm upgrade azure-arc --reuse-values --set systemDefaultValues.customLocations.enabled=true"
         $script:CustomLocationsEnabled = $true
         return
     }
     
-    # Use Azure CLI - it's the most reliable method
-    # The CLI handles both ARM registration AND helm upgrade internally
-    Write-InfoLog "Using Azure CLI to enable custom-locations feature..."
-    
+    # Step 1: ARM registration via PowerShell module
+    Write-InfoLog "Step 1: Registering custom-locations OID in ARM via Set-AzConnectedKubernetes..."
     try {
-        $enableResult = az connectedk8s enable-features `
-            --name $script:ClusterName `
-            --resource-group $script:ResourceGroup `
-            --features cluster-connect custom-locations `
-            --custom-locations-oid $customLocationsOid 2>&1
+        Set-AzConnectedKubernetes `
+            -ResourceGroupName $script:ResourceGroup `
+            -ClusterName $script:ClusterName `
+            -CustomLocationsOid $customLocationsOid `
+            -ErrorAction Stop | Out-Null
+        Write-Success "ARM registration complete"
+    } catch {
+        Write-WarnLog "Set-AzConnectedKubernetes for custom-locations OID failed: $_"
+        Write-InfoLog "Continuing to Step 2 - Helm update can still succeed independently"
+    }
+    
+    # Step 2: Helm upgrade to actually enable the feature in the cluster
+    # This is the step the PS module skips - we do it explicitly
+    Write-InfoLog "Step 2: Enabling custom-locations in cluster via Helm..."
+    try {
+        $helmResult = helm upgrade azure-arc azure-arc `
+            --namespace azure-arc-release `
+            --reuse-values `
+            --set "systemDefaultValues.customLocations.enabled=true" `
+            --set "systemDefaultValues.customLocations.oid=$customLocationsOid" 2>&1
         
         if ($LASTEXITCODE -ne 0) {
-            # Check if it failed because features are already enabled
-            if ($enableResult -match "already enabled" -or $enableResult -match "already registered") {
-                Write-InfoLog "Features may already be enabled, verifying..."
-            } else {
-                Write-ErrorLog "az connectedk8s enable-features failed: $enableResult"
-                Write-WarnLog "Custom-locations could not be enabled automatically."
-                Write-Host ""
-                Write-Host "To enable manually, run this command on the edge device:" -ForegroundColor Yellow
-                Write-Host "  az connectedk8s enable-features --name $script:ClusterName --resource-group $script:ResourceGroup --features cluster-connect custom-locations --custom-locations-oid $customLocationsOid" -ForegroundColor Cyan
-                Write-Host ""
-                return
-            }
+            Write-ErrorLog "helm upgrade failed: $helmResult"
+            Write-Host ""
+            Write-Host "To enable manually, run:" -ForegroundColor Yellow
+            Write-Host "  helm upgrade azure-arc azure-arc --namespace azure-arc-release --reuse-values \\" -ForegroundColor Cyan
+            Write-Host "    --set systemDefaultValues.customLocations.enabled=true \\" -ForegroundColor Cyan
+            Write-Host "    --set systemDefaultValues.customLocations.oid=$customLocationsOid" -ForegroundColor Cyan
+            Write-Host ""
+            return
         }
         
-        # Verify it worked
-        Write-InfoLog "Verifying custom-locations is enabled..."
-        Start-Sleep -Seconds 3
-        
+        Write-Success "Helm upgrade completed"
+    } catch {
+        Write-ErrorLog "helm upgrade threw an exception: $_"
+        return
+    }
+    
+    # Verify both steps worked
+    Write-InfoLog "Verifying custom-locations is enabled..."
+    Start-Sleep -Seconds 3
+    
+    try {
         $verifyResult = helm get values azure-arc --namespace azure-arc-release -o json 2>$null | ConvertFrom-Json
         if ($verifyResult.systemDefaultValues.customLocations.enabled -eq $true) {
             Write-Success "Custom-locations feature is now enabled!"
-            Write-InfoLog "Configuration:"
-            helm get values azure-arc --namespace azure-arc-release -o json | jq '.systemDefaultValues.customLocations'
+            Write-InfoLog "  enabled: true"
+            Write-InfoLog "  oid:     $($verifyResult.systemDefaultValues.customLocations.oid)"
             $script:CustomLocationsEnabled = $true
         } else {
-            Write-WarnLog "Helm values don't show custom-locations as enabled."
-            Write-WarnLog "The Azure API may show it as enabled, but cluster configuration may need time to sync."
-            Write-Host ""
-            Write-Host "Verify manually with:" -ForegroundColor Yellow
+            Write-WarnLog "Helm values don't show custom-locations as enabled yet."
+            Write-WarnLog "It may take a moment to sync. Verify with:"
             Write-Host "  helm get values azure-arc -n azure-arc-release -o json | jq '.systemDefaultValues.customLocations'" -ForegroundColor Cyan
-            Write-Host ""
         }
-        
     } catch {
-        Write-ErrorLog "Failed to enable custom-locations: $_"
-        Write-WarnLog "Manual step required. Run:"
-        Write-Host "  az connectedk8s enable-features --name $script:ClusterName --resource-group $script:ResourceGroup --features cluster-connect custom-locations --custom-locations-oid $customLocationsOid" -ForegroundColor Cyan
+        Write-WarnLog "Could not verify Helm state after upgrade: $_"
+        Write-Host "Verify manually:" -ForegroundColor Yellow
+        Write-Host "  helm get values azure-arc -n azure-arc-release -o json | jq '.systemDefaultValues.customLocations'" -ForegroundColor Cyan
     }
 }
 

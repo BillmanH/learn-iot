@@ -117,22 +117,25 @@ helm get values azure-arc --namespace azure-arc-release -o json \
 # }
 ```
 
-**If `enabled` is `false` or missing**, the PS module registered custom-locations in ARM but the `helm upgrade` step was skipped. This is the known gap. Fix:
+**If `enabled` is `false` or missing**, the PS module registered custom-locations in ARM but the `helm upgrade` step was skipped. This is the known gap.
 
-```bash
-# Get the Custom Locations RP OID
-CUSTOM_LOC_OID=$(az ad sp show --id bc313c14-388c-4e7d-a58e-70017303ee3b --query id -o tsv)
+Fix using pure PowerShell + Helm (what the script now does):
 
-# Enable via CLI (this does BOTH ARM registration AND helm upgrade)
-az connectedk8s enable-features \
-  --name $CLUSTER \
-  --resource-group $RG \
-  --features cluster-connect custom-locations \
-  --custom-locations-oid $CUSTOM_LOC_OID
+```powershell
+# Step 1: ARM registration
+$oid = (Get-AzADServicePrincipal -ApplicationId bc313c14-388c-4e7d-a58e-70017303ee3b).Id
+Set-AzConnectedKubernetes -ResourceGroupName $RG -ClusterName $CLUSTER -CustomLocationsOid $oid
+
+# Step 2: Helm upgrade to actually enable in the cluster (the step PS module skips)
+helm upgrade azure-arc azure-arc `
+  --namespace azure-arc-release `
+  --reuse-values `
+  --set "systemDefaultValues.customLocations.enabled=true" `
+  --set "systemDefaultValues.customLocations.oid=$oid"
 
 # Verify
-helm get values azure-arc --namespace azure-arc-release -o json \
-  | jq '.systemDefaultValues.customLocations'
+helm get values azure-arc --namespace azure-arc-release -o json `
+  | ConvertFrom-Json | Select-Object -ExpandProperty systemDefaultValues | Select-Object -ExpandProperty customLocations
 ```
 
 ---
@@ -227,42 +230,37 @@ kubectl describe customlocations -A
 
 ## Quick Reference: Manual Fix Commands
 
-Run these on the edge machine when `arc_enable.ps1` reports a warning but doesn't fix it automatically.
+Run these on the edge machine in `pwsh` when `arc_enable.ps1` reports a warning but doesn't fix it automatically.
 
-```bash
-CLUSTER="<your-cluster-name>"
-RG="<your-resource-group>"
-CUSTOM_LOC_OID=$(az ad sp show --id bc313c14-388c-4e7d-a58e-70017303ee3b --query id -o tsv)
+```powershell
+$CLUSTER = "<your-cluster-name>"
+$RG = "<your-resource-group>"
+$OID = (Get-AzADServicePrincipal -ApplicationId bc313c14-388c-4e7d-a58e-70017303ee3b).Id
 
-# Fix 1: Enable custom-locations (ARM + Helm)
-az connectedk8s enable-features \
-  --name $CLUSTER --resource-group $RG \
-  --features cluster-connect custom-locations \
-  --custom-locations-oid $CUSTOM_LOC_OID
+# Fix 1: Enable custom-locations (ARM registration + Helm upgrade)
+Set-AzConnectedKubernetes -ResourceGroupName $RG -ClusterName $CLUSTER -CustomLocationsOid $OID
+helm upgrade azure-arc azure-arc `
+  --namespace azure-arc-release --reuse-values `
+  --set "systemDefaultValues.customLocations.enabled=true" `
+  --set "systemDefaultValues.customLocations.oid=$OID"
 
 # Fix 2: Enable Azure RBAC
-az connectedk8s enable-features \
-  --name $CLUSTER --resource-group $RG \
-  --features azure-rbac
+Set-AzConnectedKubernetes -ResourceGroupName $RG -ClusterName $CLUSTER -AadProfileEnableAzureRbac $true
 
-# Fix 3: Deploy workload identity webhook
-az connectedk8s update \
-  --name $CLUSTER --resource-group $RG \
-  --enable-workload-identity
+# Fix 3: Deploy workload identity webhook (requires az CLI - no PS equivalent)
+# az connectedk8s update --name $CLUSTER --resource-group $RG --enable-workload-identity
 
 # Verify everything in one shot
-echo "--- ARM State ---"
-az connectedk8s show --name $CLUSTER --resource-group $RG \
-  --query '{rbac:aadProfile.enableAzureRbac, wi:workloadIdentityEnabled, oidc:oidcIssuerProfile.issuerUrl, features:features[].{n:name,s:state}}' \
-  -o json
+Write-Host "--- ARM State ---"
+Get-AzConnectedKubernetes -ResourceGroupName $RG -ClusterName $CLUSTER `
+  | Select-Object ConnectivityStatus, PrivateLinkState, AadProfileEnableAzureRbac, WorkloadIdentityEnabled, OidcIssuerProfileEnabled, OidcIssuerProfileIssuerUrl
 
-echo ""
-echo "--- Helm custom-locations ---"
-helm get values azure-arc --namespace azure-arc-release -o json \
-  | jq '.systemDefaultValues.customLocations'
+Write-Host ""
+Write-Host "--- Helm custom-locations ---"
+(helm get values azure-arc --namespace azure-arc-release -o json | ConvertFrom-Json).systemDefaultValues.customLocations
 
-echo ""
-echo "--- azure-arc pods ---"
+Write-Host ""
+Write-Host "--- azure-arc pods ---"
 kubectl get pods -n azure-arc
 ```
 
@@ -283,6 +281,26 @@ Use this before each run of `arc_enable.ps1` to know what to expect:
 - [ ] Pods: `guard` / `kube-aad-proxy` running in `azure-arc`
 - [ ] Pods: `workload-identity-webhook` running in `azure-arc`
 - [ ] K3s `service-account-issuer` matches Arc OIDC issuer URL
+
+---
+
+## Known Script Version Differences
+
+Older versions of `arc_enable.ps1` (pre-2026-02-27) **generated** a `enable_custom_locations.sh` file instead of running the CLI directly. If you see this in the log:
+
+```
+[...] Generating custom-locations helm enablement script...
+[...] SUCCESS: Generated: .../enable_custom_locations.sh
+```
+
+The script did **not** enable custom-locations — it only wrote a file for you to run manually. Run it:
+
+```bash
+chmod +x ~/repos/learn-iot/arc_build_linux/enable_custom_locations.sh
+~/repos/learn-iot/arc_build_linux/enable_custom_locations.sh
+```
+
+Or use the manual fix commands above. Then pull the latest `arc_enable.ps1` which runs this step automatically.
 
 ---
 
