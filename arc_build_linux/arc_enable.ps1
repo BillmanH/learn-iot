@@ -461,39 +461,63 @@ function Enable-AzureRbac {
         Write-WarnLog "Could not check Azure RBAC status: $_"
     }
     
-    # Enable via PowerShell module
+    # Enable via PowerShell module with colon syntax to support both [switch] and [bool] parameter types.
     # Note: parameter was renamed from AzureRbacEnabled to AadProfileEnableAzureRbac in Az.ConnectedKubernetes 0.11+
+    $psRbacSuccess = $false
     try {
         Write-InfoLog "Using Set-AzConnectedKubernetes to enable Azure RBAC..."
         Set-AzConnectedKubernetes `
             -ResourceGroupName $script:ResourceGroup `
             -ClusterName $script:ClusterName `
-            -AadProfileEnableAzureRbac $true `
+            -AadProfileEnableAzureRbac:$true `
             -ErrorAction Stop | Out-Null
         
         # Verify
         $updated = Get-AzConnectedKubernetes -ResourceGroupName $script:ResourceGroup -ClusterName $script:ClusterName -ErrorAction Stop
         if ($updated.AadProfileEnableAzureRbac -eq $true) {
+            $psRbacSuccess = $true
             Write-Success "Azure RBAC enabled successfully"
-            Write-Host ""
-            Write-Host "NOTE: Users need Arc Kubernetes roles to access the cluster via proxy:" -ForegroundColor Cyan
-            Write-Host "  - Azure Arc Kubernetes Cluster Admin  (full access)" -ForegroundColor Gray
-            Write-Host "  - Azure Arc Kubernetes Cluster User    (limited access)" -ForegroundColor Gray
-            Write-Host "  - Azure Arc Kubernetes Viewer          (read-only)" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "Grant these roles via grant_entra_id_roles.ps1 or:" -ForegroundColor Cyan
-            Write-Host "  az role assignment create --role 'Azure Arc Kubernetes Cluster Admin' --assignee <USER_OID> --scope <CLUSTER_RESOURCE_ID>" -ForegroundColor Gray
-            Write-Host ""
         } else {
             Write-WarnLog "Set-AzConnectedKubernetes succeeded but AadProfileEnableAzureRbac is still not true"
-            Write-WarnLog "Check ARM state manually:"
-            Write-Host "  az connectedk8s show --name $script:ClusterName --resource-group $script:ResourceGroup --query 'aadProfile.enableAzureRbac'" -ForegroundColor Cyan
         }
     } catch {
-        Write-ErrorLog "Set-AzConnectedKubernetes failed: $_"
+        Write-WarnLog "Set-AzConnectedKubernetes failed: $_ -- falling back to Azure CLI"
+    }
+
+    # Fallback: az connectedk8s update --enable-azure-rbac (works regardless of PS module version)
+    if (-not $psRbacSuccess) {
+        try {
+            Write-InfoLog "Falling back to: az connectedk8s update --enable-azure-rbac ..."
+            $azResult = az connectedk8s update `
+                --name $script:ClusterName `
+                --resource-group $script:ResourceGroup `
+                --enable-azure-rbac 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                Write-Success "Azure RBAC enabled successfully via Azure CLI"
+                $psRbacSuccess = $true
+            } else {
+                Write-ErrorLog "az connectedk8s update --enable-azure-rbac failed: $azResult"
+            }
+        } catch {
+            Write-ErrorLog "Azure CLI fallback also failed: $_"
+        }
+    }
+
+    if ($psRbacSuccess) {
         Write-Host ""
-        Write-Host "To enable Azure RBAC manually, run:" -ForegroundColor Yellow
-        Write-Host "  Set-AzConnectedKubernetes -ResourceGroupName $script:ResourceGroup -ClusterName $script:ClusterName -AadProfileEnableAzureRbac `$true" -ForegroundColor Cyan
+        Write-Host "NOTE: Users need Arc Kubernetes roles to access the cluster via proxy:" -ForegroundColor Cyan
+        Write-Host "  - Azure Arc Kubernetes Cluster Admin  (full access)" -ForegroundColor Gray
+        Write-Host "  - Azure Arc Kubernetes Cluster User    (limited access)" -ForegroundColor Gray
+        Write-Host "  - Azure Arc Kubernetes Viewer          (read-only)" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "Grant these roles via grant_entra_id_roles.ps1 or:" -ForegroundColor Cyan
+        Write-Host "  az role assignment create --role 'Azure Arc Kubernetes Cluster Admin' --assignee <USER_OID> --scope <CLUSTER_RESOURCE_ID>" -ForegroundColor Gray
+        Write-Host ""
+    } else {
+        Write-Host ""
+        Write-Host "To enable Azure RBAC manually, run one of:" -ForegroundColor Yellow
+        Write-Host "  az connectedk8s update --name $script:ClusterName --resource-group $script:ResourceGroup --enable-azure-rbac" -ForegroundColor Cyan
+        Write-Host "  Set-AzConnectedKubernetes -ResourceGroupName $script:ResourceGroup -ClusterName $script:ClusterName -AadProfileEnableAzureRbac:`$true" -ForegroundColor Cyan
         Write-Host ""
     }
 }
