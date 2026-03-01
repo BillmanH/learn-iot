@@ -25,10 +25,11 @@
 # ==============================================================================
 
 param(
-    [switch]$SkipArc,      # Skip Arc connection (useful if cluster already Arc-enabled)
-    [switch]$SkipAio,      # Skip AIO install (Bicep-only run)
-    [switch]$SkipModules,  # Skip module deployment even if flags are set
-    [switch]$DryRun        # Print commands without executing them
+    [switch]$SkipArc,       # Skip Arc connection (useful if cluster already Arc-enabled)
+    [switch]$SkipAio,       # Skip AIO install (Bicep-only run)
+    [switch]$SkipModules,   # Skip module deployment even if flags are set
+    [switch]$SkipBootWait,  # Skip cloud-init poll (use when VM already booted and K3s is running)
+    [switch]$DryRun         # Print commands without executing them
 )
 
 $ErrorActionPreference = 'Stop'
@@ -41,6 +42,14 @@ function Write-OK    { param([string]$Msg) Write-Host "  [OK] $Msg"   -Foregroun
 function Write-Info  { param([string]$Msg) Write-Host "  [..] $Msg" }
 function Write-Warn  { param([string]$Msg) Write-Host "  [!!] $Msg"   -ForegroundColor Yellow }
 
+# PS 5.1-compatible: convert a PSCustomObject (from ConvertFrom-Json) to a hashtable
+function ConvertTo-EnvHashtable {
+    param($obj)
+    $ht = @{}
+    if ($obj) { $obj.PSObject.Properties | ForEach-Object { $ht[$_.Name] = $_.Value } }
+    return $ht
+}
+
 # ---------------------------------------------------------------------------
 # Load azd environment
 # ---------------------------------------------------------------------------
@@ -51,7 +60,7 @@ Write-Host "================================================"
 Write-Host ""
 Write-Info "Loading azd environment values..."
 
-$azdEnv = (azd env get-values --output json 2>$null | ConvertFrom-Json -AsHashtable)
+$azdEnv = ConvertTo-EnvHashtable (azd env get-values --output json 2>$null | ConvertFrom-Json)
 if (-not $azdEnv) {
     Write-Error "Could not load azd environment. Run 'azd up' from the repo root or azd-deploy/ directory."
     exit 1
@@ -94,69 +103,159 @@ Write-Host ""
 function Invoke-VmScript {
     param(
         [string]$Description,
-        [string]$BashScript
+        [string]$BashScript,
+        [switch]$AllowFailure,
+        [int]$TimeoutSeconds = 600
     )
     Write-Info "VM > $Description"
     if ($DryRun) { Write-Warn "[DryRun] Would run bash script on VM"; return $null }
 
+    # Use az vm run-command create (resource-based, async API).
+    # az vm run-command invoke (action-based) is unreliable for multi-line
+    # scripts on Windows — it consistently ignores the script payload and
+    # runs Azure's default "This is a sample script" placeholder instead.
+    #
+    # The create/poll/delete pattern is more verbose but actually delivers
+    # the script content to the VM reliably.
+
+    # Unique name for this run-command resource (no spaces, max 64 chars)
+    $rcName = "pp-$(Get-Date -Format 'HHmmss')-$([System.IO.Path]::GetRandomFileName().Replace('.','').Substring(0,6))"
+
+    # Wrap to capture exit code via trap (works with set -e)
+    $wrappedScript = @"
+#!/bin/bash
+trap 'EC=`$?; echo "__EXITCODE__:`$EC"; exit `$EC' EXIT
+$BashScript
+"@
+    # Normalize to LF — Set-Content/WriteAllText on Windows can emit CRLF
+    # which makes bash silently fail on every line (trailing \r)
+    $lfScript = $wrappedScript -replace "`r`n", "`n" -replace "`r", "`n"
+
     $tmpFile = [System.IO.Path]::GetTempFileName() + ".sh"
     try {
-        Set-Content -Path $tmpFile -Value $BashScript -Encoding UTF8
+        [System.IO.File]::WriteAllText($tmpFile, $lfScript, [System.Text.Encoding]::UTF8)
 
-        $result = az vm run-command invoke `
+        # Create the run-command resource (async, returns immediately)
+        $createOut = az vm run-command create `
             --resource-group $resourceGroup `
-            --name $vmName `
-            --command-id RunShellScript `
-            --scripts "@$tmpFile" `
-            --output json | ConvertFrom-Json
+            --vm-name $vmName `
+            --name $rcName `
+            --script "@$tmpFile" `
+            --timeout-in-seconds $TimeoutSeconds `
+            --output json 2>&1
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "run-command create failed:"
+            Write-Host ($createOut -join "`n")
+            if (-not $AllowFailure) { throw "VM run-command create failed for: $Description" }
+            return $null
+        }
     }
     finally {
         Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
     }
 
-    $stdout = $result.value[0].message
-    $stderr = $result.value[1].message
-    if ($stdout -and $stdout.Trim())                          { Write-Host $stdout }
-    if ($stderr -and $stderr.Trim() -match '\S')              { Write-Warn "VM stderr: $stderr" }
-    return $result
+    # Poll until execution completes
+    Write-Info "  Waiting for VM script to complete (timeout: ${TimeoutSeconds}s)..."
+    $maxPoll = $TimeoutSeconds + 120
+    $pollElapsed = 0
+    $execState = $null
+    while ($pollElapsed -lt $maxPoll) {
+        Start-Sleep -Seconds 15
+        $pollElapsed += 15
+        $showOut = az vm run-command show `
+            --resource-group $resourceGroup `
+            --vm-name $vmName `
+            --name $rcName `
+            --instance-view `
+            --output json 2>$null
+        if ($LASTEXITCODE -eq 0 -and $showOut) {
+            $showObj = $showOut | ConvertFrom-Json
+            $execState = $showObj.instanceView.executionState
+            if ($execState -in @('Succeeded','Failed','TimedOut','Canceled')) { break }
+            Write-Info "  State: $execState (${pollElapsed}s elapsed)..."
+        }
+    }
+
+    # Retrieve final output
+    $finalOut = az vm run-command show `
+        --resource-group $resourceGroup `
+        --vm-name $vmName `
+        --name $rcName `
+        --instance-view `
+        --output json 2>$null | ConvertFrom-Json
+
+    # Clean up the run-command resource (best-effort)
+    az vm run-command delete `
+        --resource-group $resourceGroup `
+        --vm-name $vmName `
+        --name $rcName `
+        --yes --output none 2>$null
+
+    $stdout = $finalOut.instanceView.output
+    $stderr = $finalOut.instanceView.error
+    if ($stdout -and $stdout.Trim()) { Write-Host $stdout }
+    if ($stderr -and $stderr.Trim() -match '\S') { Write-Warn "VM stderr: $stderr" }
+
+    if ($execState -eq 'TimedOut') {
+        if (-not $AllowFailure) { throw "VM script '$Description' timed out after ${TimeoutSeconds}s." }
+        Write-Warn "VM script timed out (continuing)"
+    }
+
+    # Detect non-zero bash exit from trap marker
+    if ($stdout -match '__EXITCODE__:(\d+)') {
+        $bashExit = [int]$Matches[1]
+        if ($bashExit -ne 0) {
+            if ($AllowFailure) {
+                Write-Warn "VM script '$Description' exited $bashExit (continuing)"
+            } else {
+                throw "VM script '$Description' failed with exit code $bashExit. See output above."
+            }
+        }
+    } else {
+        Write-Warn "No __EXITCODE__ marker in output for '$Description' — execution state: $execState"
+    }
+
+    return $finalOut
 }
 
 # ===========================================================================
 # STEP 1 - Wait for cloud-init bootstrap
 # ===========================================================================
-Write-Step "Step 1/12: Waiting for cloud-init bootstrap (/tmp/k3s-ready)"
+Write-Step "Step 1/12: Waiting for cloud-init bootstrap (K3s ready)"
 
-$maxWait  = 1200   # 20 minutes - VM provisioning + K3s install + CSI driver install
-$elapsed  = 0
-$interval = 30
+if ($SkipBootWait) {
+    Write-OK "Skipping boot wait (-SkipBootWait). Assuming K3s is already running."
+} else {
+    # Send a SINGLE run-command that loops on the VM side.
+    # This uses only ONE Azure run-command lock for the entire wait,
+    # avoiding the Conflict errors that happen when polling from Windows.
+    Write-Info "Sending single wait script to VM (polls internally, up to 20 min)..."
+    Write-Info "The run-command will hold the lock until K3s is ready or timeout."
 
-Write-Info "Polling VM every ${interval}s (timeout: ${maxWait}s)..."
+    $bootWaitScript = @'
+#!/bin/bash
+MAX=1200
+ELAPSED=0
+while [ $ELAPSED -lt $MAX ]; do
+    if test -f /var/lib/k3s-ready || systemctl is-active k3s --quiet 2>/dev/null; then
+        echo "K3S_READY after ${ELAPSED}s"
+        exit 0
+    fi
+    echo "Not ready yet (${ELAPSED}s elapsed)..."
+    sleep 30
+    ELAPSED=$((ELAPSED + 30))
+done
+echo "TIMEOUT: K3s did not become ready within ${MAX}s"
+exit 1
+'@
 
-while ($elapsed -lt $maxWait) {
     if (-not $DryRun) {
-        $pollResult = az vm run-command invoke `
-            --resource-group $resourceGroup `
-            --name $vmName `
-            --command-id RunShellScript `
-            --scripts "test -f /tmp/k3s-ready && echo K3S_READY || echo K3S_NOT_READY" `
-            --output json 2>$null | ConvertFrom-Json
-
-        if ($pollResult.value[0].message -match 'K3S_READY') {
-            Write-OK "Cloud-init complete - K3s is ready."
-            break
-        }
+        Invoke-VmScript -Description "Wait for K3s ready (on-VM loop)" -BashScript $bootWaitScript
+        Write-OK "K3s is ready."
     } else {
         Write-Warn "[DryRun] Skipping cloud-init poll"
-        break
     }
-
-    Write-Info "Not ready yet (${elapsed}s elapsed) - waiting ${interval}s..."
-    Start-Sleep -Seconds $interval
-    $elapsed += $interval
-}
-
-if (-not $DryRun -and $elapsed -ge $maxWait) {
-    Write-Error "Timed out waiting for cloud-init. Check VM boot diagnostics in the Azure portal."
 }
 
 if (-not $SkipArc) {
@@ -186,6 +285,14 @@ az login --identity --output none
 echo "[ARC CONNECT] Setting subscription..."
 az account set --subscription $subscriptionId --output none
 
+# Install/update required CLI extensions.
+# cloud-init installs the Azure CLI but not extensions.
+# Using --upgrade ensures we always have a working version even on re-runs.
+echo "[ARC CONNECT] Installing/updating Azure CLI extensions..."
+az extension add --name connectedk8s --upgrade --yes --output none 2>&1
+az extension add --name azure-iot-ops --upgrade --yes --output none 2>&1
+echo "[ARC CONNECT] Extensions ready."
+
 echo "[ARC CONNECT] Checking if cluster already Arc-connected..."
 if az connectedk8s show --name "$clusterName" --resource-group "$resourceGroup" --output none 2>/dev/null; then
     echo "[ARC CONNECT] Cluster '$clusterName' is already Arc-connected - skipping."
@@ -206,6 +313,21 @@ echo "[ARC CONNECT] Done."
 "@
 
     Invoke-VmScript -Description "az connectedk8s connect (with OIDC + workload identity)" -BashScript $arcConnectScript
+
+    # Verify the cluster resource actually exists in Azure before proceeding.
+    # The run-command may have succeeded (ProvisioningState/succeeded) even
+    # if the bash script inside failed — verify directly from the ARM API.
+    Write-Info "Verifying Arc cluster resource was created..."
+    if (-not $DryRun) {
+        $arcStatus = az connectedk8s show `
+            --name $clusterName `
+            --resource-group $resourceGroup `
+            --query "connectivityStatus" -o tsv 2>$null
+        if (-not $arcStatus) {
+            throw "Arc cluster '$clusterName' was NOT created. The connectedk8s connect script failed on the VM. Check the output above for the actual error."
+        }
+        Write-OK "Arc cluster created. Connectivity status: $arcStatus"
+    }
 
     Write-Info "Waiting 30s for Arc agent to initialise in the cluster..."
     if (-not $DryRun) { Start-Sleep -Seconds 30 }

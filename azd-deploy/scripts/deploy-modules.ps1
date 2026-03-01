@@ -20,11 +20,19 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# PS 5.1-compatible: convert a PSCustomObject (from ConvertFrom-Json) to a hashtable
+function ConvertTo-EnvHashtable {
+    param($obj)
+    $ht = @{}
+    if ($obj) { $obj.PSObject.Properties | ForEach-Object { $ht[$_.Name] = $_.Value } }
+    return $ht
+}
+
 # ---------------------------------------------------------------------------
 # Load azd env if not called from post-provision
 # ---------------------------------------------------------------------------
 if (-not $AcrServer) {
-    $azdEnv = (azd env get-values --output json 2>$null | ConvertFrom-Json -AsHashtable)
+    $azdEnv = ConvertTo-EnvHashtable (azd env get-values --output json 2>$null | ConvertFrom-Json)
     $AcrServer = $azdEnv['AZURE_CONTAINER_REGISTRY_LOGIN_SERVER']
     $resourceGroup = $azdEnv['AZURE_RESOURCE_GROUP']
     $acrName = $azdEnv['AZURE_CONTAINER_REGISTRY_NAME']
@@ -36,7 +44,7 @@ if (-not $AcrServer) {
 }
 
 if (-not $DeployFlags) {
-    $azdEnv = $azdEnv ?? (azd env get-values --output json 2>$null | ConvertFrom-Json -AsHashtable)
+    if (-not $azdEnv) { $azdEnv = ConvertTo-EnvHashtable (azd env get-values --output json 2>$null | ConvertFrom-Json) }
     $DeployFlags = @{
         'edgemqttsim'   = ($azdEnv['DEPLOY_MODULE_EDGEMQTTSIM'] -eq 'true')
         'sputnik'       = ($azdEnv['DEPLOY_MODULE_SPUTNIK'] -eq 'true')

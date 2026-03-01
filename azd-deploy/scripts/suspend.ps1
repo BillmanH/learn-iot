@@ -12,7 +12,15 @@
 
 $ErrorActionPreference = 'Stop'
 
-$azdEnv = (azd env get-values --output json 2>$null | ConvertFrom-Json -AsHashtable)
+# PS 5.1-compatible: convert a PSCustomObject (from ConvertFrom-Json) to a hashtable
+function ConvertTo-EnvHashtable {
+    param($obj)
+    $ht = @{}
+    if ($obj) { $obj.PSObject.Properties | ForEach-Object { $ht[$_.Name] = $_.Value } }
+    return $ht
+}
+
+$azdEnv = ConvertTo-EnvHashtable (azd env get-values --output json 2>$null | ConvertFrom-Json)
 $resourceGroup = $azdEnv['AZURE_RESOURCE_GROUP']
 $vmName        = $azdEnv['AZURE_VM_NAME']
 

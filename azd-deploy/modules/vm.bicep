@@ -69,9 +69,12 @@ runcmd:
   - [ bash, -c, "kubectl wait --for=condition=ready pod -l app=csi-secrets-store-provider-azure -n kube-system --timeout=120s" ]
 
   # -----------------------------------------------------------------------
-  # Install Azure CLI (needed when az connectedk8s connect runs via run-command)
+  # Install Azure CLI + required extensions
+  # (az connectedk8s connect and az iot ops run on the VM via run-command)
   # -----------------------------------------------------------------------
   - [ bash, -c, "curl -sL https://aka.ms/InstallAzureCLIDeb | bash" ]
+  - [ bash, -c, "az extension add --name connectedk8s --yes --output none" ]
+  - [ bash, -c, "az extension add --name azure-iot-ops --yes --output none" ]
 '''
 
 var k9sBlock = installK9s ? '''
@@ -85,8 +88,9 @@ var mqttuiBlock = installMqttui ? '''
 ''' : ''
 
 var cloudInitFooter = '''
-  # Signal bootstrap complete — post-provision.ps1 polls for this file
-  - [ bash, -c, "touch /tmp/k3s-ready" ]
+  # Signal bootstrap complete — post-provision.ps1 polls for this file.
+  # Written to /var/lib/ (not /tmp/) so it survives reboots.
+  - [ bash, -c, "touch /var/lib/k3s-ready" ]
 '''
 
 var cloudInitContent = '${cloudInitBase}${k9sBlock}${mqttuiBlock}${cloudInitFooter}'
