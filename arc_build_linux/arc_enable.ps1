@@ -472,7 +472,7 @@ function Enable-AzureRbac {
         Write-InfoLog "Enabling Azure RBAC via REST PATCH..."
         $resourceId = "/subscriptions/$($script:SubscriptionId)/resourceGroups/$($script:ResourceGroup)/providers/Microsoft.Kubernetes/connectedClusters/$($script:ClusterName)"
         $body = @{ properties = @{ aadProfile = @{ enableAzureRbac = $true } } } | ConvertTo-Json -Depth 5 -Compress
-        $response = Invoke-AzRestMethod -Method PATCH -Path "${resourceId}?api-version=2024-07-15-preview" -Payload $body -ErrorAction Stop
+        $response = Invoke-AzRestMethod -Method PATCH -Path "${resourceId}?api-version=2023-11-01" -Payload $body -ErrorAction Stop
         
         if ($response.StatusCode -in 200, 201, 202) {
             $patchSuccess = $true
@@ -623,7 +623,7 @@ function Enable-OidcWorkloadIdentity {
                     securityProfile   = @{ workloadIdentity = @{ enabled = $true } }
                 }
             } | ConvertTo-Json -Depth 6 -Compress
-            $response = Invoke-AzRestMethod -Method PATCH -Path "${resourceId}?api-version=2024-07-15-preview" -Payload $body -ErrorAction Stop
+            $response = Invoke-AzRestMethod -Method PATCH -Path "${resourceId}?api-version=2023-11-01" -Payload $body -ErrorAction Stop
             
             if ($response.StatusCode -in 200, 201, 202) {
                 Write-Success "OIDC issuer and workload identity enabled in ARM"
@@ -1072,7 +1072,7 @@ function Enable-CustomLocations {
                 }
             }
         } | ConvertTo-Json -Depth 7 -Compress
-        $response = Invoke-AzRestMethod -Method PATCH -Path "${resourceId}?api-version=2024-07-15-preview" -Payload $body -ErrorAction Stop
+        $response = Invoke-AzRestMethod -Method PATCH -Path "${resourceId}?api-version=2023-11-01" -Payload $body -ErrorAction Stop
         if ($response.StatusCode -in 200, 201, 202) {
             Write-Success "ARM registration complete"
         } else {
