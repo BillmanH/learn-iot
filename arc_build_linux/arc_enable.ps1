@@ -698,7 +698,7 @@ function Test-K3sOidcIssuerConfigured {
     
     # Get current K3s issuer
     $clusterDump = kubectl cluster-info dump 2>$null
-    $currentIssuer = $clusterDump | Select-String -Pattern "service-account-issuer=([^\s,`"]+)" | 
+    $currentIssuer = $clusterDump | Select-String -Pattern "service-account-issuer=([^\s,`"\\]+)" | 
         ForEach-Object { $_.Matches.Groups[1].Value } | 
         Select-Object -First 1
     
