@@ -443,10 +443,10 @@ function Enable-AzureRbac {
         Safe to run multiple times - checks current state first.
     #>
     
-    Write-Log "Enabling Azure RBAC for kubectl proxy access..."
+    Write-Log "Checking Azure RBAC status (optional feature for kubectl proxy access)..."
     
     if ($DryRun) {
-        Write-InfoLog "[DRY-RUN] Would enable Azure RBAC on cluster"
+        Write-InfoLog "[DRY-RUN] Would check Azure RBAC on cluster"
         return
     }
     
@@ -458,67 +458,20 @@ function Enable-AzureRbac {
             Write-Success "Azure RBAC is already enabled"
             return
         }
-        
-        Write-InfoLog "Azure RBAC is not enabled, enabling now..."
     } catch {
         Write-WarnLog "Could not check Azure RBAC status: $_"
     }
     
-    # Enable via GET + PUT: Azure Policy blocks PATCH by doing its own GET which fails.
-    # Fetching the current resource and PUTting the full body back avoids that issue.
-    # API version 2022-10-01-preview is used because it is the stable preview that supports
-    # the aadProfile.enableAzureRbac property (added in that version, reorganised in later ones).
-    $patchSuccess = $false
-    try {
-        Write-InfoLog "Enabling Azure RBAC via GET + PUT..."
-        $resourceId = "/subscriptions/$($script:SubscriptionId)/resourceGroups/$($script:ResourceGroup)/providers/Microsoft.Kubernetes/connectedClusters/$($script:ClusterName)"
-        $apiVersion = "2022-10-01-preview"
-        
-        # GET current state
-        $getResponse = Invoke-AzRestMethod -Method GET -Path "${resourceId}?api-version=${apiVersion}" -ErrorAction Stop
-        if ($getResponse.StatusCode -ne 200) {
-            Write-WarnLog "GET failed with HTTP $($getResponse.StatusCode): $($getResponse.Content)"
-            throw "GET failed"
-        }
-        $resource = $getResponse.Content | ConvertFrom-Json
-        
-        # Modify only the aadProfile property
-        if (-not $resource.properties.aadProfile) {
-            $resource.properties | Add-Member -MemberType NoteProperty -Name aadProfile -Value ([PSCustomObject]@{}) -Force
-        }
-        $resource.properties.aadProfile | Add-Member -MemberType NoteProperty -Name enableAzureRbac -Value $true -Force
-        
-        # PUT full body back
-        $putBody = $resource | ConvertTo-Json -Depth 20 -Compress
-        $putResponse = Invoke-AzRestMethod -Method PUT -Path "${resourceId}?api-version=${apiVersion}" -Payload $putBody -ErrorAction Stop
-        
-        if ($putResponse.StatusCode -in 200, 201, 202) {
-            $patchSuccess = $true
-            Write-Success "Azure RBAC enabled successfully"
-        } else {
-            Write-WarnLog "PUT returned HTTP $($putResponse.StatusCode): $($putResponse.Content)"
-        }
-    } catch {
-        Write-WarnLog "GET+PUT for Azure RBAC failed: $_"
-    }
-
-    if ($patchSuccess) {
-        Write-Host ""
-        Write-Host "NOTE: Users need Arc Kubernetes roles to access the cluster via proxy:" -ForegroundColor Cyan
-        Write-Host "  - Azure Arc Kubernetes Cluster Admin  (full access)" -ForegroundColor Gray
-        Write-Host "  - Azure Arc Kubernetes Cluster User    (limited access)" -ForegroundColor Gray
-        Write-Host "  - Azure Arc Kubernetes Viewer          (read-only)" -ForegroundColor Gray
-        Write-Host ""
-        Write-Host "Grant these roles via grant_entra_id_roles.ps1 or:" -ForegroundColor Cyan
-        Write-Host "  az role assignment create --role 'Azure Arc Kubernetes Cluster Admin' --assignee <USER_OID> --scope <CLUSTER_RESOURCE_ID>" -ForegroundColor Gray
-        Write-Host ""
-    } else {
-        Write-Host ""
-        Write-Host "To enable Azure RBAC manually, run one of:" -ForegroundColor Yellow
-        Write-Host "  az connectedk8s update --name $script:ClusterName --resource-group $script:ResourceGroup --enable-azure-rbac" -ForegroundColor Cyan
-        Write-Host "  Set-AzConnectedKubernetes -ResourceGroupName $script:ResourceGroup -ClusterName $script:ClusterName -AadProfileEnableAzureRbac:`$true" -ForegroundColor Cyan
-        Write-Host ""
-    }
+    # Azure RBAC cannot be set via the ARM REST API from the edge device context.
+    # The Azure RP rejects PUT/PATCH with aadProfile from all tested API versions.
+    # This feature is OPTIONAL - AIO does not require it.
+    # Enable it from Windows after deployment using the Azure CLI:
+    Write-WarnLog "Azure RBAC is not enabled (optional - AIO does not require this)"
+    Write-Host ""
+    Write-Host "  Azure RBAC enables 'az connectedk8s proxy' for kubectl via Azure identities." -ForegroundColor DarkGray
+    Write-Host "  To enable it, run from Windows:" -ForegroundColor Yellow
+    Write-Host "    az connectedk8s update --name $script:ClusterName --resource-group $script:ResourceGroup --enable-azure-rbac" -ForegroundColor Cyan
+    Write-Host ""
 }
 
 function Enable-ArcFeatures {
