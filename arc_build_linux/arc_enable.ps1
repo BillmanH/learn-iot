@@ -381,76 +381,42 @@ function Enable-ArcForCluster {
         if ($DryRun) {
             Write-InfoLog "[DRY-RUN] Would connect cluster with custom-locations enabled"
         } else {
-            # Use Azure CLI (az connectedk8s connect) for the initial Arc connection.
-            # The Az.ConnectedKubernetes PS module has a bug where PrivateLinkState = "Disabled" is
-            # not reliably sent to the API, causing Arc onboarding to block custom-locations with:
+            # NOTE: Do NOT pass PrivateLinkState = "Disabled" to New-AzConnectedKubernetes.
+            # Passing it (even as "Disabled") triggers a PS module bug that causes Arc onboarding
+            # to treat the cluster as private-link-enabled and block custom-locations with:
             #   "The features 'cluster-connect' and 'custom-locations' cannot be enabled for a
             #    private link enabled connected cluster."
-            # The Azure CLI handles this correctly and is the preferred path.
+            # Omitting the parameter entirely lets the API default to disabled correctly.
             Write-InfoLog "Connecting with custom-locations, OIDC issuer, and workload identity enabled..."
-            Write-InfoLog "Using Azure CLI (az connectedk8s connect) to avoid PS module PrivateLinkState bug..."
             
-            $cliConnectSuccess = $false
+            $connectParams = @{
+                ResourceGroupName    = $script:ResourceGroup
+                ClusterName          = $script:ClusterName
+                Location             = $script:Location
+                AcceptEULA           = $true
+                OidcIssuerProfileEnabled = $true
+                WorkloadIdentityEnabled  = $true
+                AadProfileEnableAzureRbac = $true
+            }
             
-            if (Get-Command az -ErrorAction SilentlyContinue) {
-                $azArgs = @(
-                    "connectedk8s", "connect",
-                    "--name", $script:ClusterName,
-                    "--resource-group", $script:ResourceGroup,
-                    "--location", $script:Location,
-                    "--enable-oidc-issuer",
-                    "--enable-workload-identity"
-                )
-                
-                if (-not [string]::IsNullOrEmpty($customLocationsOid)) {
-                    $azArgs += @("--custom-locations-oid", $customLocationsOid)
-                    Write-InfoLog "Including custom-locations OID in connection"
-                } else {
-                    Write-WarnLog "Connecting WITHOUT custom-locations (OID not available)"
-                    Write-WarnLog "IoT Operations will NOT work until you reconnect with custom-locations enabled"
-                    Write-Host ""
-                    Write-Host "After fixing permissions, you can re-run this script:" -ForegroundColor Yellow
-                    Write-Host "  1. Delete the Arc connection:" -ForegroundColor White
-                    Write-Host "       kubectl delete ns azure-arc" -ForegroundColor White
-                    Write-Host "       (NOTE: 'namespace not found' error is OK - means it's already deleted)" -ForegroundColor DarkGray
-                    Write-Host "       Remove-AzResource -ResourceGroupName $script:ResourceGroup -ResourceName $script:ClusterName -ResourceType 'Microsoft.Kubernetes/connectedClusters' -Force" -ForegroundColor White
-                    Write-Host "  2. Re-run: ./arc_enable.ps1" -ForegroundColor White
-                    Write-Host ""
-                }
-                
-                Write-InfoLog "Running: az $($azArgs -join ' ')"
-                $azOutput = az @azArgs 2>&1
-                if ($LASTEXITCODE -eq 0) {
-                    $cliConnectSuccess = $true
-                    Write-Success "Cluster connected to Azure Arc via CLI (OIDC issuer + workload identity enabled)"
-                } else {
-                    Write-WarnLog "az connectedk8s connect failed (exit $LASTEXITCODE): $azOutput"
-                    Write-WarnLog "Falling back to Az.ConnectedKubernetes PowerShell module..."
-                }
+            if (-not [string]::IsNullOrEmpty($customLocationsOid)) {
+                $connectParams['CustomLocationsOid'] = $customLocationsOid
+                Write-InfoLog "Including CustomLocationsOid in connection"
             } else {
-                Write-WarnLog "Azure CLI (az) not found - falling back to Az.ConnectedKubernetes PS module"
+                Write-WarnLog "Connecting WITHOUT custom-locations (OID not available)"
+                Write-WarnLog "IoT Operations will NOT work until you reconnect with custom-locations enabled"
+                Write-Host ""
+                Write-Host "After fixing permissions, you can re-run this script:" -ForegroundColor Yellow
+                Write-Host "  1. Delete the Arc connection:" -ForegroundColor White
+                Write-Host "       kubectl delete ns azure-arc" -ForegroundColor White
+                Write-Host "       (NOTE: 'namespace not found' error is OK - means it's already deleted)" -ForegroundColor DarkGray
+                Write-Host "       Remove-AzResource -ResourceGroupName $script:ResourceGroup -ResourceName $script:ClusterName -ResourceType 'Microsoft.Kubernetes/connectedClusters' -Force" -ForegroundColor White
+                Write-Host "  2. Re-run: ./arc_enable.ps1" -ForegroundColor White
+                Write-Host ""
             }
             
-            # Fallback: PS module (may trigger private-link warning on some configurations)
-            if (-not $cliConnectSuccess) {
-                $connectParams = @{
-                    ResourceGroupName = $script:ResourceGroup
-                    ClusterName = $script:ClusterName
-                    Location = $script:Location
-                    AcceptEULA = $true
-                    OidcIssuerProfileEnabled = $true
-                    WorkloadIdentityEnabled = $true
-                    AadProfileEnableAzureRbac = $true
-                }
-                
-                if (-not [string]::IsNullOrEmpty($customLocationsOid)) {
-                    $connectParams['CustomLocationsOid'] = $customLocationsOid
-                    Write-InfoLog "Including CustomLocationsOid in PS module connection"
-                }
-                
-                New-AzConnectedKubernetes @connectParams
-                Write-Success "Cluster connected to Azure Arc via PS module (including Azure RBAC)"
-            }
+            New-AzConnectedKubernetes @connectParams
+            Write-Success "Cluster connected to Azure Arc with features enabled (including Azure RBAC)"
         }
         
         # Store OID for later verification
