@@ -470,7 +470,7 @@ function Enable-AzureRbac {
     try {
         Write-InfoLog "Enabling Azure RBAC via GET + PUT..."
         $resourceId = "/subscriptions/$($script:SubscriptionId)/resourceGroups/$($script:ResourceGroup)/providers/Microsoft.Kubernetes/connectedClusters/$($script:ClusterName)"
-        $apiVersion = "2023-11-01"
+        $apiVersion = "2024-01-01"
         
         # GET current state
         $getResponse = Invoke-AzRestMethod -Method GET -Path "${resourceId}?api-version=${apiVersion}" -ErrorAction Stop
@@ -633,7 +633,7 @@ function Enable-OidcWorkloadIdentity {
         
         try {
             $resourceId = "/subscriptions/$($script:SubscriptionId)/resourceGroups/$($script:ResourceGroup)/providers/Microsoft.Kubernetes/connectedClusters/$($script:ClusterName)"
-            $apiVersion = "2023-11-01"
+            $apiVersion = "2024-01-01"
             
             # GET current state
             $getResponse = Invoke-AzRestMethod -Method GET -Path "${resourceId}?api-version=${apiVersion}" -ErrorAction Stop
@@ -1099,7 +1099,7 @@ function Enable-CustomLocations {
     Write-InfoLog "Step 1: Registering custom-locations OID in ARM via GET + PUT..."
     try {
         $resourceId = "/subscriptions/$($script:SubscriptionId)/resourceGroups/$($script:ResourceGroup)/providers/Microsoft.Kubernetes/connectedClusters/$($script:ClusterName)"
-        $apiVersion = "2023-11-01"
+        $apiVersion = "2024-01-01"
         
         $getResponse = Invoke-AzRestMethod -Method GET -Path "${resourceId}?api-version=${apiVersion}" -ErrorAction Stop
         if ($getResponse.StatusCode -ne 200) { throw "GET failed: HTTP $($getResponse.StatusCode)" }
