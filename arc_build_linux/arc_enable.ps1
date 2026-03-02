@@ -464,24 +464,40 @@ function Enable-AzureRbac {
         Write-WarnLog "Could not check Azure RBAC status: $_"
     }
     
-    # Enable via direct REST PATCH - Set-AzConnectedKubernetes sends a full cluster payload
-    # that fails the API schema validator ("HTTP request payload failed validation").
-    # Invoke-AzRestMethod sends only the property we are changing.
+    # Enable via GET + PUT: Azure Policy blocks PATCH by doing its own GET which fails.
+    # Fetching the current resource and PUTting the full body back avoids that issue.
     $patchSuccess = $false
     try {
-        Write-InfoLog "Enabling Azure RBAC via REST PATCH..."
+        Write-InfoLog "Enabling Azure RBAC via GET + PUT..."
         $resourceId = "/subscriptions/$($script:SubscriptionId)/resourceGroups/$($script:ResourceGroup)/providers/Microsoft.Kubernetes/connectedClusters/$($script:ClusterName)"
-        $body = @{ properties = @{ aadProfile = @{ enableAzureRbac = $true } } } | ConvertTo-Json -Depth 5 -Compress
-        $response = Invoke-AzRestMethod -Method PATCH -Path "${resourceId}?api-version=2023-11-01" -Payload $body -ErrorAction Stop
+        $apiVersion = "2023-11-01"
         
-        if ($response.StatusCode -in 200, 201, 202) {
+        # GET current state
+        $getResponse = Invoke-AzRestMethod -Method GET -Path "${resourceId}?api-version=${apiVersion}" -ErrorAction Stop
+        if ($getResponse.StatusCode -ne 200) {
+            Write-WarnLog "GET failed with HTTP $($getResponse.StatusCode): $($getResponse.Content)"
+            throw "GET failed"
+        }
+        $resource = $getResponse.Content | ConvertFrom-Json
+        
+        # Modify only the aadProfile property
+        if (-not $resource.properties.aadProfile) {
+            $resource.properties | Add-Member -MemberType NoteProperty -Name aadProfile -Value ([PSCustomObject]@{}) -Force
+        }
+        $resource.properties.aadProfile | Add-Member -MemberType NoteProperty -Name enableAzureRbac -Value $true -Force
+        
+        # PUT full body back
+        $putBody = $resource | ConvertTo-Json -Depth 20 -Compress
+        $putResponse = Invoke-AzRestMethod -Method PUT -Path "${resourceId}?api-version=${apiVersion}" -Payload $putBody -ErrorAction Stop
+        
+        if ($putResponse.StatusCode -in 200, 201, 202) {
             $patchSuccess = $true
             Write-Success "Azure RBAC enabled successfully"
         } else {
-            Write-WarnLog "PATCH returned HTTP $($response.StatusCode): $($response.Content)"
+            Write-WarnLog "PUT returned HTTP $($putResponse.StatusCode): $($putResponse.Content)"
         }
     } catch {
-        Write-WarnLog "REST PATCH for Azure RBAC failed: $_"
+        Write-WarnLog "GET+PUT for Azure RBAC failed: $_"
     }
 
     if ($patchSuccess) {
@@ -612,26 +628,47 @@ function Enable-OidcWorkloadIdentity {
         }
         
         Write-WarnLog "Workload identity webhook NOT found in cluster"
-        Write-InfoLog "Enabling OIDC issuer + workload identity via REST PATCH..."
+        Write-InfoLog "Enabling OIDC issuer + workload identity via GET + PUT..."
         Write-InfoLog "NOTE: Webhook pods deploy asynchronously after ARM update."
         
         try {
             $resourceId = "/subscriptions/$($script:SubscriptionId)/resourceGroups/$($script:ResourceGroup)/providers/Microsoft.Kubernetes/connectedClusters/$($script:ClusterName)"
-            $body = @{
-                properties = @{
-                    oidcIssuerProfile = @{ enabled = $true }
-                    securityProfile   = @{ workloadIdentity = @{ enabled = $true } }
-                }
-            } | ConvertTo-Json -Depth 6 -Compress
-            $response = Invoke-AzRestMethod -Method PATCH -Path "${resourceId}?api-version=2023-11-01" -Payload $body -ErrorAction Stop
+            $apiVersion = "2023-11-01"
             
-            if ($response.StatusCode -in 200, 201, 202) {
+            # GET current state
+            $getResponse = Invoke-AzRestMethod -Method GET -Path "${resourceId}?api-version=${apiVersion}" -ErrorAction Stop
+            if ($getResponse.StatusCode -ne 200) {
+                Write-WarnLog "GET failed with HTTP $($getResponse.StatusCode): $($getResponse.Content)"
+                throw "GET failed"
+            }
+            $resource = $getResponse.Content | ConvertFrom-Json
+            
+            # Modify oidcIssuerProfile
+            if (-not $resource.properties.oidcIssuerProfile) {
+                $resource.properties | Add-Member -MemberType NoteProperty -Name oidcIssuerProfile -Value ([PSCustomObject]@{}) -Force
+            }
+            $resource.properties.oidcIssuerProfile | Add-Member -MemberType NoteProperty -Name enabled -Value $true -Force
+            
+            # Modify securityProfile.workloadIdentity
+            if (-not $resource.properties.securityProfile) {
+                $resource.properties | Add-Member -MemberType NoteProperty -Name securityProfile -Value ([PSCustomObject]@{}) -Force
+            }
+            if (-not $resource.properties.securityProfile.workloadIdentity) {
+                $resource.properties.securityProfile | Add-Member -MemberType NoteProperty -Name workloadIdentity -Value ([PSCustomObject]@{}) -Force
+            }
+            $resource.properties.securityProfile.workloadIdentity | Add-Member -MemberType NoteProperty -Name enabled -Value $true -Force
+            
+            # PUT full body back
+            $putBody = $resource | ConvertTo-Json -Depth 20 -Compress
+            $putResponse = Invoke-AzRestMethod -Method PUT -Path "${resourceId}?api-version=${apiVersion}" -Payload $putBody -ErrorAction Stop
+            
+            if ($putResponse.StatusCode -in 200, 201, 202) {
                 Write-Success "OIDC issuer and workload identity enabled in ARM"
             } else {
-                Write-WarnLog "PATCH returned HTTP $($response.StatusCode): $($response.Content)"
+                Write-WarnLog "PUT returned HTTP $($putResponse.StatusCode): $($putResponse.Content)"
             }
         } catch {
-            Write-WarnLog "REST PATCH for workload identity failed: $_"
+            Write-WarnLog "GET+PUT for workload identity failed: $_"
         }
         
         # Verify webhook is now running
@@ -1058,28 +1095,32 @@ function Enable-CustomLocations {
         return
     }
     
-    # Step 1: ARM registration via REST PATCH (best-effort - Helm in Step 2 is authoritative)
-    # Set-AzConnectedKubernetes sends a full payload that fails API schema validation.
-    Write-InfoLog "Step 1: Registering custom-locations OID in ARM via REST PATCH..."
+    # Step 1: ARM registration via GET + PUT (best-effort - Helm in Step 2 is authoritative)
+    Write-InfoLog "Step 1: Registering custom-locations OID in ARM via GET + PUT..."
     try {
         $resourceId = "/subscriptions/$($script:SubscriptionId)/resourceGroups/$($script:ResourceGroup)/providers/Microsoft.Kubernetes/connectedClusters/$($script:ClusterName)"
-        $body = @{
-            properties = @{
-                features = @{
-                    customLocations = @{
-                        settings = @{ customLocationsOid = $customLocationsOid }
-                    }
-                }
-            }
-        } | ConvertTo-Json -Depth 7 -Compress
-        $response = Invoke-AzRestMethod -Method PATCH -Path "${resourceId}?api-version=2023-11-01" -Payload $body -ErrorAction Stop
-        if ($response.StatusCode -in 200, 201, 202) {
+        $apiVersion = "2023-11-01"
+        
+        $getResponse = Invoke-AzRestMethod -Method GET -Path "${resourceId}?api-version=${apiVersion}" -ErrorAction Stop
+        if ($getResponse.StatusCode -ne 200) { throw "GET failed: HTTP $($getResponse.StatusCode)" }
+        $resource = $getResponse.Content | ConvertFrom-Json
+        
+        if (-not $resource.properties.features) {
+            $resource.properties | Add-Member -MemberType NoteProperty -Name features -Value ([PSCustomObject]@{}) -Force
+        }
+        if (-not $resource.properties.features.customLocations) {
+            $resource.properties.features | Add-Member -MemberType NoteProperty -Name customLocations -Value ([PSCustomObject]@{}) -Force
+        }
+        $resource.properties.features.customLocations | Add-Member -MemberType NoteProperty -Name settings -Value ([PSCustomObject]@{ customLocationsOid = $customLocationsOid }) -Force
+        
+        $putResponse = Invoke-AzRestMethod -Method PUT -Path "${resourceId}?api-version=${apiVersion}" -Payload ($resource | ConvertTo-Json -Depth 20 -Compress) -ErrorAction Stop
+        if ($putResponse.StatusCode -in 200, 201, 202) {
             Write-Success "ARM registration complete"
         } else {
-            Write-WarnLog "PATCH returned HTTP $($response.StatusCode) - Step 2 (Helm) will handle enablement"
+            Write-WarnLog "PUT returned HTTP $($putResponse.StatusCode) - Step 2 (Helm) will handle enablement"
         }
     } catch {
-        Write-WarnLog "REST PATCH for custom-locations OID failed: $_"
+        Write-WarnLog "GET+PUT for custom-locations OID failed: $_"
         Write-InfoLog "Continuing to Step 2 - Helm update can succeed independently"
     }
     
