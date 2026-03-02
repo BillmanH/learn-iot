@@ -389,14 +389,16 @@ function Enable-ArcForCluster {
             # Omitting the parameter entirely lets the API default to disabled correctly.
             Write-InfoLog "Connecting with custom-locations, OIDC issuer, and workload identity enabled..."
             
+            # Keep the initial connect minimal — only what is needed to register the connected
+            # cluster resource. OIDC, workload identity, and Azure RBAC are enabled by dedicated
+            # functions that run immediately after (Enable-AzureRbac, Enable-OidcWorkloadIdentity).
+            # Passing OidcIssuerProfileEnabled / WorkloadIdentityEnabled here causes the Arc API
+            # to validate the cluster's OIDC endpoint during connect, which fails on K3s defaults.
             $connectParams = @{
-                ResourceGroupName    = $script:ResourceGroup
-                ClusterName          = $script:ClusterName
-                Location             = $script:Location
-                AcceptEULA           = $true
-                OidcIssuerProfileEnabled = $true
-                WorkloadIdentityEnabled  = $true
-                AadProfileEnableAzureRbac = $true
+                ResourceGroupName = $script:ResourceGroup
+                ClusterName       = $script:ClusterName
+                Location          = $script:Location
+                AcceptEULA        = $true
             }
             
             if (-not [string]::IsNullOrEmpty($customLocationsOid)) {
@@ -482,26 +484,7 @@ function Enable-AzureRbac {
             Write-WarnLog "Set-AzConnectedKubernetes succeeded but AadProfileEnableAzureRbac is still not true"
         }
     } catch {
-        Write-WarnLog "Set-AzConnectedKubernetes failed: $_ -- falling back to Azure CLI"
-    }
-
-    # Fallback: az connectedk8s update --enable-azure-rbac (works regardless of PS module version)
-    if (-not $psRbacSuccess) {
-        try {
-            Write-InfoLog "Falling back to: az connectedk8s update --enable-azure-rbac ..."
-            $azResult = az connectedk8s update `
-                --name $script:ClusterName `
-                --resource-group $script:ResourceGroup `
-                --enable-azure-rbac 2>&1
-            if ($LASTEXITCODE -eq 0) {
-                Write-Success "Azure RBAC enabled successfully via Azure CLI"
-                $psRbacSuccess = $true
-            } else {
-                Write-ErrorLog "az connectedk8s update --enable-azure-rbac failed: $azResult"
-            }
-        } catch {
-            Write-ErrorLog "Azure CLI fallback also failed: $_"
-        }
+        Write-WarnLog "Set-AzConnectedKubernetes failed: $_"
     }
 
     if ($psRbacSuccess) {
@@ -632,41 +615,35 @@ function Enable-OidcWorkloadIdentity {
         }
         
         Write-WarnLog "Workload identity webhook NOT found in cluster"
-        Write-InfoLog "Azure shows workloadIdentityEnabled=true but webhook pods are not deployed"
-        Write-InfoLog "This is a known Az.ConnectedKubernetes module gap - enabling via CLI..."
+        Write-InfoLog "Enabling workload identity via Set-AzConnectedKubernetes..."
+        Write-InfoLog "NOTE: This registers the feature in ARM. Webhook pods deploy asynchronously."
         
-        # Use Azure CLI to properly enable workload identity (deploys the webhook)
-        $updateResult = az connectedk8s update `
-            --name $script:ClusterName `
-            --resource-group $script:ResourceGroup `
-            --enable-workload-identity 2>&1
-        
-        if ($LASTEXITCODE -ne 0) {
-            Write-WarnLog "az connectedk8s update failed: $updateResult"
-            Write-Host ""
-            Write-Host "To enable manually, run this command on the edge device:" -ForegroundColor Yellow
-            Write-Host "  az connectedk8s update --name $script:ClusterName --resource-group $script:ResourceGroup --enable-workload-identity" -ForegroundColor Cyan
-            Write-Host ""
-            return
+        try {
+            Set-AzConnectedKubernetes `
+                -ResourceGroupName $script:ResourceGroup `
+                -ClusterName $script:ClusterName `
+                -WorkloadIdentityEnabled:$true `
+                -ErrorAction Stop | Out-Null
+            Write-Success "Workload identity enabled in ARM"
+        } catch {
+            Write-WarnLog "Set-AzConnectedKubernetes -WorkloadIdentityEnabled failed: $_"
         }
         
         # Verify webhook is now running
         Write-InfoLog "Waiting for workload identity webhook to start..."
-        Start-Sleep -Seconds 10
+        Start-Sleep -Seconds 15
         
         $wiPodsAfter = kubectl get pods -n azure-arc 2>$null | Select-String -Pattern "workload-identity"
         if ($wiPodsAfter) {
             Write-Success "Workload identity webhook is now running!"
             Write-InfoLog "Pods: $wiPodsAfter"
         } else {
-            Write-WarnLog "Webhook pods not yet visible. They may take a few minutes to start."
+            Write-WarnLog "Webhook pods not yet visible - they may take a few minutes to appear."
             Write-Host "Verify with: kubectl get pods -n azure-arc | grep workload" -ForegroundColor Cyan
         }
         
     } catch {
         Write-ErrorLog "Failed to verify/enable workload identity: $_"
-        Write-Host "To enable manually, run:" -ForegroundColor Yellow
-        Write-Host "  az connectedk8s update --name $script:ClusterName --resource-group $script:ResourceGroup --enable-workload-identity" -ForegroundColor Cyan
     }
 }
 
@@ -704,12 +681,16 @@ function Test-K3sOidcIssuerConfigured {
     }
     $result.K3sReady = $true
     
-    # Get the expected OIDC issuer URL from Azure
-    $expectedIssuer = az connectedk8s show `
-        --name $script:ClusterName `
-        --resource-group $script:ResourceGroup `
-        --query "oidcIssuerProfile.issuerUrl" `
-        --output tsv 2>$null
+    # Get the expected OIDC issuer URL from Azure via PS module
+    try {
+        $arcCluster = Get-AzConnectedKubernetes `
+            -ResourceGroupName $script:ResourceGroup `
+            -ClusterName $script:ClusterName `
+            -ErrorAction Stop
+        $expectedIssuer = $arcCluster.OidcIssuerProfileIssuerUrl
+    } catch {
+        Write-WarnLog "Could not retrieve Arc cluster info: $_"
+    }
     
     if ([string]::IsNullOrEmpty($expectedIssuer)) {
         Write-WarnLog "OIDC issuer URL not available from Azure yet"
@@ -907,33 +888,33 @@ function Create-FabricSecretPlaceholders {
     $passwordPlaceholder = "PUT_YOUR_FABRIC_KAFKA_CONNECTION_STRING_HERE"
     
     try {
+        # Ensure Az.KeyVault module is available
+        Import-Module Az.KeyVault -ErrorAction SilentlyContinue
+        
         # Check if username secret exists
-        $existingUsername = az keyvault secret show `
-            --vault-name $script:KeyVaultName `
-            --name $usernameSecretName `
-            --query "value" -o tsv 2>$null
+        $existingUsername = $null
+        try {
+            $existingUsername = (Get-AzKeyVaultSecret -VaultName $script:KeyVaultName -Name $usernameSecretName -ErrorAction SilentlyContinue).SecretValueText
+        } catch { }
         
         if ($existingUsername -eq $usernameValue) {
             Write-InfoLog "Secret '$usernameSecretName' already exists with correct value"
         } else {
             Write-InfoLog "Creating secret '$usernameSecretName'..."
-            az keyvault secret set `
-                --vault-name $script:KeyVaultName `
-                --name $usernameSecretName `
-                --value $usernameValue > $null
-            
-            if ($LASTEXITCODE -eq 0) {
+            try {
+                Set-AzKeyVaultSecret -VaultName $script:KeyVaultName -Name $usernameSecretName `
+                    -SecretValue (ConvertTo-SecureString $usernameValue -AsPlainText -Force) -ErrorAction Stop | Out-Null
                 Write-Success "Created secret '$usernameSecretName'"
-            } else {
-                Write-WarnLog "Failed to create secret '$usernameSecretName'"
+            } catch {
+                Write-WarnLog "Failed to create secret '$usernameSecretName': $_"
             }
         }
         
         # Check if password secret exists and has been customized
-        $existingPassword = az keyvault secret show `
-            --vault-name $script:KeyVaultName `
-            --name $passwordSecretName `
-            --query "value" -o tsv 2>$null
+        $existingPassword = $null
+        try {
+            $existingPassword = (Get-AzKeyVaultSecret -VaultName $script:KeyVaultName -Name $passwordSecretName -ErrorAction SilentlyContinue).SecretValueText
+        } catch { }
         
         if ($existingPassword -and $existingPassword -ne $passwordPlaceholder) {
             Write-InfoLog "Secret '$passwordSecretName' already exists with custom value (not overwriting)"
@@ -941,15 +922,12 @@ function Create-FabricSecretPlaceholders {
             Write-InfoLog "Secret '$passwordSecretName' already exists with placeholder value"
         } else {
             Write-InfoLog "Creating placeholder secret '$passwordSecretName'..."
-            az keyvault secret set `
-                --vault-name $script:KeyVaultName `
-                --name $passwordSecretName `
-                --value $passwordPlaceholder > $null
-            
-            if ($LASTEXITCODE -eq 0) {
+            try {
+                Set-AzKeyVaultSecret -VaultName $script:KeyVaultName -Name $passwordSecretName `
+                    -SecretValue (ConvertTo-SecureString $passwordPlaceholder -AsPlainText -Force) -ErrorAction Stop | Out-Null
                 Write-Success "Created placeholder secret '$passwordSecretName'"
-            } else {
-                Write-WarnLog "Failed to create secret '$passwordSecretName'"
+            } catch {
+                Write-WarnLog "Failed to create secret '$passwordSecretName': $_"
             }
         }
         
