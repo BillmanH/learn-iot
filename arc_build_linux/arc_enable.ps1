@@ -472,6 +472,7 @@ function Enable-AzureRbac {
         Set-AzConnectedKubernetes `
             -ResourceGroupName $script:ResourceGroup `
             -ClusterName $script:ClusterName `
+            -Location $script:Location `
             -AadProfileEnableAzureRbac:$true `
             -ErrorAction Stop | Out-Null
         
@@ -622,6 +623,7 @@ function Enable-OidcWorkloadIdentity {
             Set-AzConnectedKubernetes `
                 -ResourceGroupName $script:ResourceGroup `
                 -ClusterName $script:ClusterName `
+                -Location $script:Location `
                 -WorkloadIdentityEnabled:$true `
                 -ErrorAction Stop | Out-Null
             Write-Success "Workload identity enabled in ARM"
@@ -1059,6 +1061,7 @@ function Enable-CustomLocations {
         Set-AzConnectedKubernetes `
             -ResourceGroupName $script:ResourceGroup `
             -ClusterName $script:ClusterName `
+            -Location $script:Location `
             -CustomLocationsOid $customLocationsOid `
             -ErrorAction Stop | Out-Null
         Write-Success "ARM registration complete"
