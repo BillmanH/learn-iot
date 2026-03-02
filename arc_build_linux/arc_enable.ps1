@@ -466,11 +466,13 @@ function Enable-AzureRbac {
     
     # Enable via GET + PUT: Azure Policy blocks PATCH by doing its own GET which fails.
     # Fetching the current resource and PUTting the full body back avoids that issue.
+    # API version 2022-10-01-preview is used because it is the stable preview that supports
+    # the aadProfile.enableAzureRbac property (added in that version, reorganised in later ones).
     $patchSuccess = $false
     try {
         Write-InfoLog "Enabling Azure RBAC via GET + PUT..."
         $resourceId = "/subscriptions/$($script:SubscriptionId)/resourceGroups/$($script:ResourceGroup)/providers/Microsoft.Kubernetes/connectedClusters/$($script:ClusterName)"
-        $apiVersion = "2024-01-01"
+        $apiVersion = "2022-10-01-preview"
         
         # GET current state
         $getResponse = Invoke-AzRestMethod -Method GET -Path "${resourceId}?api-version=${apiVersion}" -ErrorAction Stop
@@ -633,7 +635,8 @@ function Enable-OidcWorkloadIdentity {
         
         try {
             $resourceId = "/subscriptions/$($script:SubscriptionId)/resourceGroups/$($script:ResourceGroup)/providers/Microsoft.Kubernetes/connectedClusters/$($script:ClusterName)"
-            $apiVersion = "2024-01-01"
+            # 2024-06-01-preview added oidcIssuerProfile and securityProfile.workloadIdentity
+            $apiVersion = "2024-06-01-preview"
             
             # GET current state
             $getResponse = Invoke-AzRestMethod -Method GET -Path "${resourceId}?api-version=${apiVersion}" -ErrorAction Stop
@@ -1099,7 +1102,7 @@ function Enable-CustomLocations {
     Write-InfoLog "Step 1: Registering custom-locations OID in ARM via GET + PUT..."
     try {
         $resourceId = "/subscriptions/$($script:SubscriptionId)/resourceGroups/$($script:ResourceGroup)/providers/Microsoft.Kubernetes/connectedClusters/$($script:ClusterName)"
-        $apiVersion = "2024-01-01"
+        $apiVersion = "2024-06-01-preview"
         
         $getResponse = Invoke-AzRestMethod -Method GET -Path "${resourceId}?api-version=${apiVersion}" -ErrorAction Stop
         if ($getResponse.StatusCode -ne 200) { throw "GET failed: HTTP $($getResponse.StatusCode)" }
