@@ -884,36 +884,45 @@ function Create-FabricSecretPlaceholders {
     $passwordSecretName = "fabric-sasl-password"
     $usernameValue = '$ConnectionString'
     $passwordPlaceholder = "PUT_YOUR_FABRIC_KAFKA_CONNECTION_STRING_HERE"
+    $kvApiVersion = "7.4"
+    $kvBaseUrl = "https://$($script:KeyVaultName).vault.azure.net/secrets"
     
     try {
-        # Ensure Az.KeyVault module is available
-        Import-Module Az.KeyVault -ErrorAction SilentlyContinue
+        # Get a Key Vault data-plane token (audience = vault.azure.net)
+        # This avoids needing the Az.KeyVault module which is not installed on edge machines.
+        $kvToken = (Get-AzAccessToken -ResourceUrl "https://vault.azure.net" -ErrorAction Stop).Token
+        $kvHeaders = @{ Authorization = "Bearer $kvToken"; "Content-Type" = "application/json" }
         
-        # Check if username secret exists
-        $existingUsername = $null
-        try {
-            $existingUsername = (Get-AzKeyVaultSecret -VaultName $script:KeyVaultName -Name $usernameSecretName -ErrorAction SilentlyContinue).SecretValueText
-        } catch { }
+        # Helper: GET a secret value (returns $null if not found)
+        function Get-KvSecret($name) {
+            try {
+                $r = Invoke-RestMethod -Method GET -Uri "${kvBaseUrl}/${name}?api-version=${kvApiVersion}" -Headers $kvHeaders -ErrorAction Stop
+                return $r.value
+            } catch { return $null }
+        }
         
+        # Helper: SET a secret value
+        function Set-KvSecret($name, $value) {
+            $body = @{ value = $value } | ConvertTo-Json -Compress
+            Invoke-RestMethod -Method PUT -Uri "${kvBaseUrl}/${name}?api-version=${kvApiVersion}" -Headers $kvHeaders -Body $body -ErrorAction Stop | Out-Null
+        }
+        
+        # Username secret
+        $existingUsername = Get-KvSecret $usernameSecretName
         if ($existingUsername -eq $usernameValue) {
             Write-InfoLog "Secret '$usernameSecretName' already exists with correct value"
         } else {
             Write-InfoLog "Creating secret '$usernameSecretName'..."
             try {
-                Set-AzKeyVaultSecret -VaultName $script:KeyVaultName -Name $usernameSecretName `
-                    -SecretValue (ConvertTo-SecureString $usernameValue -AsPlainText -Force) -ErrorAction Stop | Out-Null
+                Set-KvSecret $usernameSecretName $usernameValue
                 Write-Success "Created secret '$usernameSecretName'"
             } catch {
                 Write-WarnLog "Failed to create secret '$usernameSecretName': $_"
             }
         }
         
-        # Check if password secret exists and has been customized
-        $existingPassword = $null
-        try {
-            $existingPassword = (Get-AzKeyVaultSecret -VaultName $script:KeyVaultName -Name $passwordSecretName -ErrorAction SilentlyContinue).SecretValueText
-        } catch { }
-        
+        # Password secret
+        $existingPassword = Get-KvSecret $passwordSecretName
         if ($existingPassword -and $existingPassword -ne $passwordPlaceholder) {
             Write-InfoLog "Secret '$passwordSecretName' already exists with custom value (not overwriting)"
         } elseif ($existingPassword -eq $passwordPlaceholder) {
@@ -921,8 +930,7 @@ function Create-FabricSecretPlaceholders {
         } else {
             Write-InfoLog "Creating placeholder secret '$passwordSecretName'..."
             try {
-                Set-AzKeyVaultSecret -VaultName $script:KeyVaultName -Name $passwordSecretName `
-                    -SecretValue (ConvertTo-SecureString $passwordPlaceholder -AsPlainText -Force) -ErrorAction Stop | Out-Null
+                Set-KvSecret $passwordSecretName $passwordPlaceholder
                 Write-Success "Created placeholder secret '$passwordSecretName'"
             } catch {
                 Write-WarnLog "Failed to create secret '$passwordSecretName': $_"
@@ -938,18 +946,20 @@ function Create-FabricSecretPlaceholders {
         Write-Host "To set your Fabric connection string:" -ForegroundColor Yellow
         Write-Host "  1. Go to Microsoft Fabric > Event Stream > ... > Connection Settings"
         Write-Host "  2. Copy the Kafka connection string"
-        Write-Host "  3. Update the secret:"
+        Write-Host "  3. Update the secret (run on this device after 'Connect-AzAccount'):"
         Write-Host ""
-        Write-Host "  az keyvault secret set --vault-name $script:KeyVaultName --name $passwordSecretName --value 'YOUR_CONNECTION_STRING'" -ForegroundColor Cyan
+        Write-Host "  `$t = (Get-AzAccessToken -ResourceUrl 'https://vault.azure.net').Token" -ForegroundColor Cyan
+        Write-Host "  Invoke-RestMethod -Method PUT -Uri 'https://$($script:KeyVaultName).vault.azure.net/secrets/$passwordSecretName`?api-version=7.4' -Headers @{Authorization=`"Bearer `$t`";'Content-Type'='application/json'} -Body '{`"value`":`"YOUR_CONNECTION_STRING`"}'" -ForegroundColor Cyan
         Write-Host ""
         
         return $true
         
     } catch {
         Write-WarnLog "Failed to create Fabric secrets: $_"
-        Write-InfoLog "You can create them manually with:"
-        Write-Host "  az keyvault secret set --vault-name $script:KeyVaultName --name $usernameSecretName --value '`$ConnectionString'"
-        Write-Host "  az keyvault secret set --vault-name $script:KeyVaultName --name $passwordSecretName --value 'YOUR_CONNECTION_STRING'"
+        Write-InfoLog "You can create them manually - get a vault token and PUT to the Key Vault data plane:"
+        Write-Host "  `$t = (Get-AzAccessToken -ResourceUrl 'https://vault.azure.net').Token" -ForegroundColor Cyan
+        Write-Host "  Invoke-RestMethod -Method PUT -Uri 'https://$($script:KeyVaultName).vault.azure.net/secrets/$usernameSecretName`?api-version=7.4' -Headers @{Authorization=`"Bearer `$t`";'Content-Type'='application/json'} -Body '{`"value`":`"`$ConnectionString`"}'" -ForegroundColor Cyan
+        Write-Host "  Invoke-RestMethod -Method PUT -Uri 'https://$($script:KeyVaultName).vault.azure.net/secrets/$passwordSecretName`?api-version=7.4' -Headers @{Authorization=`"Bearer `$t`";'Content-Type'='application/json'} -Body '{`"value`":`"YOUR_CONNECTION_STRING`"}'" -ForegroundColor Cyan
         return $true  # Don't fail the whole script
     }
 }
