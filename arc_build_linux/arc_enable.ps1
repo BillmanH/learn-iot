@@ -381,22 +381,26 @@ function Enable-ArcForCluster {
         if ($DryRun) {
             Write-InfoLog "[DRY-RUN] Would connect cluster with custom-locations enabled"
         } else {
-            # New-AzConnectedKubernetes uses the current kubectl context
-            # Include ALL features during initial connection to avoid issues with Set-AzConnectedKubernetes
+            # NOTE: Do NOT pass PrivateLinkState = "Disabled" to New-AzConnectedKubernetes.
+            # Passing it (even as "Disabled") triggers a PS module bug that causes Arc onboarding
+            # to treat the cluster as private-link-enabled and block custom-locations with:
+            #   "The features 'cluster-connect' and 'custom-locations' cannot be enabled for a
+            #    private link enabled connected cluster."
+            # Omitting the parameter entirely lets the API default to disabled correctly.
             Write-InfoLog "Connecting with custom-locations, OIDC issuer, and workload identity enabled..."
             
+            # Keep the initial connect minimal — only what is needed to register the connected
+            # cluster resource. OIDC, workload identity, and Azure RBAC are enabled by dedicated
+            # functions that run immediately after (Enable-AzureRbac, Enable-OidcWorkloadIdentity).
+            # Passing OidcIssuerProfileEnabled / WorkloadIdentityEnabled here causes the Arc API
+            # to validate the cluster's OIDC endpoint during connect, which fails on K3s defaults.
             $connectParams = @{
                 ResourceGroupName = $script:ResourceGroup
-                ClusterName = $script:ClusterName
-                Location = $script:Location
-                PrivateLinkState = "Disabled"
-                AcceptEULA = $true
-                OidcIssuerProfileEnabled = $true
-                WorkloadIdentityEnabled = $true
-                AadProfileEnableAzureRbac = $true  # renamed from AzureRbacEnabled in Az.ConnectedKubernetes 0.11+
+                ClusterName       = $script:ClusterName
+                Location          = $script:Location
+                AcceptEULA        = $true
             }
             
-            # Add custom-locations OID if we have it
             if (-not [string]::IsNullOrEmpty($customLocationsOid)) {
                 $connectParams['CustomLocationsOid'] = $customLocationsOid
                 Write-InfoLog "Including CustomLocationsOid in connection"
@@ -414,7 +418,6 @@ function Enable-ArcForCluster {
             }
             
             New-AzConnectedKubernetes @connectParams
-            
             Write-Success "Cluster connected to Azure Arc with features enabled (including Azure RBAC)"
         }
         
@@ -440,10 +443,10 @@ function Enable-AzureRbac {
         Safe to run multiple times - checks current state first.
     #>
     
-    Write-Log "Enabling Azure RBAC for kubectl proxy access..."
+    Write-Log "Checking Azure RBAC status (optional feature for kubectl proxy access)..."
     
     if ($DryRun) {
-        Write-InfoLog "[DRY-RUN] Would enable Azure RBAC on cluster"
+        Write-InfoLog "[DRY-RUN] Would check Azure RBAC on cluster"
         return
     }
     
@@ -455,71 +458,20 @@ function Enable-AzureRbac {
             Write-Success "Azure RBAC is already enabled"
             return
         }
-        
-        Write-InfoLog "Azure RBAC is not enabled, enabling now..."
     } catch {
         Write-WarnLog "Could not check Azure RBAC status: $_"
     }
     
-    # Enable via PowerShell module with colon syntax to support both [switch] and [bool] parameter types.
-    # Note: parameter was renamed from AzureRbacEnabled to AadProfileEnableAzureRbac in Az.ConnectedKubernetes 0.11+
-    $psRbacSuccess = $false
-    try {
-        Write-InfoLog "Using Set-AzConnectedKubernetes to enable Azure RBAC..."
-        Set-AzConnectedKubernetes `
-            -ResourceGroupName $script:ResourceGroup `
-            -ClusterName $script:ClusterName `
-            -AadProfileEnableAzureRbac:$true `
-            -ErrorAction Stop | Out-Null
-        
-        # Verify
-        $updated = Get-AzConnectedKubernetes -ResourceGroupName $script:ResourceGroup -ClusterName $script:ClusterName -ErrorAction Stop
-        if ($updated.AadProfileEnableAzureRbac -eq $true) {
-            $psRbacSuccess = $true
-            Write-Success "Azure RBAC enabled successfully"
-        } else {
-            Write-WarnLog "Set-AzConnectedKubernetes succeeded but AadProfileEnableAzureRbac is still not true"
-        }
-    } catch {
-        Write-WarnLog "Set-AzConnectedKubernetes failed: $_ -- falling back to Azure CLI"
-    }
-
-    # Fallback: az connectedk8s update --enable-azure-rbac (works regardless of PS module version)
-    if (-not $psRbacSuccess) {
-        try {
-            Write-InfoLog "Falling back to: az connectedk8s update --enable-azure-rbac ..."
-            $azResult = az connectedk8s update `
-                --name $script:ClusterName `
-                --resource-group $script:ResourceGroup `
-                --enable-azure-rbac 2>&1
-            if ($LASTEXITCODE -eq 0) {
-                Write-Success "Azure RBAC enabled successfully via Azure CLI"
-                $psRbacSuccess = $true
-            } else {
-                Write-ErrorLog "az connectedk8s update --enable-azure-rbac failed: $azResult"
-            }
-        } catch {
-            Write-ErrorLog "Azure CLI fallback also failed: $_"
-        }
-    }
-
-    if ($psRbacSuccess) {
-        Write-Host ""
-        Write-Host "NOTE: Users need Arc Kubernetes roles to access the cluster via proxy:" -ForegroundColor Cyan
-        Write-Host "  - Azure Arc Kubernetes Cluster Admin  (full access)" -ForegroundColor Gray
-        Write-Host "  - Azure Arc Kubernetes Cluster User    (limited access)" -ForegroundColor Gray
-        Write-Host "  - Azure Arc Kubernetes Viewer          (read-only)" -ForegroundColor Gray
-        Write-Host ""
-        Write-Host "Grant these roles via grant_entra_id_roles.ps1 or:" -ForegroundColor Cyan
-        Write-Host "  az role assignment create --role 'Azure Arc Kubernetes Cluster Admin' --assignee <USER_OID> --scope <CLUSTER_RESOURCE_ID>" -ForegroundColor Gray
-        Write-Host ""
-    } else {
-        Write-Host ""
-        Write-Host "To enable Azure RBAC manually, run one of:" -ForegroundColor Yellow
-        Write-Host "  az connectedk8s update --name $script:ClusterName --resource-group $script:ResourceGroup --enable-azure-rbac" -ForegroundColor Cyan
-        Write-Host "  Set-AzConnectedKubernetes -ResourceGroupName $script:ResourceGroup -ClusterName $script:ClusterName -AadProfileEnableAzureRbac:`$true" -ForegroundColor Cyan
-        Write-Host ""
-    }
+    # Azure RBAC cannot be set via the ARM REST API from the edge device context.
+    # The Azure RP rejects PUT/PATCH with aadProfile from all tested API versions.
+    # This feature is OPTIONAL - AIO does not require it.
+    # Enable it from Windows after deployment using the Azure CLI:
+    Write-WarnLog "Azure RBAC is not enabled (optional - AIO does not require this)"
+    Write-Host ""
+    Write-Host "  Azure RBAC enables 'az connectedk8s proxy' for kubectl via Azure identities." -ForegroundColor DarkGray
+    Write-Host "  To enable it, run from Windows:" -ForegroundColor Yellow
+    Write-Host "    az connectedk8s update --name $script:ClusterName --resource-group $script:ResourceGroup --enable-azure-rbac" -ForegroundColor Cyan
+    Write-Host ""
 }
 
 function Enable-ArcFeatures {
@@ -631,41 +583,65 @@ function Enable-OidcWorkloadIdentity {
         }
         
         Write-WarnLog "Workload identity webhook NOT found in cluster"
-        Write-InfoLog "Azure shows workloadIdentityEnabled=true but webhook pods are not deployed"
-        Write-InfoLog "This is a known Az.ConnectedKubernetes module gap - enabling via CLI..."
+        Write-InfoLog "Enabling OIDC issuer + workload identity via GET + PUT..."
+        Write-InfoLog "NOTE: Webhook pods deploy asynchronously after ARM update."
         
-        # Use Azure CLI to properly enable workload identity (deploys the webhook)
-        $updateResult = az connectedk8s update `
-            --name $script:ClusterName `
-            --resource-group $script:ResourceGroup `
-            --enable-workload-identity 2>&1
-        
-        if ($LASTEXITCODE -ne 0) {
-            Write-WarnLog "az connectedk8s update failed: $updateResult"
-            Write-Host ""
-            Write-Host "To enable manually, run this command on the edge device:" -ForegroundColor Yellow
-            Write-Host "  az connectedk8s update --name $script:ClusterName --resource-group $script:ResourceGroup --enable-workload-identity" -ForegroundColor Cyan
-            Write-Host ""
-            return
+        try {
+            $resourceId = "/subscriptions/$($script:SubscriptionId)/resourceGroups/$($script:ResourceGroup)/providers/Microsoft.Kubernetes/connectedClusters/$($script:ClusterName)"
+            # 2024-06-01-preview added oidcIssuerProfile and securityProfile.workloadIdentity
+            $apiVersion = "2024-06-01-preview"
+            
+            # GET current state
+            $getResponse = Invoke-AzRestMethod -Method GET -Path "${resourceId}?api-version=${apiVersion}" -ErrorAction Stop
+            if ($getResponse.StatusCode -ne 200) {
+                Write-WarnLog "GET failed with HTTP $($getResponse.StatusCode): $($getResponse.Content)"
+                throw "GET failed"
+            }
+            $resource = $getResponse.Content | ConvertFrom-Json
+            
+            # Modify oidcIssuerProfile
+            if (-not $resource.properties.oidcIssuerProfile) {
+                $resource.properties | Add-Member -MemberType NoteProperty -Name oidcIssuerProfile -Value ([PSCustomObject]@{}) -Force
+            }
+            $resource.properties.oidcIssuerProfile | Add-Member -MemberType NoteProperty -Name enabled -Value $true -Force
+            
+            # Modify securityProfile.workloadIdentity
+            if (-not $resource.properties.securityProfile) {
+                $resource.properties | Add-Member -MemberType NoteProperty -Name securityProfile -Value ([PSCustomObject]@{}) -Force
+            }
+            if (-not $resource.properties.securityProfile.workloadIdentity) {
+                $resource.properties.securityProfile | Add-Member -MemberType NoteProperty -Name workloadIdentity -Value ([PSCustomObject]@{}) -Force
+            }
+            $resource.properties.securityProfile.workloadIdentity | Add-Member -MemberType NoteProperty -Name enabled -Value $true -Force
+            
+            # PUT full body back
+            $putBody = $resource | ConvertTo-Json -Depth 20 -Compress
+            $putResponse = Invoke-AzRestMethod -Method PUT -Path "${resourceId}?api-version=${apiVersion}" -Payload $putBody -ErrorAction Stop
+            
+            if ($putResponse.StatusCode -in 200, 201, 202) {
+                Write-Success "OIDC issuer and workload identity enabled in ARM"
+            } else {
+                Write-WarnLog "PUT returned HTTP $($putResponse.StatusCode): $($putResponse.Content)"
+            }
+        } catch {
+            Write-WarnLog "GET+PUT for workload identity failed: $_"
         }
         
         # Verify webhook is now running
         Write-InfoLog "Waiting for workload identity webhook to start..."
-        Start-Sleep -Seconds 10
+        Start-Sleep -Seconds 15
         
         $wiPodsAfter = kubectl get pods -n azure-arc 2>$null | Select-String -Pattern "workload-identity"
         if ($wiPodsAfter) {
             Write-Success "Workload identity webhook is now running!"
             Write-InfoLog "Pods: $wiPodsAfter"
         } else {
-            Write-WarnLog "Webhook pods not yet visible. They may take a few minutes to start."
+            Write-WarnLog "Webhook pods not yet visible - they may take a few minutes to appear."
             Write-Host "Verify with: kubectl get pods -n azure-arc | grep workload" -ForegroundColor Cyan
         }
         
     } catch {
         Write-ErrorLog "Failed to verify/enable workload identity: $_"
-        Write-Host "To enable manually, run:" -ForegroundColor Yellow
-        Write-Host "  az connectedk8s update --name $script:ClusterName --resource-group $script:ResourceGroup --enable-workload-identity" -ForegroundColor Cyan
     }
 }
 
@@ -703,12 +679,16 @@ function Test-K3sOidcIssuerConfigured {
     }
     $result.K3sReady = $true
     
-    # Get the expected OIDC issuer URL from Azure
-    $expectedIssuer = az connectedk8s show `
-        --name $script:ClusterName `
-        --resource-group $script:ResourceGroup `
-        --query "oidcIssuerProfile.issuerUrl" `
-        --output tsv 2>$null
+    # Get the expected OIDC issuer URL from Azure via PS module
+    try {
+        $arcCluster = Get-AzConnectedKubernetes `
+            -ResourceGroupName $script:ResourceGroup `
+            -ClusterName $script:ClusterName `
+            -ErrorAction Stop
+        $expectedIssuer = $arcCluster.OidcIssuerProfileIssuerUrl
+    } catch {
+        Write-WarnLog "Could not retrieve Arc cluster info: $_"
+    }
     
     if ([string]::IsNullOrEmpty($expectedIssuer)) {
         Write-WarnLog "OIDC issuer URL not available from Azure yet"
@@ -718,7 +698,7 @@ function Test-K3sOidcIssuerConfigured {
     
     # Get current K3s issuer
     $clusterDump = kubectl cluster-info dump 2>$null
-    $currentIssuer = $clusterDump | Select-String -Pattern "service-account-issuer=([^\s,`"]+)" | 
+    $currentIssuer = $clusterDump | Select-String -Pattern "service-account-issuer=([^\s,`"\\]+)" | 
         ForEach-Object { $_.Matches.Groups[1].Value } | 
         Select-Object -First 1
     
@@ -904,51 +884,56 @@ function Create-FabricSecretPlaceholders {
     $passwordSecretName = "fabric-sasl-password"
     $usernameValue = '$ConnectionString'
     $passwordPlaceholder = "PUT_YOUR_FABRIC_KAFKA_CONNECTION_STRING_HERE"
+    $kvApiVersion = "7.4"
+    $kvBaseUrl = "https://$($script:KeyVaultName).vault.azure.net/secrets"
     
     try {
-        # Check if username secret exists
-        $existingUsername = az keyvault secret show `
-            --vault-name $script:KeyVaultName `
-            --name $usernameSecretName `
-            --query "value" -o tsv 2>$null
+        # Get a Key Vault data-plane token (audience = vault.azure.net)
+        # This avoids needing the Az.KeyVault module which is not installed on edge machines.
+        $kvToken = (Get-AzAccessToken -ResourceUrl "https://vault.azure.net" -ErrorAction Stop).Token
+        $kvHeaders = @{ Authorization = "Bearer $kvToken"; "Content-Type" = "application/json" }
         
+        # Helper: GET a secret value (returns $null if not found)
+        function Get-KvSecret($name) {
+            try {
+                $r = Invoke-RestMethod -Method GET -Uri "${kvBaseUrl}/${name}?api-version=${kvApiVersion}" -Headers $kvHeaders -ErrorAction Stop
+                return $r.value
+            } catch { return $null }
+        }
+        
+        # Helper: SET a secret value
+        function Set-KvSecret($name, $value) {
+            $body = @{ value = $value } | ConvertTo-Json -Compress
+            Invoke-RestMethod -Method PUT -Uri "${kvBaseUrl}/${name}?api-version=${kvApiVersion}" -Headers $kvHeaders -Body $body -ErrorAction Stop | Out-Null
+        }
+        
+        # Username secret
+        $existingUsername = Get-KvSecret $usernameSecretName
         if ($existingUsername -eq $usernameValue) {
             Write-InfoLog "Secret '$usernameSecretName' already exists with correct value"
         } else {
             Write-InfoLog "Creating secret '$usernameSecretName'..."
-            az keyvault secret set `
-                --vault-name $script:KeyVaultName `
-                --name $usernameSecretName `
-                --value $usernameValue > $null
-            
-            if ($LASTEXITCODE -eq 0) {
+            try {
+                Set-KvSecret $usernameSecretName $usernameValue
                 Write-Success "Created secret '$usernameSecretName'"
-            } else {
-                Write-WarnLog "Failed to create secret '$usernameSecretName'"
+            } catch {
+                Write-WarnLog "Failed to create secret '$usernameSecretName': $_"
             }
         }
         
-        # Check if password secret exists and has been customized
-        $existingPassword = az keyvault secret show `
-            --vault-name $script:KeyVaultName `
-            --name $passwordSecretName `
-            --query "value" -o tsv 2>$null
-        
+        # Password secret
+        $existingPassword = Get-KvSecret $passwordSecretName
         if ($existingPassword -and $existingPassword -ne $passwordPlaceholder) {
             Write-InfoLog "Secret '$passwordSecretName' already exists with custom value (not overwriting)"
         } elseif ($existingPassword -eq $passwordPlaceholder) {
             Write-InfoLog "Secret '$passwordSecretName' already exists with placeholder value"
         } else {
             Write-InfoLog "Creating placeholder secret '$passwordSecretName'..."
-            az keyvault secret set `
-                --vault-name $script:KeyVaultName `
-                --name $passwordSecretName `
-                --value $passwordPlaceholder > $null
-            
-            if ($LASTEXITCODE -eq 0) {
+            try {
+                Set-KvSecret $passwordSecretName $passwordPlaceholder
                 Write-Success "Created placeholder secret '$passwordSecretName'"
-            } else {
-                Write-WarnLog "Failed to create secret '$passwordSecretName'"
+            } catch {
+                Write-WarnLog "Failed to create secret '$passwordSecretName': $_"
             }
         }
         
@@ -961,18 +946,20 @@ function Create-FabricSecretPlaceholders {
         Write-Host "To set your Fabric connection string:" -ForegroundColor Yellow
         Write-Host "  1. Go to Microsoft Fabric > Event Stream > ... > Connection Settings"
         Write-Host "  2. Copy the Kafka connection string"
-        Write-Host "  3. Update the secret:"
+        Write-Host "  3. Update the secret (run on this device after 'Connect-AzAccount'):"
         Write-Host ""
-        Write-Host "  az keyvault secret set --vault-name $script:KeyVaultName --name $passwordSecretName --value 'YOUR_CONNECTION_STRING'" -ForegroundColor Cyan
+        Write-Host "  `$t = (Get-AzAccessToken -ResourceUrl 'https://vault.azure.net').Token" -ForegroundColor Cyan
+        Write-Host "  Invoke-RestMethod -Method PUT -Uri 'https://$($script:KeyVaultName).vault.azure.net/secrets/$passwordSecretName`?api-version=7.4' -Headers @{Authorization=`"Bearer `$t`";'Content-Type'='application/json'} -Body '{`"value`":`"YOUR_CONNECTION_STRING`"}'" -ForegroundColor Cyan
         Write-Host ""
         
         return $true
         
     } catch {
         Write-WarnLog "Failed to create Fabric secrets: $_"
-        Write-InfoLog "You can create them manually with:"
-        Write-Host "  az keyvault secret set --vault-name $script:KeyVaultName --name $usernameSecretName --value '`$ConnectionString'"
-        Write-Host "  az keyvault secret set --vault-name $script:KeyVaultName --name $passwordSecretName --value 'YOUR_CONNECTION_STRING'"
+        Write-InfoLog "You can create them manually - get a vault token and PUT to the Key Vault data plane:"
+        Write-Host "  `$t = (Get-AzAccessToken -ResourceUrl 'https://vault.azure.net').Token" -ForegroundColor Cyan
+        Write-Host "  Invoke-RestMethod -Method PUT -Uri 'https://$($script:KeyVaultName).vault.azure.net/secrets/$usernameSecretName`?api-version=7.4' -Headers @{Authorization=`"Bearer `$t`";'Content-Type'='application/json'} -Body '{`"value`":`"`$ConnectionString`"}'" -ForegroundColor Cyan
+        Write-Host "  Invoke-RestMethod -Method PUT -Uri 'https://$($script:KeyVaultName).vault.azure.net/secrets/$passwordSecretName`?api-version=7.4' -Headers @{Authorization=`"Bearer `$t`";'Content-Type'='application/json'} -Body '{`"value`":`"YOUR_CONNECTION_STRING`"}'" -ForegroundColor Cyan
         return $true  # Don't fail the whole script
     }
 }
@@ -1074,18 +1061,33 @@ function Enable-CustomLocations {
         return
     }
     
-    # Step 1: ARM registration via PowerShell module
-    Write-InfoLog "Step 1: Registering custom-locations OID in ARM via Set-AzConnectedKubernetes..."
+    # Step 1: ARM registration via GET + PUT (best-effort - Helm in Step 2 is authoritative)
+    Write-InfoLog "Step 1: Registering custom-locations OID in ARM via GET + PUT..."
     try {
-        Set-AzConnectedKubernetes `
-            -ResourceGroupName $script:ResourceGroup `
-            -ClusterName $script:ClusterName `
-            -CustomLocationsOid $customLocationsOid `
-            -ErrorAction Stop | Out-Null
-        Write-Success "ARM registration complete"
+        $resourceId = "/subscriptions/$($script:SubscriptionId)/resourceGroups/$($script:ResourceGroup)/providers/Microsoft.Kubernetes/connectedClusters/$($script:ClusterName)"
+        $apiVersion = "2024-06-01-preview"
+        
+        $getResponse = Invoke-AzRestMethod -Method GET -Path "${resourceId}?api-version=${apiVersion}" -ErrorAction Stop
+        if ($getResponse.StatusCode -ne 200) { throw "GET failed: HTTP $($getResponse.StatusCode)" }
+        $resource = $getResponse.Content | ConvertFrom-Json
+        
+        if (-not $resource.properties.features) {
+            $resource.properties | Add-Member -MemberType NoteProperty -Name features -Value ([PSCustomObject]@{}) -Force
+        }
+        if (-not $resource.properties.features.customLocations) {
+            $resource.properties.features | Add-Member -MemberType NoteProperty -Name customLocations -Value ([PSCustomObject]@{}) -Force
+        }
+        $resource.properties.features.customLocations | Add-Member -MemberType NoteProperty -Name settings -Value ([PSCustomObject]@{ customLocationsOid = $customLocationsOid }) -Force
+        
+        $putResponse = Invoke-AzRestMethod -Method PUT -Path "${resourceId}?api-version=${apiVersion}" -Payload ($resource | ConvertTo-Json -Depth 20 -Compress) -ErrorAction Stop
+        if ($putResponse.StatusCode -in 200, 201, 202) {
+            Write-Success "ARM registration complete"
+        } else {
+            Write-WarnLog "PUT returned HTTP $($putResponse.StatusCode) - Step 2 (Helm) will handle enablement"
+        }
     } catch {
-        Write-WarnLog "Set-AzConnectedKubernetes for custom-locations OID failed: $_"
-        Write-InfoLog "Continuing to Step 2 - Helm update can still succeed independently"
+        Write-WarnLog "GET+PUT for custom-locations OID failed: $_"
+        Write-InfoLog "Continuing to Step 2 - Helm update can succeed independently"
     }
     
     # Step 2: Helm upgrade to actually enable the feature in the cluster
