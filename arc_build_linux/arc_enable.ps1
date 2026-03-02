@@ -464,31 +464,27 @@ function Enable-AzureRbac {
         Write-WarnLog "Could not check Azure RBAC status: $_"
     }
     
-    # Enable via PowerShell module with colon syntax to support both [switch] and [bool] parameter types.
-    # Note: parameter was renamed from AzureRbacEnabled to AadProfileEnableAzureRbac in Az.ConnectedKubernetes 0.11+
-    $psRbacSuccess = $false
+    # Enable via direct REST PATCH - Set-AzConnectedKubernetes sends a full cluster payload
+    # that fails the API schema validator ("HTTP request payload failed validation").
+    # Invoke-AzRestMethod sends only the property we are changing.
+    $patchSuccess = $false
     try {
-        Write-InfoLog "Using Set-AzConnectedKubernetes to enable Azure RBAC..."
-        Set-AzConnectedKubernetes `
-            -ResourceGroupName $script:ResourceGroup `
-            -ClusterName $script:ClusterName `
-            -Location $script:Location `
-            -AadProfileEnableAzureRbac:$true `
-            -ErrorAction Stop | Out-Null
+        Write-InfoLog "Enabling Azure RBAC via REST PATCH..."
+        $resourceId = "/subscriptions/$($script:SubscriptionId)/resourceGroups/$($script:ResourceGroup)/providers/Microsoft.Kubernetes/connectedClusters/$($script:ClusterName)"
+        $body = @{ properties = @{ aadProfile = @{ enableAzureRbac = $true } } } | ConvertTo-Json -Depth 5 -Compress
+        $response = Invoke-AzRestMethod -Method PATCH -Path "${resourceId}?api-version=2024-07-15-preview" -Payload $body -ErrorAction Stop
         
-        # Verify
-        $updated = Get-AzConnectedKubernetes -ResourceGroupName $script:ResourceGroup -ClusterName $script:ClusterName -ErrorAction Stop
-        if ($updated.AadProfileEnableAzureRbac -eq $true) {
-            $psRbacSuccess = $true
+        if ($response.StatusCode -in 200, 201, 202) {
+            $patchSuccess = $true
             Write-Success "Azure RBAC enabled successfully"
         } else {
-            Write-WarnLog "Set-AzConnectedKubernetes succeeded but AadProfileEnableAzureRbac is still not true"
+            Write-WarnLog "PATCH returned HTTP $($response.StatusCode): $($response.Content)"
         }
     } catch {
-        Write-WarnLog "Set-AzConnectedKubernetes failed: $_"
+        Write-WarnLog "REST PATCH for Azure RBAC failed: $_"
     }
 
-    if ($psRbacSuccess) {
+    if ($patchSuccess) {
         Write-Host ""
         Write-Host "NOTE: Users need Arc Kubernetes roles to access the cluster via proxy:" -ForegroundColor Cyan
         Write-Host "  - Azure Arc Kubernetes Cluster Admin  (full access)" -ForegroundColor Gray
@@ -616,19 +612,26 @@ function Enable-OidcWorkloadIdentity {
         }
         
         Write-WarnLog "Workload identity webhook NOT found in cluster"
-        Write-InfoLog "Enabling workload identity via Set-AzConnectedKubernetes..."
-        Write-InfoLog "NOTE: This registers the feature in ARM. Webhook pods deploy asynchronously."
+        Write-InfoLog "Enabling OIDC issuer + workload identity via REST PATCH..."
+        Write-InfoLog "NOTE: Webhook pods deploy asynchronously after ARM update."
         
         try {
-            Set-AzConnectedKubernetes `
-                -ResourceGroupName $script:ResourceGroup `
-                -ClusterName $script:ClusterName `
-                -Location $script:Location `
-                -WorkloadIdentityEnabled:$true `
-                -ErrorAction Stop | Out-Null
-            Write-Success "Workload identity enabled in ARM"
+            $resourceId = "/subscriptions/$($script:SubscriptionId)/resourceGroups/$($script:ResourceGroup)/providers/Microsoft.Kubernetes/connectedClusters/$($script:ClusterName)"
+            $body = @{
+                properties = @{
+                    oidcIssuerProfile = @{ enabled = $true }
+                    securityProfile   = @{ workloadIdentity = @{ enabled = $true } }
+                }
+            } | ConvertTo-Json -Depth 6 -Compress
+            $response = Invoke-AzRestMethod -Method PATCH -Path "${resourceId}?api-version=2024-07-15-preview" -Payload $body -ErrorAction Stop
+            
+            if ($response.StatusCode -in 200, 201, 202) {
+                Write-Success "OIDC issuer and workload identity enabled in ARM"
+            } else {
+                Write-WarnLog "PATCH returned HTTP $($response.StatusCode): $($response.Content)"
+            }
         } catch {
-            Write-WarnLog "Set-AzConnectedKubernetes -WorkloadIdentityEnabled failed: $_"
+            Write-WarnLog "REST PATCH for workload identity failed: $_"
         }
         
         # Verify webhook is now running
@@ -1055,19 +1058,29 @@ function Enable-CustomLocations {
         return
     }
     
-    # Step 1: ARM registration via PowerShell module
-    Write-InfoLog "Step 1: Registering custom-locations OID in ARM via Set-AzConnectedKubernetes..."
+    # Step 1: ARM registration via REST PATCH (best-effort - Helm in Step 2 is authoritative)
+    # Set-AzConnectedKubernetes sends a full payload that fails API schema validation.
+    Write-InfoLog "Step 1: Registering custom-locations OID in ARM via REST PATCH..."
     try {
-        Set-AzConnectedKubernetes `
-            -ResourceGroupName $script:ResourceGroup `
-            -ClusterName $script:ClusterName `
-            -Location $script:Location `
-            -CustomLocationsOid $customLocationsOid `
-            -ErrorAction Stop | Out-Null
-        Write-Success "ARM registration complete"
+        $resourceId = "/subscriptions/$($script:SubscriptionId)/resourceGroups/$($script:ResourceGroup)/providers/Microsoft.Kubernetes/connectedClusters/$($script:ClusterName)"
+        $body = @{
+            properties = @{
+                features = @{
+                    customLocations = @{
+                        settings = @{ customLocationsOid = $customLocationsOid }
+                    }
+                }
+            }
+        } | ConvertTo-Json -Depth 7 -Compress
+        $response = Invoke-AzRestMethod -Method PATCH -Path "${resourceId}?api-version=2024-07-15-preview" -Payload $body -ErrorAction Stop
+        if ($response.StatusCode -in 200, 201, 202) {
+            Write-Success "ARM registration complete"
+        } else {
+            Write-WarnLog "PATCH returned HTTP $($response.StatusCode) - Step 2 (Helm) will handle enablement"
+        }
     } catch {
-        Write-WarnLog "Set-AzConnectedKubernetes for custom-locations OID failed: $_"
-        Write-InfoLog "Continuing to Step 2 - Helm update can still succeed independently"
+        Write-WarnLog "REST PATCH for custom-locations OID failed: $_"
+        Write-InfoLog "Continuing to Step 2 - Helm update can succeed independently"
     }
     
     # Step 2: Helm upgrade to actually enable the feature in the cluster
