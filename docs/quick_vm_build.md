@@ -13,6 +13,7 @@ az group create --name rg-test-vm --location eastus
 ```
 
 ## 2. Create the VM
+This is the most basic VM that can run AIO. 
 ```bash
 az vm create --resource-group rg-test-vm --name test-vm-01 --image Ubuntu2204 --size Standard_D4s_v3 --admin-username azureuser --generate-ssh-keys --output table
 ```
