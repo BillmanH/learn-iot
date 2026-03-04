@@ -24,7 +24,8 @@ As the end-goal is an IoT solution, this repo has a preference for installing on
 
 # Quick Start
 The goal here is to install AIO on an Ubuntu machine (like a local NUC, PC, or a VM) so that you can get working quickly on your dataflow pipelines and get data into Fabric quickly. 
-
+* _if you are in a purely testing or validation phase you can create a quick VM using [this process](docs/quick_vm_build.md)_
+* _if you are building on a windows machine, you should follow [this process](https://github.com/Azure/AKS-Edge/tree/main/tools/scripts/AksEdgeQuickStart) at the edge, after that you can use the other scripts here._
 Once you have setup AIO via this process, you should be able to do everything that you want in the cloud without touching the Ubuntu machine again.
 
 
