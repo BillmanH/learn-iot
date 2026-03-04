@@ -1,6 +1,7 @@
 # Quick MQTT Subscriber Pod for AIO Testing
 
 A fast way to verify MQTT messages are flowing through the AIO broker without external tools.
+This isn't a production solution, but it's helpfull when testing/troubleshooting. 
 
 ## Quick Subscriber (Interactive)
 

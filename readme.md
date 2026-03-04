@@ -6,7 +6,7 @@ Automated deployment of Azure IoT Operations (AIO) on edge devices with industri
 
 - ⚡ **One-command edge setup** - Automated K3s cluster with Azure IoT Operations
 - 🏭 **Industrial IoT apps** - Factory simulator, MQTT historian, data processors
-- ☁️ **Cloud integration** - Microsoft Fabric Real-Time Intelligence connectivity
+- ☁️ **Cloud integration** - Dataflow pipelines to Azure (ADX, Event Hubs, Fabric) using **Managed Identity** by default — the simplest path with no secrets to manage. Fabric Event Stream endpoints are the only exception and are handled automatically via Key Vault secret sync.
 - 🔧 **Production-ready** - Separation of edge and cloud configuration for security
 - TBD - Windows AIO installer - coming soon
 
@@ -84,7 +84,7 @@ cd arc_build_linux
 bash installer.sh
 ```
 
-**What it does**: Installs K3s, kubectl, Helm, CSI Secret Store driver, and prepares cluster for Azure IoT Operations  
+**What it does**: Installs K3s, kubectl, Helm, and prepares the cluster for Azure IoT Operations  
 **Time**: ~10-15 minutes  
 **Output**: `config/cluster_info.json` (needed for next step)
 
@@ -104,6 +104,8 @@ pwsh ./arc_enable.ps1
 - Creates resource group if needed
 - Connects the K3s cluster to Azure Arc
 - Enables required Arc features (custom-locations, OIDC, workload identity)
+- Configures K3s to use the Arc OIDC issuer (required for Key Vault secret sync)
+- Seeds placeholder secrets in Azure Key Vault for Fabric connectivity
 
 **Time**: ~5 minutes  
 **Why on the edge device?**: Arc enablement requires kubectl access to the cluster, which isn't available remotely.
