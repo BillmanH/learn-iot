@@ -179,68 +179,36 @@ kubectl get dataflowendpoint -n azure-iot-operations
 #### Step 3: Get Connection Details
 
 1. Select **Protocol**: **Kafka**
-2. Select **Authentication**: **Shared access key (SAS)**
-3. Copy these values (you'll need them):
-   - **Bootstrap server**: `pkc-<id>.<region>.azure.confluent.cloud:9092` or similar
+2. Select **Authentication**: **Microsoft Entra ID** (Managed Identity)
+3. Copy these values:
+   - **Bootstrap server**: (e.g., `<namespace>.servicebus.windows.net:9093`)
    - **Topic name**: `es_<guid>` (e.g., `es_aaaaaaaa-0000-1111-2222-bbbbbbbbbbbb`)
-   - **Connection string-primary key**: The full connection string (use this for authentication)
 
-#### Step 4: Store Connection String in Key Vault
+No credentials to copy — authentication is handled automatically via the AIO managed identity.
 
-```powershell
-# Store the connection string in Key Vault
-az keyvault secret set `
-  --vault-name iot-opps-keys `
-  --name fabric-connection-string `
-  --value "Endpoint=sb://<your-endpoint>.servicebus.windows.net/;SharedAccessKeyName=<key-name>;SharedAccessKey=<key-value>;EntityPath=<topic>"
+#### Step 4: Create the Endpoint in the Azure Portal
 
-# Verify the secret was created
-az keyvault secret show --vault-name iot-opps-keys --name fabric-connection-string --query name -o tsv
+Navigate to your AIO instance → **Dataflow endpoints** → **+ Create endpoint**:
+- Type: **Kafka**
+- Bootstrap server: from step 3
+- Authentication: **System-assigned managed identity**
+
+No Key Vault secrets or `kubectl` commands needed.
+
+**Now you're ready to create the Dataflow!**
+
+```bash
+# Verify the endpoint was created successfully
+kubectl get dataflowEndpoint fabric-endpoint -n azure-iot-operations
 ```
 
-**Now you're ready to create the Fabric endpoint!**
+### 4.3 Verify Fabric Endpoint Configuration
 
-```powershell
-# Check if you have any Fabric endpoints (not the MQTT broker one)
-kubectl get dataflowendpoint -n azure-iot-operations -o json | Select-String "Kafka"
-```
+> **Authentication method**: Fabric Event Stream custom endpoints support **Managed Identity** (`SystemAssignedManagedIdentity`). Create the endpoint in the Azure Portal to ensure the correct auth method is selected.
 
-❌ **If empty:** You haven't created a Fabric endpoint yet. The error will appear when you create one with incorrect secret format.
+When checking a Fabric endpoint:
 
-✅ **If you see a Fabric endpoint, check its configuration:**
-```powershell
-kubectl describe dataflowendpoint <your-fabric-endpoint-name> -n azure-iot-operations
-```
-
-**What you're looking for:**
-- ❌ **Skip** endpoints with `Endpoint Type: Mqtt` and `Method: ServiceAccountToken` (this is your "default" broker endpoint - it's correct)
-- ✅ **Check** endpoints with `Endpoint Type: Kafka` (Fabric RTI uses Kafka protocol for external endpoints that need secrets)
-
-### 4.3 Verify Secret Reference Format
-
-> **⚠️ Authentication method note**: Fabric RTI custom Kafka endpoints **only support SASL/Plain (SAS key)** authentication. `SystemAssignedManagedIdentity` is **not** supported by Fabric custom endpoints — it works for standard Azure Event Hub namespaces you own, but Fabric's underlying Event Stream infrastructure does not expose Entra ID auth for external clients.
-
-When you create a **Fabric RTI endpoint** using Azure CLI, the secret reference must include the `aio-akv-sp/` prefix:
-
-✅ **CORRECT Azure CLI command (Fabric uses SASL, not Managed Identity):**
-```powershell
-az iot ops dataflow endpoint create kafka `
-  --name fabric-endpoint `
-  --instance iot-ops-cluster-aio `
-  -g IoT-Operations `
-  --host "<your-bootstrap-server>:9093" `
-  --authentication Sasl `
-  --secret-ref aio-akv-sp/fabric-connection-string  # ✅ Correct prefix!
-```
-
-❌ **WRONG - Missing prefix (causes the error):**
-```powershell
---secret-ref fabric-connection-string  # ❌ Missing aio-akv-sp/ prefix
-```
-
-**Or in YAML format:**
-
-✅ **CORRECT format:**
+✅ **Expected endpoint YAML:**
 ```yaml
 apiVersion: connectivity.iotoperations.azure.com/v1
 kind: DataflowEndpoint
@@ -254,39 +222,15 @@ spec:
     tls:
       mode: Enabled
     authentication:
-      method: Sasl
-      saslSettings:
-        saslType: Plain
-        secretRef: aio-akv-sp/fabric-connection-string  # Must use this format!
+      method: SystemAssignedManagedIdentity
+    copyMqttProperties: Enabled
+    cloudEventAttributes: Propagate
 ```
 
-❌ **WRONG - Missing prefix (causes "secret management is not configured" error):**
+❌ **WRONG - Old SAS/SASL format (no longer needed):**
 ```yaml
-secretRef: fabric-connection-string
+method: Sasl  # Replaced by SystemAssignedManagedIdentity
 ```
-
-❌ **WRONG - Wrong prefix:**
-```yaml
-secretRef: keyvault/fabric-connection-string
-```
-
-❌ **WRONG - Wrong authentication method (Fabric does not support Entra ID on custom Kafka endpoints):**
-```yaml
-method: SystemAssignedManagedIdentity  # Does NOT work for Fabric RTI custom endpoints
-```
-
-### 4.4 The Secret Reference Format Explained
-
-- `aio-akv-sp` = The SecretProviderClass name (from Step 2)
-- `/` = Separator (required)
-- `my-secret-name` = Your secret name in Key Vault (can be anything)
-
-**The secret name can be anything** - it does NOT have to be `fabric-connection-string`. Examples:
-- `aio-akv-sp/fabric-conn-str`
-- `aio-akv-sp/eventhub-connection`
-- `aio-akv-sp/my-custom-secret`
-
-Just make sure the secret with that name exists in Key Vault when you deploy.
 
 ---
 

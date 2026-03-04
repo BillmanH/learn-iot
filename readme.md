@@ -6,7 +6,7 @@ Automated deployment of Azure IoT Operations (AIO) on edge devices with industri
 
 - ⚡ **One-command edge setup** - Automated K3s cluster with Azure IoT Operations
 - 🏭 **Industrial IoT apps** - Factory simulator, MQTT historian, data processors
-- ☁️ **Cloud integration** - Dataflow pipelines to Azure (ADX, Event Hubs, Fabric) using **Managed Identity** by default — the simplest path with no secrets to manage. Fabric Event Stream endpoints are the only exception and are handled automatically via Key Vault secret sync.
+- ☁️ **Cloud integration** - Dataflow pipelines to Azure (ADX, Event Hubs, Fabric) using **Managed Identity** — no secrets to manage.
 - 🔧 **Production-ready** - Separation of edge and cloud configuration for security
 - TBD - Windows AIO installer - coming soon
 
@@ -105,7 +105,6 @@ pwsh ./arc_enable.ps1
 - Connects the K3s cluster to Azure Arc
 - Enables required Arc features (custom-locations, OIDC, workload identity)
 - Configures K3s to use the Arc OIDC issuer (required for Key Vault secret sync)
-- Seeds placeholder secrets in Azure Key Vault for Fabric connectivity
 
 **Time**: ~5 minutes  
 **Why on the edge device?**: Arc enablement requires kubectl access to the cluster, which isn't available remotely.
@@ -190,13 +189,6 @@ kubectl logs -n azure-iot-operations -l app=aio-broker-frontend --tail=20
 - **[Edge Historian](./iotopps/demohistorian/README.md)** - SQL-based historian with HTTP API for querying historical MQTT data
 - **[Fabric Integration](./fabric_setup/fabric-realtime-intelligence-setup.md)** - Connecting AIO to Microsoft Fabric
 
-### Development Environment
-
-Create the Python environment using uv:
-```bash
-uv sync
-```
-
 ## What's Included
 
 ### Edge Applications (`iotopps/`)
@@ -237,8 +229,7 @@ After installation:
 ## Documentation
 
 - **[README_ADVANCED.md](README_ADVANCED.md)** - Detailed technical guide
-- **[Bug Reports](operations/)** - Known issues and workarounds
-- **[Application READMEs](iotopps/)** - Individual app documentation
+- **[Application READMEs](modules/)** - Individual app documentation
 
 ## Support
 

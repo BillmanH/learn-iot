@@ -201,7 +201,7 @@ Parameters:
 
 #### Arc Cluster Authentication Notes
 
-Secret management uses AIO's native secret sync (`az iot ops secretsync enable`). Secrets stored in Azure Key Vault are automatically synced to Kubernetes secrets — no manual `kubectl create secret` commands are needed. Reference secrets in dataflow endpoint YAML by their plain Key Vault secret name (e.g. `secretRef: fabric-sasl-secret`).
+Secret management uses AIO's native secret sync (`az iot ops secretsync enable`). Secrets stored in Azure Key Vault are automatically synced to Kubernetes secrets — no manual `kubectl create secret` commands are needed. Reference secrets in dataflow endpoint YAML by their plain Key Vault secret name (e.g. `secretRef: my-secret`).
 
 
 ---
@@ -380,7 +380,7 @@ Dataflows route messages between sources and destinations (MQTT, Fabric, ADX, et
 > **Recommended: Use `SystemAssignedManagedIdentity` wherever possible.**
 > For Azure-owned endpoints (ADX, Event Hubs namespaces you own, etc.) this is the simplest path — no secrets to create, store, or rotate. See the [ADX endpoint example](#adx-azure-data-explorer-endpoint) below.
 >
-> The Key Vault / SASL path is only required for **Fabric Event Stream custom endpoints**, which use SAS key authentication and do not support Entra ID / Managed Identity. AIO secret sync handles this automatically — no `kubectl` commands needed.
+> For Fabric Event Stream custom endpoints, use **Managed Identity** (`SystemAssignedManagedIdentity`) — the same approach as other Azure endpoints. Configure the endpoint in the Azure Portal.
 
 #### MQTT to Fabric Dataflow
 
@@ -416,23 +416,14 @@ kubectl apply -f operations/fabric-factory-dataflows.yaml
 #### Fabric Endpoint Configuration
 
 **Prerequisites**:
-1. Create Fabric Event Stream in Microsoft Fabric
-2. Get the Kafka connection string from the Event Stream custom endpoint
-3. In Azure Portal (or CLI), update the `fabric-sasl-password` Key Vault secret with your actual Fabric connection string — the Kubernetes secret syncs automatically
+1. Create Fabric Event Stream in Microsoft Fabric with a custom Kafka endpoint
+2. Select **Microsoft Entra ID (Managed Identity)** as the authentication method on the endpoint
+3. Copy the **Bootstrap server** and **Topic name** from the Fabric portal
 
-> **Note**: Fabric Event Stream custom endpoints use SASL/Plain (SAS key) authentication. AIO's secret sync pulls the connection string from Azure Key Vault and creates the `fabric-sasl-secret` Kubernetes secret automatically. No manual `kubectl` commands are needed.
-
-**Extract EntityPath from Connection String** (you'll need this for the dataflow `dataDestination`):
-
-```powershell
-$connString = "Endpoint=sb://....servicebus.windows.net/;SharedAccessKeyName=...;SharedAccessKey=...;EntityPath=es_abc123xyz"
-
-# Extract EntityPath
-if ($connString -match 'EntityPath=([^;]+)') {
-    $entityPath = $matches[1]
-    Write-Host "Use this as dataDestination: $entityPath"
-}
-```
+**Create in the Azure Portal**:
+1. Navigate to your AIO instance → **Dataflow endpoints** → **+ Create endpoint**
+2. Select type **Kafka**, set the bootstrap server, and choose **System-assigned managed identity** for authentication
+3. No secrets or Key Vault setup are required
 
 **Dataflow Endpoint YAML**:
 
@@ -445,17 +436,16 @@ metadata:
 spec:
   endpointType: Kafka
   kafkaSettings:
-    host: esehmtcyb1tve3fs2la76yiy.servicebus.windows.net:9093
+    host: <namespace>.servicebus.windows.net:9093
     authentication:
-      method: Sasl
-      saslSettings:
-        saslType: Plain
-        secretRef: fabric-sasl-secret  # Created automatically by AIO secret sync from Key Vault
+      method: SystemAssignedManagedIdentity
     tls:
       mode: Enabled
     copyMqttProperties: Enabled
     cloudEventAttributes: Propagate
 ```
+
+> **Note**: Create this endpoint (and the dataflow) in the **Azure Portal** rather than applying YAML directly. The portal guides you through the managed identity auth selection.
 
 **Verify Data Flow**:
 
@@ -699,55 +689,28 @@ In Azure Portal → IoT Operations instance:
 
 ### Setting Up Microsoft Fabric Real-Time Intelligence
 
-Full guide: [fabric-realtime-intelligence-setup.md](Fabric_setup/fabric-realtime-intelligence-setup.md)
+Full guide: [fabric-realtime-intelligence-setup.md](fabric_setup/fabric-realtime-intelligence-setup.md)
 
 #### Quick Setup
+
+All configuration is done in the **Azure Portal** using **Managed Identity** — no secrets, no Key Vault setup.
 
 1. **Create Event Stream in Fabric**
    - Navigate to Real-Time Intelligence workspace
    - Create new Event Stream with a custom Kafka endpoint
-   - Copy the full connection string
+   - Select **Microsoft Entra ID (Managed Identity)** as the authentication method
+   - Copy the **Bootstrap server** and **Topic name**
 
-2. **Add Connection String to Key Vault**
+2. **Create the Dataflow Endpoint in the Azure Portal**
+   - Navigate to your AIO instance → **Dataflow endpoints** → **+ Create endpoint**
+   - Type: **Kafka**, bootstrap server from step 1, authentication: **System-assigned managed identity**
 
-   The `arc_enable.ps1` script already created placeholder secrets in Key Vault (`fabric-sasl-username` and `fabric-sasl-password`). Update the password with your actual Fabric connection string:
+3. **Create the Dataflow in the Azure Portal**
+   - Navigate to **Dataflows** → **+ Create dataflow**
+   - Source: MQTT broker, topics: `factory/#` (or desired filter)
+   - Destination: the endpoint from step 2, data destination: topic name from step 1
 
-   ```bash
-   # Via Azure CLI
-   az keyvault secret set \
-     --vault-name <your-keyvault-name> \
-     --name fabric-sasl-password \
-     --value "<full-connection-string>"
-   ```
-
-   Or update it in the Azure Portal: **Key Vault → Secrets → fabric-sasl-password → New Version**.
-
-   AIO secret sync will automatically push the updated value to the `fabric-sasl-secret` Kubernetes secret — no `kubectl` needed.
-
-3. **Extract EntityPath** (needed for `dataDestination` in the dataflow YAML)
-
-```powershell
-# Connection string format:
-# Endpoint=sb://xxx.servicebus.windows.net/;SharedAccessKeyName=xxx;SharedAccessKey=xxx;EntityPath=es_abc123
-
-$connString = "<your-connection-string>"
-if ($connString -match 'EntityPath=([^;]+)') {
-    $entityPath = $matches[1]
-    Write-Host "EntityPath: $entityPath"
-}
-```
-
-4. **Deploy Endpoint and Dataflow**
-
-```bash
-# Deploy endpoint (uses fabric-sasl-secret which is already synced from Key Vault)
-kubectl apply -f fabric_setup/fabric-endpoint.yaml
-
-# Deploy dataflow
-kubectl apply -f fabric_setup/fabric-realtime-dataflow.yaml
-```
-
-5. **Verify in Fabric**
+4. **Verify in Fabric**
    - Open Event Stream in Fabric
    - View "Data Insights" tab
    - Should see incoming messages
@@ -873,16 +836,16 @@ az k8s-extension create --cluster-name iot-ops-cluster \
 #### 2. Fabric Endpoint Shows "Failed" in Portal
 
 **Common causes**:
-- `fabric-sasl-secret` Kubernetes secret not yet synced from Key Vault
-- `fabric-sasl-password` Key Vault secret still contains the placeholder value
+- Managed identity may not have been granted access to the Fabric Event Stream resource
+- Bootstrap server or topic name is incorrect
 
-**Check secret sync status**:
+**Check endpoint status**:
 ```bash
-kubectl get secretsync -n azure-iot-operations
-kubectl get secret fabric-sasl-secret -n azure-iot-operations
+kubectl get dataflowEndpoint fabric-endpoint -n azure-iot-operations -o yaml
+kubectl logs -n azure-iot-operations -l app=aio-dataflow-processor --tail=50 | grep -i error
 ```
 
-**Update the Key Vault secret** with your actual Fabric connection string, then wait ~30s for sync.
+Verify the **bootstrap server** and **topic name** match the values from Fabric → Event Stream → custom endpoint.
 
 #### 3. Dataflow Not Sending Messages
 
@@ -904,30 +867,19 @@ kubectl get dataflowEndpoint fabric-endpoint -n azure-iot-operations -o yaml
 **Common Fixes**:
 
 ```yaml
-# Fix 1: Wrong topic name (use EntityPath from connection string)
+# Fix 1: Wrong topic name (use the es_<guid> topic from Fabric portal)
 spec:
   operations:
   - operationType: Destination
     destinationSettings:
-      dataDestination: es_e526de3f-6433-4a35-8f07-521f30abe1c5  # EntityPath, not custom name
+      dataDestination: es_e526de3f-6433-4a35-8f07-521f30abe1c5  # Topic from Fabric portal
 
-# Fix 2: Wrong authentication method
-# Fabric custom Kafka endpoints only support SAS/SASL — SystemAssignedManagedIdentity is
-# NOT supported by Fabric RTI custom endpoints.
+# Fix 2: Correct authentication method for Fabric
+# Fabric Event Stream custom endpoints support Managed Identity — use:
 spec:
   kafkaSettings:
     authentication:
-      method: Sasl  # Required for Fabric — SAMI not supported on Fabric custom endpoints
-      saslSettings:
-        saslType: Plain
-        secretRef: fabric-sasl-secret  # Created automatically by AIO secret sync from Key Vault
-
-# Fix 3: Missing or incorrect Key Vault secret
-# The fabric-sasl-secret K8s secret is synced from Key Vault automatically.
-# If it's missing, check:
-#   kubectl get secretsync -n azure-iot-operations
-#   az keyvault secret show --vault-name <kv-name> --name fabric-sasl-password
-# Update the fabric-sasl-password Key Vault secret with your actual Fabric connection string.
+      method: SystemAssignedManagedIdentity
 ```
 
 #### 4. K3s Cluster Issues

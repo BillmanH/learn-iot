@@ -314,27 +314,18 @@ az role assignment create `
 
 ## Integration with Fabric RTI
 
-For Fabric Real-Time Intelligence dataflows:
+Fabric Event Stream custom endpoints now support **Managed Identity** authentication. No connection strings or Key Vault secrets are needed.
 
-1. **Get Fabric connection string** from Event Stream (see `Fabric_setup/fabric-realtime-intelligence-setup.md`)
-2. **Store in Key Vault:**
-   ```powershell
-   az keyvault secret set `
-     --vault-name <kv-name> `
-     --name "fabric-connection-string" `
-     --value "Endpoint=sb://..."
-   ```
-3. **Reference in dataflow endpoint:**
-   ```yaml
-   connectionStringSecretRef: aio-akv-sp/fabric-connection-string
-   ```
+Create the Fabric dataflow endpoint in the **Azure Portal**:
+1. AIO instance → **Dataflow endpoints** → **+ Create endpoint**
+2. Type: **Kafka**, bootstrap server from Fabric portal
+3. Authentication: **System-assigned managed identity**
+
+For full details, see [fabric-realtime-intelligence-setup.md](../fabric_setup/fabric-realtime-intelligence-setup.md).
 
 ## Related Documentation
 
-- [CSI_SECRET_STORE_SETUP.md](CSI_SECRET_STORE_SETUP.md) - CSI driver installation
-- [Fabric_setup/fabric-realtime-intelligence-setup.md](../Fabric_setup/fabric-realtime-intelligence-setup.md) - Fabric integration
-- [External-Configurator-README.md](External-Configurator-README.md) - Script usage
-- [Check-SecretManagement.ps1](../Fabric_setup/Check-SecretManagement.ps1) - Diagnostic tool
+- [Fabric_setup/fabric-realtime-intelligence-setup.md](../fabric_setup/fabric-realtime-intelligence-setup.md) - Fabric integration
 
 ## What Changed in External-Configurator.ps1
 
