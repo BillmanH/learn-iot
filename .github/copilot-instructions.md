@@ -48,7 +48,7 @@ This repository is focused on learning and implementing Azure IoT Operations (AI
 - **Kubernetes (K3s)** - Lightweight Kubernetes for edge devices
 - **MQTT** - Message queuing protocol for IoT communication
 - **Docker** - Containerization for edge applications
-- **Python** - Primary development language with `uv` package manager
+- **Python** - Primary development language
 - **PowerShell** - Deployment automation scripts
 
 ### Azure Services
@@ -71,22 +71,15 @@ This repository is focused on learning and implementing Azure IoT Operations (AI
 - **Alternative**: X.509 certificates for external clients
 - Applications should use MQTT v5 with enhanced authentication
 
-#### Fabric RTI Dataflow Authentication (SASL/SAS — not Managed Identity)
-- **Fabric RTI custom Kafka endpoints require SASL/Plain with a SAS connection string.** Do NOT generate code using `method: SystemAssignedManagedIdentity` for a Fabric endpoint — Fabric does not support Entra ID / Managed Identity authentication for external clients on custom Kafka endpoints as of early 2026.
-- `SystemAssignedManagedIdentity` **works** for standard Azure Event Hub namespaces (owned by you) but **does not work** for Fabric-managed Event Stream custom endpoints.
+#### Fabric RTI Dataflow Authentication (Managed Identity)
+- **Fabric Event Stream custom endpoints now support Managed Identity.** Use `method: SystemAssignedManagedIdentity` for Fabric endpoints — do NOT generate SASL/Plain code with connection strings.
 - The correct YAML for a Fabric dataflow endpoint is:
   ```yaml
   authentication:
-    method: Sasl
-    saslSettings:
-      saslType: Plain
-      secretRef: fabric-sasl-secret
+    method: SystemAssignedManagedIdentity
   ```
-- The SAS connection string is stored in Azure Key Vault and **automatically synced to Kubernetes** via AIO's secret sync feature (`az iot ops secretsync enable`). No manual `kubectl create secret` is needed. This plumbing is set up by:
-  - `arc_build_linux/arc_enable.ps1` → `Create-FabricSecretPlaceholders` — seeds Key Vault with placeholder secrets (`fabric-sasl-username`, `fabric-sasl-password`)
-  - `external_configuration/External-Configurator.ps1` → Step 3/6 and `az iot ops secretsync enable` — deploys Key Vault ARM template and enables automatic secret sync
-- AIO secret sync creates Kubernetes secrets by their plain Key Vault secret name (e.g. `fabric-sasl-secret`). The old `aio-akv-sp/<name>` prefix format was for the CSI Secret Store driver and is **no longer used**. Do NOT use the `aio-akv-sp/` prefix with the AIO secretsync approach.
-- After deployment, update the `fabric-sasl-password` secret in Key Vault with the actual Fabric connection string — the K8s secret will be updated automatically.
+- **Configuration is done in the Azure Portal**: navigate to the AIO instance → Dataflow endpoints → Create Kafka endpoint, selecting System-assigned managed identity as the auth method.
+- No Key Vault secrets, no `kubectl` commands, and no connection strings are needed for Fabric connectivity.
 
 ### Container Deployment
 - Applications follow standard Docker + Kubernetes pattern
@@ -110,8 +103,6 @@ This repository is focused on learning and implementing Azure IoT Operations (AI
 - Documentation: UPPERCASE for important docs (e.g., `README.md`)
 
 ### Python Development
-- Use `uv` for dependency management instead of pip/poetry
-- Include `pyproject.toml` for project configuration
 - Follow containerized development pattern with Dockerfile
 - Include health check endpoints for web applications
 
@@ -183,9 +174,6 @@ cd external_configuration
 
 ### Local Development
 ```bash
-# Setup Python environment
-uv sync
-
 # Run application locally
 .\Deploy-Local.ps1 -AppFolder "app-name" -Mode python
 
@@ -331,6 +319,4 @@ kubectl get pods -n azure-iot-operations
 4. Add health check endpoints for web services
 5. Follow the modular PowerShell deployment script pattern
 6. Include comprehensive README documentation
-7. Use `uv` for Python dependency management
-8. Consider real-time processing requirements for IoT data
-8. Consider real-time processing requirements for IoT data
+7. Consider real-time processing requirements for IoT data

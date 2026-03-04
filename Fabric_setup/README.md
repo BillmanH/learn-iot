@@ -1,90 +1,23 @@
-# Fabric Setup Configuration Files
+# Fabric Setup — Reference Documentation
 
-This directory contains configuration files for deploying Microsoft Fabric Real-Time Intelligence endpoints.
+This directory contains reference documentation for connecting Azure IoT Operations to Microsoft Fabric Real-Time Intelligence.
 
-## Configuration Files
-
-### `fabric_config.json` ⚠️ **DO NOT COMMIT**
-Your actual configuration with sensitive connection strings. This file is in `.gitignore`.
-
-### `fabric_config.template.json` ✅ Safe to commit
-Template file showing the structure and required fields. Copy this to `fabric_config.json` and fill in your values.
-
-## Quick Start
-
-1. **Copy the template:**
-   ```powershell
-   Copy-Item fabric_config.template.json fabric_config.json
-   ```
-
-2. **Edit `fabric_config.json` and fill in your Fabric Event Stream details:**
-   - `bootstrapServer`: From Fabric Event Stream → Custom endpoint → Kafka protocol
-   - `connectionString`: From Fabric Event Stream → Custom endpoint → Shared access key → Connection string-primary key
-   - `topicName`: From Fabric Event Stream → Custom endpoint (format: `es_<guid>`)
-
-3. **Run the deployment:**
-   ```powershell
-   .\Deploy-FabricEndpoint.ps1
-   ```
-
-## Configuration Structure
-
-```json
-{
-  "fabric": {
-    "bootstrapServer": "Your Fabric bootstrap server:9093",
-    "connectionString": "Full connection string from Fabric",
-    "topicName": "Event Stream topic name"
-  },
-  "endpoint": {
-    "name": "fabric-endpoint",
-    "namespace": "azure-iot-operations",
-    "consumerGroupId": "iot-operations-consumer",
-    "compression": "None",
-    "copyMqttProperties": true,
-    "cloudEventAttributes": "Propagate"
-  },
-  "azure": {
-    "keyVault": {
-      "name": "iot-opps-keys",
-      "secretName": "fabric-connection-string"
-    },
-    "cluster": {
-      "name": "iot-ops-cluster",
-      "resourceGroup": "IoT-Operations",
-      "namespace": "azure-iot-operations"
-    }
-  },
-  "deployment": {
-    "skipPrereqCheck": false,
-    "validateOnly": false
-  }
-}
-```
-
-## Alternative: Command-Line Parameters
-
-You can also run the script with command-line parameters instead of using the config file:
-
-```powershell
-.\Deploy-FabricEndpoint.ps1 `
-  -BootstrapServer "server.servicebus.windows.net:9093" `
-  -ConnectionString "Endpoint=sb://..." `
-  -EndpointName "fabric-endpoint" `
-  -KeyVaultName "iot-opps-keys" `
-  -SecretName "fabric-connection-string"
-```
+> **Configuration is done in the Azure Portal.** Fabric Event Stream now supports **Managed Identity** authentication, so there are no connection strings or Kubernetes secrets to manage. The files here are informational only.
 
 ## Files
 
-- `fabric_config.json` - Your actual config (gitignored)
-- `fabric_config.template.json` - Template for configuration
-- `fabric-endpoint.yaml` - Kubernetes endpoint YAML template
-- `Deploy-FabricEndpoint.ps1` - Deployment script
-- `fabric-realtime-intelligence-setup.md` - Complete setup guide
+- `fabric-realtime-intelligence-setup.md` — Complete step-by-step setup guide
+- `RTI_Dashboard_queries.md` — KQL queries for OEE dashboards
 
-## Security Note
+## Quick Summary
 
-⚠️ **Never commit `fabric_config.json`** - it contains sensitive connection strings and keys. Always use the template file for sharing and documentation.
+The integration uses **System-Assigned Managed Identity** for authentication — the same approach as other Azure endpoints (ADX, Event Hubs). No secrets, no Key Vault setup, no `kubectl` commands.
 
-> **Why does this repo use a connection string at all?** The `connectionString` field exists because Fabric Event Stream custom endpoints only support SAS key authentication for the Kafka protocol as of early 2026 — there is no Managed Identity option on Fabric's side.
+| Step | Where | What |
+|------|-------|------|
+| 1 | Fabric portal | Create Workspace + Event Stream with a custom endpoint |
+| 2 | Azure Portal (AIO) | Create a Kafka dataflow endpoint pointing at the Fabric bootstrap server |
+| 3 | Azure Portal (AIO) | Create a dataflow routing MQTT topics to the Fabric endpoint |
+| 4 | Fabric portal | Verify messages arriving in the Event Stream |
+
+See [fabric-realtime-intelligence-setup.md](fabric-realtime-intelligence-setup.md) for the full walkthrough.

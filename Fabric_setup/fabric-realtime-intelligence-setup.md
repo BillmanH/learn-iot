@@ -51,111 +51,64 @@ After publishing the endpoint, configure the connection protocol:
 
 1. Click on the custom endpoint you just created
 2. Select **Protocol**: **Kafka**
-3. Select **Authentication** 
-   - **SAS Key**: Shared Access Signature key authentication (recommended for Azure IoT Operations)
-
-> **Note — Why SAS Key and not Managed Identity?**
-> Fabric Event Stream custom endpoints currently only expose SAS key authentication for the Kafka protocol. There is no Managed Identity or Microsoft Entra ID option in the Fabric UI. This is a Fabric-side limitation — Azure IoT Operations fully supports `SystemAssignedManagedIdentity` for Kafka endpoints, but Fabric does not yet offer it for custom endpoints.
+3. Select **Authentication**: **Microsoft Entra ID** (Managed Identity)
 
 4. Copy the connection details that appear:
-   - **Bootstrap server**: (e.g., `pkc-<id>.<region>.azure.confluent.cloud:9092` or similar Kafka endpoint)
+   - **Bootstrap server**: (e.g., `<namespace>.servicebus.windows.net:9093`)
    - **Topic name**: `es_<guid>` (format: `es_aaaaaaaa-0000-1111-2222-bbbbbbbbbbbb`)
-   - **Shared access key name**: (e.g., `RootManageSharedAccessKey` or custom key name)
-   - **Primary key**: (the actual key value)
-   - **Connection string-primary key**: (formatted as connection string)
 
-**Save these values** - you'll need them in Step 2.
+**Save these values** — you'll need them when creating the dataflow endpoint in the Azure Portal.
 
-> **Note**: For Kafka protocol, you'll use the **Connection string-primary key** (not an Event Hub connection string). This is specific to Fabric's Kafka implementation.
+> **No credentials to copy**: With Managed Identity, Azure IoT Operations authenticates using its system-assigned identity. There are no keys, connection strings, or Kubernetes secrets to manage.
 
-## Step 2: Create Azure IoT Operations Data Flow Endpoint
+## Step 2: Create Azure IoT Operations Dataflow Endpoint
 
-### 2.1 Create Kubernetes Secret for Authentication
+All configuration is done in the **Azure Portal** — no YAML files or `kubectl` commands required.
 
-On your cluster, create a secret with the connection string from Fabric.
+### 2.1 Open the AIO Instance in the Azure Portal
 
-**Option A: Using the setup script (Recommended)**
+1. Navigate to your Azure IoT Operations instance in the [Azure Portal](https://portal.azure.com)
+2. Select **Dataflow endpoints** from the left menu
+3. Click **+ Create endpoint**
 
-Run the automated setup script:
+### 2.2 Configure the Kafka Endpoint
 
-```bash
-# Make the script executable
-chmod +x iotopps/setup-SAS-for-RTI.sh
+1. **Endpoint type**: Kafka
+2. **Name**: `fabric-endpoint` (or any descriptive name)
+3. **Bootstrap server**: paste the bootstrap server from step 1.4 (e.g., `<namespace>.servicebus.windows.net:9093`)
+4. **Authentication**: System-assigned managed identity
+5. **TLS**: Enabled
+6. Leave other settings at their defaults (or configure as needed)
+7. Click **Create**
 
-# Run the script
-./iotopps/setup-SAS-for-RTI.sh
-```
-
-The script will:
-- Prompt you for your Fabric Event Stream connection string
-- Validate the connection string format
-- Check for existing secrets and offer to replace them
-- Create the Kubernetes secret in the correct namespace
-- Provide next steps for completing the setup
-
-**Option B: Manual secret creation**
-
-For SAS Key Authentication (Kafka protocol):
-
-```bash
-kubectl create secret generic fabric-realtime-secret \
-  -n azure-iot-operations \
-  --from-literal=username='$ConnectionString' \
-  --from-literal=password='<YOUR_CONNECTION_STRING_PRIMARY_KEY_FROM_FABRIC>'
-```
-
-For Entra ID Authentication:
-
-```bash
-kubectl create secret generic fabric-realtime-secret \
-  -n azure-iot-operations \
-  --from-literal=clientId='<YOUR_CLIENT_ID>' \
-  --from-literal=clientSecret='<YOUR_CLIENT_SECRET>' \
-  --from-literal=tenantId='<YOUR_TENANT_ID>'
-```
-
-**Important**: 
-- For SAS Key auth (Kafka): The username must be exactly `$ConnectionString` (literal string, not a variable)
-- The password is the **Connection string-primary key** value from Fabric (found under the Kafka protocol details)
-- For Entra ID: You'll need to register an app in Azure AD and use its credentials
-
-### 2.2 Apply the Fabric Endpoint Configuration
-
-Apply the YAML file `fabric-realtime-endpoint.yaml`:
-
-```bash
-kubectl apply -f operations/fabric-realtime-endpoint.yaml
-```
-
-This creates a data flow endpoint named `fabric-realtime` that Azure IoT Operations will use to send data to Fabric.
+> No secrets or credentials are needed — the AIO managed identity is automatically used for authentication.
 
 ### 2.3 Verify the Endpoint
 
+After creation, the endpoint should appear as **Running** in the portal. You can also check via CLI:
+
 ```bash
-kubectl get dataflowEndpoint fabric-realtime -n azure-iot-operations
+kubectl get dataflowEndpoint fabric-endpoint -n azure-iot-operations
 ```
 
-You should see the endpoint in a `Running` state.
+## Step 3: Create a Dataflow to Route MQTT Messages
 
-## Step 3: Create Data Flow to Route MQTT Messages
+Create the dataflow in the **Azure Portal** alongside the endpoint.
 
-### 3.1 Apply the Data Flow Configuration
+### 3.1 Create the Dataflow
 
-Apply the YAML file `fabric-realtime-dataflow.yaml`:
+1. In your AIO instance, select **Dataflows** from the left menu
+2. Click **+ Create dataflow**
+3. **Name**: `factory-to-fabric` (or descriptive name)
+4. **Source**: MQTT broker (default endpoint), topics: `factory/#` (or `#` for all topics)
+5. **Destination**: select the `fabric-endpoint` you created in Step 2
+6. **Data destination (topic/entity)**: paste the Fabric topic name from step 1.4 (e.g., `es_aaaaaaaa-0000-1111-2222-bbbbbbbbbbbb`)
+7. Click **Create**
 
-```bash
-kubectl apply -f operations/fabric-realtime-dataflow.yaml
-```
-
-This creates a data flow that:
-- Subscribes to all MQTT topics (`#`)
-- Routes messages to the Fabric Real-Time Intelligence endpoint
-- Applies transformations (optional)
-
-### 3.2 Verify the Data Flow
+### 3.2 Verify the Dataflow
 
 ```bash
-kubectl get dataflow iot-to-fabric -n azure-iot-operations
+kubectl get dataflow factory-to-fabric -n azure-iot-operations
 ```
 
 ## Step 4: Verify Data Flow in Fabric
@@ -235,9 +188,9 @@ MqttMessages
 
 ### Authentication errors
 
-- Verify the secret contains the correct connection string-primary key from Fabric
-- Ensure username is exactly `$ConnectionString`
-- Check that you copied the **Connection string-primary key** value (not the Primary key alone)
+- Confirm the AIO instance has a system-assigned managed identity enabled (Azure Portal → AIO instance → Identity)
+- Confirm the managed identity has sufficient permissions on the Fabric Event Stream resource
+- Check that the bootstrap server and topic name are correct
 
 ### Connection errors
 
