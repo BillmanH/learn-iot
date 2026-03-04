@@ -80,12 +80,7 @@ Options:
    - Helm v3 (latest stable)
    - Optional: k9s, mqtt-viewer, ssh (if enabled in config)
 
-4. **CSI Secret Store Driver**
-   - Installs CSI driver for Kubernetes secrets
-   - Deploys Azure Key Vault provider (for Arc-connected clusters)
-   - Required for Fabric RTI dataflows with secrets
-
-5. **Output Generation**
+4. **Output Generation**
    - Creates `config/cluster_info.json` with:
      - Cluster name and node IP
      - Kubernetes version
@@ -198,7 +193,7 @@ Parameters:
    - Creates Azure Key Vault
    - Creates managed identity for secret sync
    - Grants Key Vault Secrets User role
-   - Enables secret synchronization to cluster
+   - Runs `az iot ops secretsync enable` — secrets defined in Key Vault are automatically synced to Kubernetes; no `kubectl create secret` needed
 
 5. **Module Deployment**
    - Deploys edge modules configured in settings
@@ -206,19 +201,7 @@ Parameters:
 
 #### Arc Cluster Authentication Notes
 
-**⚠️ Known Issue**: Azure Key Vault CSI driver requires full workload identity infrastructure on Arc-connected clusters, which is complex to configure. The script detects this and provides manual workaround steps.
-
-**Manual Secret Creation Workaround**:
-
-```powershell
-# Connect to cluster
-az connectedk8s proxy --name iot-ops-cluster --resource-group IoT-Operations
-
-# In separate terminal, create secret manually
-kubectl create secret generic fabric-connection-string `
-  --from-literal=username='$ConnectionString' `
-  --from-literal=password='<your-connection-string>'
-```
+Secret management uses AIO's native secret sync (`az iot ops secretsync enable`). Secrets stored in Azure Key Vault are automatically synced to Kubernetes secrets — no manual `kubectl create secret` commands are needed. Reference secrets in dataflow endpoint YAML by their plain Key Vault secret name (e.g. `secretRef: fabric-sasl-secret`).
 
 
 ---
@@ -394,6 +377,11 @@ kubectl apply -f asset.yaml
 
 Dataflows route messages between sources and destinations (MQTT, Fabric, ADX, etc.).
 
+> **Recommended: Use `SystemAssignedManagedIdentity` wherever possible.**
+> For Azure-owned endpoints (ADX, Event Hubs namespaces you own, etc.) this is the simplest path — no secrets to create, store, or rotate. See the [ADX endpoint example](#adx-azure-data-explorer-endpoint) below.
+>
+> The Key Vault / SASL path is only required for **Fabric Event Stream custom endpoints**, which use SAS key authentication and do not support Entra ID / Managed Identity. AIO secret sync handles this automatically — no `kubectl` commands needed.
+
 #### MQTT to Fabric Dataflow
 
 **Example** (`operations/fabric-factory-dataflows.yaml`):
@@ -429,10 +417,12 @@ kubectl apply -f operations/fabric-factory-dataflows.yaml
 
 **Prerequisites**:
 1. Create Fabric Event Stream in Microsoft Fabric
-2. Get connection string (includes EntityPath)
-3. Create Kubernetes secret with connection string
+2. Get the Kafka connection string from the Event Stream custom endpoint
+3. In Azure Portal (or CLI), update the `fabric-sasl-password` Key Vault secret with your actual Fabric connection string — the Kubernetes secret syncs automatically
 
-**Extract EntityPath from Connection String**:
+> **Note**: Fabric Event Stream custom endpoints use SASL/Plain (SAS key) authentication. AIO's secret sync pulls the connection string from Azure Key Vault and creates the `fabric-sasl-secret` Kubernetes secret automatically. No manual `kubectl` commands are needed.
+
+**Extract EntityPath from Connection String** (you'll need this for the dataflow `dataDestination`):
 
 ```powershell
 $connString = "Endpoint=sb://....servicebus.windows.net/;SharedAccessKeyName=...;SharedAccessKey=...;EntityPath=es_abc123xyz"
@@ -444,21 +434,10 @@ if ($connString -match 'EntityPath=([^;]+)') {
 }
 ```
 
-> **Why a secret?** Normally AIO uses `SystemAssignedManagedIdentity` for cloud endpoints (see ADX example above). A Kubernetes secret is required here specifically because Fabric Event Stream custom endpoints do not yet support Entra ID / Managed Identity authentication — SAS key (SASL/Plain) is the only option Fabric exposes for its Kafka endpoint.
-
-**Create Secret**:
-
-```bash
-kubectl create secret generic fabric-connection-string \
-  --from-literal=username='$ConnectionString' \
-  --from-literal=password='<full-connection-string>' \
-  -n azure-iot-operations
-```
-
-**Create Endpoint**:
+**Dataflow Endpoint YAML**:
 
 ```yaml
-apiVersion: connectivity.iotoperations.azure.com/v1beta1
+apiVersion: connectivity.iotoperations.azure.com/v1
 kind: DataflowEndpoint
 metadata:
   name: fabric-endpoint
@@ -471,9 +450,11 @@ spec:
       method: Sasl
       saslSettings:
         saslType: Plain
-        secretRef: fabric-connection-string
+        secretRef: fabric-sasl-secret  # Created automatically by AIO secret sync from Key Vault
     tls:
       mode: Enabled
+    copyMqttProperties: Enabled
+    cloudEventAttributes: Propagate
 ```
 
 **Verify Data Flow**:
@@ -724,10 +705,26 @@ Full guide: [fabric-realtime-intelligence-setup.md](Fabric_setup/fabric-realtime
 
 1. **Create Event Stream in Fabric**
    - Navigate to Real-Time Intelligence workspace
-   - Create new Event Stream
-   - Note the connection string
+   - Create new Event Stream with a custom Kafka endpoint
+   - Copy the full connection string
 
-2. **Extract EntityPath**
+2. **Add Connection String to Key Vault**
+
+   The `arc_enable.ps1` script already created placeholder secrets in Key Vault (`fabric-sasl-username` and `fabric-sasl-password`). Update the password with your actual Fabric connection string:
+
+   ```bash
+   # Via Azure CLI
+   az keyvault secret set \
+     --vault-name <your-keyvault-name> \
+     --name fabric-sasl-password \
+     --value "<full-connection-string>"
+   ```
+
+   Or update it in the Azure Portal: **Key Vault → Secrets → fabric-sasl-password → New Version**.
+
+   AIO secret sync will automatically push the updated value to the `fabric-sasl-secret` Kubernetes secret — no `kubectl` needed.
+
+3. **Extract EntityPath** (needed for `dataDestination` in the dataflow YAML)
 
 ```powershell
 # Connection string format:
@@ -740,23 +737,14 @@ if ($connString -match 'EntityPath=([^;]+)') {
 }
 ```
 
-3. **Create Kubernetes Secret**
-
-```bash
-kubectl create secret generic fabric-connection-string \
-  --from-literal=username='$ConnectionString' \
-  --from-literal=password='<full-connection-string>' \
-  -n azure-iot-operations
-```
-
 4. **Deploy Endpoint and Dataflow**
 
 ```bash
-# Deploy endpoint
-kubectl apply -f Fabric_setup/fabric-endpoint.yaml
+# Deploy endpoint (uses fabric-sasl-secret which is already synced from Key Vault)
+kubectl apply -f fabric_setup/fabric-endpoint.yaml
 
 # Deploy dataflow
-kubectl apply -f Fabric_setup/fabric-realtime-dataflow.yaml
+kubectl apply -f fabric_setup/fabric-realtime-dataflow.yaml
 ```
 
 5. **Verify in Fabric**
@@ -884,11 +872,17 @@ az k8s-extension create --cluster-name iot-ops-cluster \
 
 #### 2. Fabric Endpoint Shows "Failed" in Portal
 
-**Root Cause**: CSI secret sync doesn't work on Arc clusters without workload identity infrastructure.
+**Common causes**:
+- `fabric-sasl-secret` Kubernetes secret not yet synced from Key Vault
+- `fabric-sasl-password` Key Vault secret still contains the placeholder value
 
-**Solution**: Manual secret creation (see [Fabric Integration](#fabric-integration))
+**Check secret sync status**:
+```bash
+kubectl get secretsync -n azure-iot-operations
+kubectl get secret fabric-sasl-secret -n azure-iot-operations
+```
 
-**Details**: See [BUG_REPORT_FABRIC_ENDPOINT_DEPLOYMENT.md](operations/BUG_REPORT_FABRIC_ENDPOINT_DEPLOYMENT.md)
+**Update the Key Vault secret** with your actual Fabric connection string, then wait ~30s for sync.
 
 #### 3. Dataflow Not Sending Messages
 
@@ -919,18 +913,21 @@ spec:
 
 # Fix 2: Wrong authentication method
 # Fabric custom Kafka endpoints only support SAS/SASL — SystemAssignedManagedIdentity is
-# NOT supported by Fabric RTI custom endpoints (it works for standard Azure Event Hub
-# namespaces that you own, but not for Fabric-managed Event Stream endpoints).
+# NOT supported by Fabric RTI custom endpoints.
 spec:
   kafkaSettings:
     authentication:
-      method: Sasl  # Required for Fabric. SAMI not supported by Fabric custom endpoints.
+      method: Sasl  # Required for Fabric — SAMI not supported on Fabric custom endpoints
       saslSettings:
         saslType: Plain
-        secretRef: fabric-connection-string
+        secretRef: fabric-sasl-secret  # Created automatically by AIO secret sync from Key Vault
 
-# Fix 3: Missing secret keys
-# Secret must have 'username' and 'password' keys, not 'connectionString'
+# Fix 3: Missing or incorrect Key Vault secret
+# The fabric-sasl-secret K8s secret is synced from Key Vault automatically.
+# If it's missing, check:
+#   kubectl get secretsync -n azure-iot-operations
+#   az keyvault secret show --vault-name <kv-name> --name fabric-sasl-password
+# Update the fabric-sasl-password Key Vault secret with your actual Fabric connection string.
 ```
 
 #### 4. K3s Cluster Issues
@@ -1015,15 +1012,17 @@ kubectl logs <pod-name> --previous
 # List secrets
 kubectl get secrets -n azure-iot-operations
 
-# Describe SecretProviderClass
-kubectl describe secretproviderclass -n azure-iot-operations
+# Check AIO secret sync status
+kubectl get secretsync -n azure-iot-operations
 
-# Check CSI driver logs
-kubectl logs -n kube-system -l app=csi-secrets-store
+# Check if a specific secret was synced
+kubectl describe secret fabric-sasl-secret -n azure-iot-operations
+
+# View secret sync controller logs
+kubectl logs -n azure-secret-store -l app=secret-sync-controller
 ```
 
-**For Arc Clusters**:
-Use manual secret creation instead of CSI driver (see [Arc Cluster Authentication Notes](#arc-cluster-authentication-notes))
+**If secrets are not syncing**: Verify the Key Vault secret has a real value (not the placeholder), confirm `az iot ops secretsync enable` ran successfully, and check that the Arc OIDC issuer is configured correctly (`kubectl cluster-info dump | grep service-account-issuer`).
 
 ### Diagnostic Scripts
 
@@ -1035,9 +1034,6 @@ cd arc_build_linux
 # K3s cluster diagnostics
 bash k3s_troubleshoot.sh
 bash diagnose-orchestrator.sh
-
-# Verify secret management
-bash verify-csi-secret-store.sh
 
 # Backup AIO configuration
 bash backup_aio_configs.sh

@@ -354,6 +354,8 @@ load_local_config() {
         warn "Configuration file not found: $CONFIG_FILE"
         info "Using default configuration"
         CLUSTER_NAME="edge-device-$(hostname)"
+        warn "Cluster name defaulting to: $CLUSTER_NAME"
+        warn "This MUST match the cluster_name in aio_config.json used by External-Configurator.ps1!"
         return 0
     fi
     
@@ -366,7 +368,12 @@ load_local_config() {
     CONFIG_TYPE=$(jq -r '.config_type // "quickstart"' "$CONFIG_FILE")
     
     # Load edge device settings
-    CLUSTER_NAME=$(jq -r '.azure.cluster_name // "edge-device-'$(hostname)'"' "$CONFIG_FILE")
+    CLUSTER_NAME=$(jq -r '.azure.cluster_name // empty' "$CONFIG_FILE" 2>/dev/null)
+    if [ -z "$CLUSTER_NAME" ] || [ "$CLUSTER_NAME" = "null" ]; then
+        CLUSTER_NAME="edge-device-$(hostname)"
+        warn "cluster_name not set in $CONFIG_FILE - falling back to default: $CLUSTER_NAME"
+        warn "This MUST match the cluster_name in aio_config.json used by External-Configurator.ps1!"
+    fi
     SKIP_SYSTEM_UPDATE=$(jq -r '.deployment.skip_system_update // false' "$CONFIG_FILE")
     
     # Load advanced mode skip flags (only used if config_type is "advanced")

@@ -31,7 +31,7 @@
     "deploy_opc_ua_bridge": false
   },
   "optional_tools": {
-    "k9s": false,
+    "k9s": true,
     "mqtt-viewer": false,
     "ssh": false
   },

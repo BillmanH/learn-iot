@@ -80,13 +80,13 @@ This repository is focused on learning and implementing Azure IoT Operations (AI
     method: Sasl
     saslSettings:
       saslType: Plain
-      secretRef: aio-akv-sp/fabric-connection-string
+      secretRef: fabric-sasl-secret
   ```
-- The SAS connection string is stored in Azure Key Vault and synced to the cluster via the CSI Secret Store driver. This plumbing is set up by:
-  - `installer.sh` → `install_csi_secret_store()` — installs the CSI driver
-  - `arc_build_linux/arc_enable.ps1` → `Create-FabricSecretPlaceholders` — seeds Key Vault placeholder secrets
-  - `external_configuration/External-Configurator.ps1` → Steps 3/6 and 6/6 — deploys Key Vault ARM template and runs `az iot ops secretsync enable`
-- Secret references must use the `aio-akv-sp/<secret-name>` format (e.g. `aio-akv-sp/fabric-connection-string`). Missing the prefix causes a "secret management is not configured" error.
+- The SAS connection string is stored in Azure Key Vault and **automatically synced to Kubernetes** via AIO's secret sync feature (`az iot ops secretsync enable`). No manual `kubectl create secret` is needed. This plumbing is set up by:
+  - `arc_build_linux/arc_enable.ps1` → `Create-FabricSecretPlaceholders` — seeds Key Vault with placeholder secrets (`fabric-sasl-username`, `fabric-sasl-password`)
+  - `external_configuration/External-Configurator.ps1` → Step 3/6 and `az iot ops secretsync enable` — deploys Key Vault ARM template and enables automatic secret sync
+- AIO secret sync creates Kubernetes secrets by their plain Key Vault secret name (e.g. `fabric-sasl-secret`). The old `aio-akv-sp/<name>` prefix format was for the CSI Secret Store driver and is **no longer used**. Do NOT use the `aio-akv-sp/` prefix with the AIO secretsync approach.
+- After deployment, update the `fabric-sasl-password` secret in Key Vault with the actual Fabric connection string — the K8s secret will be updated automatically.
 
 ### Container Deployment
 - Applications follow standard Docker + Kubernetes pattern
@@ -260,7 +260,8 @@ kubectl get pods -l app=sputnik
 
 ### Known Issues & Workarounds
 - **Az.ConnectedKubernetes -CustomLocationsOid Gap**: The PowerShell module's `-CustomLocationsOid` parameter only registers the OID with Azure ARM but does NOT run `helm upgrade` to enable the feature in the cluster. The Azure CLI `az connectedk8s enable-features` does both steps. **Fix**: The `arc_enable.ps1` script now runs `helm upgrade` automatically to work around this gap.
-- **Az.ConnectedKubernetes -WorkloadIdentityEnabled Gap**: Similar to custom-locations, setting `WorkloadIdentityEnabled = $true` in `New-AzConnectedKubernetes` only registers the feature with ARM but does NOT deploy the workload identity webhook pods to the cluster. Azure will show `workloadIdentityEnabled: true` but `kubectl get pods -n azure-arc | grep workload` returns nothing. **Fix**: The `arc_enable.ps1` script now runs `az connectedk8s update --enable-workload-identity` to deploy the webhook. Without this, Key Vault secret sync will fail with `AADSTS700211: No matching federated identity record found for presented assertion issuer 'https://kubernetes.default.svc.cluster.local'`.
+- **Az.ConnectedKubernetes -WorkloadIdentityEnabled Gap**: Similar to custom-locations, setting `WorkloadIdentityEnabled = $true` in `New-AzConnectedKubernetes` only registers the feature with ARM but does NOT deploy the workload identity webhook pods to the cluster. Azure will show `workloadIdentityEnabled: true` but `kubectl get pods -n azure-arc | grep workload` returns nothing. **Fix**: The `arc_enable.ps1` script now runs `az connectedk8s update --enable-workload-identity` to deploy the webhook. ✅ Confirmed working as of March 2026.
+- **K3s OIDC Issuer Mismatch**: K3s issues service account tokens with the default issuer (`https://kubernetes.default.svc.cluster.local`) but AIO secret sync expects tokens with the Arc OIDC issuer URL. This caused `AADSTS700211: No matching federated identity record found` errors. **Fix**: `arc_enable.ps1` now calls `Configure-K3sOidcIssuer()` which retrieves the Arc OIDC issuer URL and writes `/etc/rancher/k3s/config.yaml`, then restarts K3s. ✅ Secret sync confirmed working end-to-end as of March 2026.
 - **Helm OCI Registry Issues**: Helm may fail to pull charts from OCI registries with "could not load config" errors. Workaround: Use `oras` to pull the chart, then upgrade with the local tgz file.
 - **Device Registry Extension Bundled (AIO v1.2+)**: In older AIO versions, `microsoft.deviceregistry.assets` was a separate K8s extension. In AIO v1.2+, device registry functionality is **bundled into the `microsoft.iotoperations` extension**. Do NOT look for a separate `microsoft.deviceregistry.assets` extension - verify device registry is working by checking for CRDs instead:
   ```bash
