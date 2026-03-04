@@ -75,7 +75,8 @@ $script:ModulesDir = Join-Path $script:RepoRoot "modules"
 $script:ConfigDir = Join-Path $script:RepoRoot "config"
 $script:LogFile = Join-Path $script:ScriptDir "deploy_edge_modules_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
 $script:StartTime = Get-Date
-$script:ProxyJob = $null  # Store proxy job for cleanup
+$script:ProxyJob = $null      # Legacy - kept for cleanup safety
+$script:ProxyProcess = $null  # Current - background process for Arc proxy
 $script:ContainerRegistry = $null  # Container registry from config
 
 #region Logging Functions
@@ -367,11 +368,52 @@ function Test-Prerequisites {
     Write-Success "modules directory found: $script:ModulesDir"
 }
 
+function Stop-ArcProxies {
+    param([int]$Port = 47011)
+    
+    $killed = $false
+    
+    # Kill by stored process reference first (most reliable)
+    if ($script:ProxyProcess -and -not $script:ProxyProcess.HasExited) {
+        Write-InfoLog "Stopping stored proxy process (PID $($script:ProxyProcess.Id))..."
+        $script:ProxyProcess.Kill()
+        $script:ProxyProcess = $null
+        $killed = $true
+    }
+    
+    # Find any process holding the proxy port via netstat and kill it
+    Write-InfoLog "Checking for processes using port $Port..."
+    $netstatLines = netstat -ano 2>$null | Select-String ":$Port\s"
+    foreach ($line in $netstatLines) {
+        if ($line -match '\s+(\d+)\s*$') {
+            $procId = [int]$Matches[1]
+            if ($procId -gt 0) {
+                $proc = Get-Process -Id $procId -ErrorAction SilentlyContinue
+                if ($proc) {
+                    Write-InfoLog "Killing PID $procId ($($proc.Name)) holding port $Port"
+                    Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+                    $killed = $true
+                }
+            }
+        }
+    }
+    
+    if ($killed) {
+        Start-Sleep -Seconds 1
+        Write-Success "Arc proxy process(es) stopped"
+    } else {
+        Write-InfoLog "No existing Arc proxy processes found on port $Port"
+    }
+}
+
 function Start-ArcProxy {
     param(
         [string]$ClusterName,
         [string]$ResourceGroup
     )
+    
+    # Kill any leftover proxy processes from prior runs before starting a new one
+    Stop-ArcProxies
     
     Write-InfoLog "Starting Azure Arc proxy tunnel..."
     Write-InfoLog "Command: az connectedk8s proxy --name $ClusterName --resource-group $ResourceGroup"
@@ -383,29 +425,99 @@ function Start-ArcProxy {
     }
     Write-Success "Cluster is Arc-enabled"
     
-    # Start proxy in background job
-    Write-InfoLog "Starting Arc proxy in background (this may take 15-30 seconds)..."
-    $proxyJob = Start-Job -ScriptBlock {
-        param($clusterName, $resourceGroup)
-        az connectedk8s proxy --name $clusterName --resource-group $resourceGroup 2>&1
-    } -ArgumentList $ClusterName, $ResourceGroup
+    # Start proxy as a background process, redirecting output to a temp file we can poll
+    $proxyLogFile = Join-Path $env:TEMP "arc_proxy_$(Get-Date -Format 'yyyyMMddHHmmss').log"
+    # Snapshot kubeconfig modification time BEFORE starting the proxy.
+    # We poll for a write AFTER this timestamp to confirm az wrote a fresh CA cert,
+    # not just finding the stale 127.0.0.1:47011 entry left from a previous run.
+    $kubeconfigPath = if ($env:KUBECONFIG) { $env:KUBECONFIG } else { "$env:USERPROFILE\.kube\config" }
+    $kubeconfigMtimeBefore = if (Test-Path $kubeconfigPath) { (Get-Item $kubeconfigPath).LastWriteTime } else { [datetime]::MinValue }
+    Write-InfoLog "Kubeconfig path: $kubeconfigPath"
+    Write-InfoLog "Kubeconfig mtime before proxy start: $kubeconfigMtimeBefore"
     
-    # Wait for proxy to establish
-    Write-InfoLog "Waiting for proxy tunnel to establish..."
-    Start-Sleep -Seconds 25
+    Write-InfoLog "Starting Arc proxy as background process..."
+    Write-InfoLog "Proxy output log: $proxyLogFile"
+    
+    $azExe = (Get-Command az -ErrorAction SilentlyContinue).Source
+    if (-not $azExe) { $azExe = "az" }
+    
+    $proxyProcess = Start-Process -FilePath $azExe `
+        -ArgumentList "connectedk8s proxy --name $ClusterName --resource-group $ResourceGroup" `
+        -RedirectStandardOutput $proxyLogFile `
+        -RedirectStandardError "$proxyLogFile.err" `
+        -PassThru -WindowStyle Hidden
     
     # Store for cleanup
-    $script:ProxyJob = $proxyJob
+    $script:ProxyProcess = $proxyProcess
     
-    # Verify proxy is running
-    Write-InfoLog "Checking proxy job status..."
-    $jobState = $proxyJob.State
-    Write-InfoLog "Proxy job state: $jobState"
+    # Poll netstat for the port entering LISTENING state - more reliable than parsing
+    # redirected output (az connectedk8s proxy does not flush to redirected stdout/stderr)
+    $proxyPort = 47011
+    Write-InfoLog "Waiting for port $proxyPort to enter LISTENING state (timeout: 90s)..."
+    $timeout = 90
+    $elapsed = 0
+    $proxyReady = $false
     
-    if ($jobState -ne "Running") {
-        $proxyOutput = Receive-Job -Job $proxyJob 2>&1
-        Write-ErrorLog "Proxy failed to start: $proxyOutput"
-        throw "Arc proxy failed to start"
+    while ($elapsed -lt $timeout) {
+        Start-Sleep -Seconds 2
+        $elapsed += 2
+        
+        # Check if process exited unexpectedly
+        if ($proxyProcess.HasExited) {
+            $errContent = if (Test-Path "$proxyLogFile.err") { Get-Content "$proxyLogFile.err" -Raw } else { "(no stderr)" }
+            $outContent = if (Test-Path $proxyLogFile) { Get-Content $proxyLogFile -Raw } else { "(no stdout)" }
+            Write-ErrorLog "Proxy process exited unexpectedly (exit code: $($proxyProcess.ExitCode))"
+            Write-ErrorLog "Stderr: $errContent"
+            Write-ErrorLog "Stdout: $outContent"
+            throw "Arc proxy process exited unexpectedly"
+        }
+        
+        # Check if port is LISTENING via netstat
+        $netstatOutput = netstat -ano 2>$null
+        $listeningLine = $netstatOutput | Select-String ":$proxyPort\s+.*LISTENING"
+        Write-InfoLog "[poll ${elapsed}s] checking netstat for *:$proxyPort LISTENING -> $(if ($listeningLine) { "FOUND: $($listeningLine.Line.Trim())" } else { 'not yet' })"
+        
+        if ($listeningLine) {
+            Write-Success "Arc proxy is listening on port $proxyPort"
+            $proxyReady = $true
+            break
+        }
+    }
+    
+    if (-not $proxyReady) {
+        $errContent = if (Test-Path "$proxyLogFile.err") { Get-Content "$proxyLogFile.err" -Raw } else { "" }
+        Write-ErrorLog "Proxy stderr: $errContent"
+        if (-not $proxyProcess.HasExited) { $proxyProcess.Kill() }
+        throw "Arc proxy did not start within $timeout seconds"
+    }
+    
+    # Wait for kubeconfig to be written with a FRESH CA cert for this session.
+    # We require the file's LastWriteTime to be AFTER the snapshot taken before the proxy
+    # started - this distinguishes a fresh write from a stale entry left by a prior run.
+    Write-InfoLog "Waiting for kubeconfig to be updated with fresh CA cert (mtime must be after $kubeconfigMtimeBefore)..."
+    $kcTimeout = 20
+    $kcElapsed = 0
+    $kcReady = $false
+    while ($kcElapsed -lt $kcTimeout) {
+        Start-Sleep -Seconds 1
+        $kcElapsed++
+        if (Test-Path $kubeconfigPath) {
+            $kcMtime = (Get-Item $kubeconfigPath).LastWriteTime
+            $kcContent = Get-Content $kubeconfigPath -Raw 2>$null
+            $hasAddress = $kcContent -match "127\.0\.0\.1:$proxyPort"
+            $isNew = $kcMtime -gt $kubeconfigMtimeBefore
+            Write-InfoLog "[kubeconfig poll ${kcElapsed}s] mtime=$kcMtime  isNew=$isNew  hasAddress=$hasAddress"
+            if ($hasAddress -and $isNew) {
+                Write-Success "Kubeconfig updated with fresh proxy CA cert"
+                $kcReady = $true
+                break
+            }
+        } else {
+            Write-InfoLog "[kubeconfig poll ${kcElapsed}s] kubeconfig not found yet"
+        }
+    }
+    if (-not $kcReady) {
+        Write-WarnLog "Kubeconfig was not updated within $kcTimeout seconds (may have stale CA cert - TLS errors possible)"
     }
     
     Write-Success "Arc proxy established"
@@ -414,18 +526,53 @@ function Start-ArcProxy {
 function Test-ClusterConnection {
     Write-InfoLog "Testing cluster connection via Arc proxy..."
     
+    $previousErrorPref = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    
     try {
-        $clusterInfo = kubectl cluster-info 2>&1
-        if ($LASTEXITCODE -eq 0) {
-            $currentContext = kubectl config current-context 2>$null
+        $currentContext = kubectl config current-context 2>$null
+        
+        # Use api-versions as a lightweight connectivity check - works with minimal RBAC
+        $apiOutput = kubectl api-versions 2>&1
+        $exitCode = $LASTEXITCODE
+        
+        $ErrorActionPreference = $previousErrorPref
+        
+        if ($exitCode -eq 0) {
             Write-Success "Connected to cluster: $currentContext"
             Write-InfoLog "Connection is through Azure Arc proxy (cross-network)"
             return $true
-        } else {
+        }
+        
+        # A Forbidden response means the API server responded - proxy is working but RBAC is limited
+        # This is OK for our purposes (we only need access to the default namespace)
+        if ($apiOutput -match "Forbidden|403") {
+            Write-WarnLog "Connected to cluster but API discovery is restricted by RBAC (this is OK)"
+            Write-WarnLog "Cluster: $currentContext"
+            Write-InfoLog "Proceeding - deployment only requires access to the 'default' namespace"
+            return $true
+        }
+        
+        # TLS cert error means kubectl reached the proxy but has a stale/mismatched CA.
+        # This should have been resolved by the kubeconfig poll above - log and fail clearly.
+        if ($apiOutput -match "x509|certificate|tls") {
+            Write-ErrorLog "TLS certificate verification failed. The kubeconfig CA cert does not match the proxy."
+            Write-ErrorLog "Try deleting the stale kubeconfig context: kubectl config delete-context <arc-context>"
+            Write-ErrorLog "kubectl output: $apiOutput"
             return $false
         }
+        
+        Write-ErrorLog "kubectl api-versions output: $apiOutput"
+        return $false
     }
     catch {
+        $ErrorActionPreference = $previousErrorPref
+        # Check if the exception message indicates a Forbidden/RBAC issue (still means we're connected)
+        if ($_.Exception.Message -match "Forbidden|403|cannot list|cannot get") {
+            Write-WarnLog "Connected to cluster (RBAC restricts some queries, but deployment should proceed)"
+            return $true
+        }
+        Write-ErrorLog "Connection test error: $_"
         return $false
     }
 }
@@ -695,6 +842,62 @@ function Ensure-ServiceAccount {
         Write-ErrorLog "Error checking/creating service account: $_"
         return $false
     }
+}
+
+function Ensure-AcrPullSecret {
+    param(
+        [string]$Registry,
+        [string]$SecretName = "acr-pull-secret",
+        [string]$Namespace = "default"
+    )
+
+    # Only needed for Azure Container Registry
+    if ($Registry -notmatch '\.azurecr\.io$') {
+        Write-InfoLog "Registry '$Registry' is not an ACR - skipping pull secret setup"
+        return $true
+    }
+
+    Write-InfoLog "Ensuring ACR pull secret '$SecretName' in namespace '$Namespace'..."
+
+    # Extract ACR name (everything before .azurecr.io)
+    $acrName = $Registry -replace '\.azurecr\.io$', ''
+
+    # Get ACR admin credentials
+    Write-InfoLog "Fetching ACR credentials for '$acrName'..."
+    $acrCreds = az acr credential show --name $acrName 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-ErrorLog "Failed to get ACR credentials: $acrCreds"
+        Write-WarnLog "Make sure admin user is enabled on the ACR:"
+        Write-Host "  az acr update --name $acrName --admin-enabled true" -ForegroundColor Cyan
+        return $false
+    }
+
+    $creds = $acrCreds | ConvertFrom-Json
+    $acrUser = $creds.username
+    $acrPass = $creds.passwords[0].value
+
+    # Create or update the secret (using --dry-run + apply for idempotency)
+    Write-InfoLog "Creating/updating K8s pull secret '$SecretName'..."
+    $secretYaml = kubectl create secret docker-registry $SecretName `
+        --docker-server=$Registry `
+        --docker-username=$acrUser `
+        --docker-password=$acrPass `
+        --namespace=$Namespace `
+        --dry-run=client -o yaml 2>&1
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-ErrorLog "Failed to generate pull secret YAML: $secretYaml"
+        return $false
+    }
+
+    $applyResult = $secretYaml | kubectl apply -f - 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-ErrorLog "Failed to apply pull secret: $applyResult"
+        return $false
+    }
+
+    Write-Success "ACR pull secret '$SecretName' is ready in namespace '$Namespace'"
+    return $true
 }
 
 function Deploy-Module {
@@ -999,7 +1202,19 @@ function Main {
             Write-WarnLog "Failed to create service account - deployments may fail if they require it"
         }
         Write-Host ""
-        
+
+        # Ensure ACR pull secret exists (required for private Azure Container Registry)
+        if ($script:ContainerRegistry) {
+            Write-Host "`n========================================" -ForegroundColor Cyan
+            Write-Host "Ensuring ACR Pull Secret" -ForegroundColor Cyan
+            Write-Host "========================================" -ForegroundColor Cyan
+            $pullResult = Ensure-AcrPullSecret -Registry $script:ContainerRegistry -Namespace "default"
+            if (-not $pullResult) {
+                Write-WarnLog "Failed to create ACR pull secret - image pulls may fail"
+            }
+            Write-Host ""
+        }
+
         # Deploy each module (containers already built and pushed)
         $successful = 0
         $failed = 0
@@ -1042,9 +1257,10 @@ function Main {
         exit 1
     }
     finally {
-        # Cleanup Arc proxy job if it was started
+        # Always clean up ALL proxy processes - this runs even if the script crashes
+        Stop-ArcProxies
+        # Cleanup legacy job if present
         if ($script:ProxyJob) {
-            Write-InfoLog "Stopping Arc proxy job..."
             Stop-Job -Job $script:ProxyJob -ErrorAction SilentlyContinue
             Remove-Job -Job $script:ProxyJob -ErrorAction SilentlyContinue
         }
