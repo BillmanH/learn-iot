@@ -187,7 +187,7 @@ kubectl logs -n azure-iot-operations -l app=aio-broker-frontend --tail=20
 
 - **[Edge MQTT Simulator](./modules/edgemqttsim/README.md)** - Comprehensive factory telemetry simulator
 - **[Edge Historian](./modules/demohistorian/README.md)** - SQL-based historian with HTTP API for querying historical MQTT data
-- **[Fabric Integration](./fabric_setup/fabric-realtime-intelligence-setup.md)** - Connecting AIO to Microsoft Fabric
+- **[Fabric Integration](./fabric_setup/Fabric-realtime-intelligence-setup.md)** - Connecting AIO to Microsoft Fabric
 
 ## What's Included
 
