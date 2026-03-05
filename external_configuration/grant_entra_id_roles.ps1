@@ -727,6 +727,89 @@ az role assignment create `
 Write-Success "Granted Device Registry access via Contributor"
 
 # ============================================================================
+# GRANT ROLES - CUSTOM LOCATION (for Discovered Asset ARM sync)
+# ============================================================================
+
+Write-Header "Granting Custom Location Permissions (for Discovered Asset Sync)"
+
+# The AIO ARM bridge needs Microsoft.ExtendedLocation/customLocations/deploy/action
+# on the custom location in order to sync discovered assets (discoveredAssets CRD)
+# up to Azure Resource Manager. Without this, discovered assets appear in kubectl
+# but never show up in the AIO portal.
+#
+# The Device Registry service principal (app ID 319f651f-7ddb-4fc6-9857-7aef9250bd05)
+# is the identity that performs the sync. We grant Contributor to the custom location
+# scope for this SP as well as the AIO and Arc identities.
+
+$customLocation = $null
+$customLocationScope = $null
+
+Write-SubHeader "Finding Custom Location"
+$customLocations = az resource list `
+    --resource-group $script:ResourceGroup `
+    --resource-type "Microsoft.ExtendedLocation/customLocations" `
+    --query "[].{name:name, id:id}" -o json 2>$null | ConvertFrom-Json
+
+if ($customLocations -and $customLocations.Count -gt 0) {
+    $customLocation = $customLocations[0]
+    $customLocationScope = $customLocation.id
+    Write-Success "Found custom location: $($customLocation.name)"
+    Write-Info "  Resource ID: $customLocationScope"
+
+    # Grant Contributor to AIO instance identity
+    if ($aioIdentity.principalId) {
+        Write-Info "Granting 'Contributor' to AIO instance on custom location..."
+        az role assignment create `
+            --role "Contributor" `
+            --assignee-object-id $aioIdentity.principalId `
+            --assignee-principal-type ServicePrincipal `
+            --scope $customLocationScope `
+            --output none 2>$null
+        Write-Success "Granted Contributor on custom location to AIO instance"
+    }
+
+    # Grant Contributor to Arc cluster identity
+    if ($arcClusterIdentity.principalId) {
+        Write-Info "Granting 'Contributor' to Arc cluster on custom location..."
+        az role assignment create `
+            --role "Contributor" `
+            --assignee-object-id $arcClusterIdentity.principalId `
+            --assignee-principal-type ServicePrincipal `
+            --scope $customLocationScope `
+            --output none 2>$null
+        Write-Success "Granted Contributor on custom location to Arc cluster"
+    }
+
+    # Grant Contributor to the Device Registry ARM bridge service principal
+    # App ID 319f651f-7ddb-4fc6-9857-7aef9250bd05 is the Microsoft Device Registry service
+    # that syncs discovered assets from the cluster to Azure Resource Manager.
+    Write-SubHeader "Device Registry ARM Bridge Service Principal"
+    $deviceRegistryAppId = "319f651f-7ddb-4fc6-9857-7aef9250bd05"
+    $deviceRegistrySpId = az ad sp show --id $deviceRegistryAppId --query id -o tsv 2>$null
+    if ($deviceRegistrySpId) {
+        Write-Success "Found Device Registry service principal: $deviceRegistrySpId"
+        Write-Info "Granting 'Contributor' to Device Registry bridge on custom location..."
+        az role assignment create `
+            --role "Contributor" `
+            --assignee-object-id $deviceRegistrySpId `
+            --assignee-principal-type ServicePrincipal `
+            --scope $customLocationScope `
+            --output none 2>$null
+        Write-Success "Granted Contributor on custom location to Device Registry bridge"
+    } else {
+        Write-Warning "Could not find Device Registry service principal (app ID: $deviceRegistryAppId)"
+        Write-Info "  This SP syncs discovered assets to ARM. If discovered assets don't appear"
+        Write-Info "  in the portal, grant Contributor on the custom location manually to the"
+        Write-Info "  service principal shown in the 'LinkedAuthorizationFailed' error message."
+    }
+
+} else {
+    Write-Warning "No custom location found in resource group - skipping custom location permissions"
+    Write-Info "  Custom location is created during AIO deployment. Re-run this script after"
+    Write-Info "  External-Configurator.ps1 completes if discovered assets don't appear in the portal."
+}
+
+# ============================================================================
 # SUMMARY
 # ============================================================================
 
@@ -758,6 +841,16 @@ Write-Info "  [OK] Arc Cluster: Event Hubs Data Sender/Receiver"
 Write-Info "  [OK] Arc Cluster: Storage Blob Data Contributor"
 Write-Info "  [OK] User '$AddUser': Event Hubs Data Sender/Receiver"
 Write-Info "  [OK] User '$AddUser': Storage Blob Data Contributor"
+
+Write-Host ""
+Write-Success "Custom Location Permissions (for Discovered Asset Sync):"
+if ($customLocation) {
+    Write-Info "  [OK] AIO Instance: Contributor on custom location"
+    Write-Info "  [OK] Arc Cluster: Contributor on custom location"
+    Write-Info "  [OK] Device Registry bridge SP: Contributor on custom location"
+} else {
+    Write-Warning "  (No custom location found - re-run after AIO deployment)"
+}
 
 Write-Host ""
 Write-Success "Subscription-Level Permissions:"

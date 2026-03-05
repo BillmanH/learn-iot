@@ -283,6 +283,13 @@ kubectl get pods -l app=sputnik
   az resource list --resource-type "Microsoft.DeviceRegistry/namespaces/assets" -o table
   ```
 
+- **MQTT Connector Device Endpoint `additionalConfiguration` Fields (Portal-created devices)**: When creating a device endpoint via the AIO portal, the `additionalConfiguration` JSON is set with empty string defaults for `topicFilter` and `topicMappingPrefix`. Both empty strings cause the connector to fail with `Failed to parse configuration for MQTT connector: empty filter` or `Invalid topic mapping prefix`. The MQTT connector pod will start, connect, but fail to create the southbound client. **Fix**: Edit the device's endpoint `additionalConfiguration` in the portal to set a valid `topicFilter` (e.g. `factory/#`) and either set a valid `topicMappingPrefix` or **omit the field entirely** — an empty string is not valid but omitting it is. Confirmed working config:
+  ```json
+  {"assetLevel":1,"topicFilter":"factory/#"}
+  ```
+  To identify this issue, check: `kubectl get devices.namespaces.deviceregistry.microsoft.com -n azure-iot-operations -o yaml` and inspect the `additionalConfiguration` field. The MQTT connector pod logs will show `Creating new southbound mqtt client` followed immediately by a parse error if this is the problem. The pod does NOT restart — it keeps running but never connects to the source broker. ✅ Confirmed working as of March 2026.
+- **MQTT Connector Dataset `Failed to find topic`**: If the connector logs show `Failed to find topic for dataset`, the dataset is missing a **data point** with a source address. The dataset destination topic (where data is forwarded) is not the same as the source topic (what the connector subscribes to). In the AIO portal, open the asset → dataset → add a Data Point with the **Address** set to the source MQTT topic (e.g. `factory/cnc`). Without at least one data point address, the connector has nothing to subscribe to.
+
 ### Troubleshooting Tips
 When troubleshooting deployment issues, the most common cause is that **containers are still being created or deleted**. Be patient and verify the cluster state before proceeding:
 
