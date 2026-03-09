@@ -8,7 +8,7 @@ Automated deployment of Azure IoT Operations (AIO) on edge devices with industri
 - 🏭 **Industrial IoT apps** - Factory simulator, MQTT historian, data processors
 - ☁️ **Cloud integration** - Dataflow pipelines to Azure (ADX, Event Hubs, Fabric) using **Managed Identity** — no secrets to manage.
 - 🔧 **Production-ready** - Separation of edge and cloud configuration for security
-- TBD - Windows AIO installer - coming soon
+- 💻 **Single-machine (AKS-EE)** - Run everything on one Windows laptop with session-bootstrap.ps1
 
 > **For detailed technical information, see [README_ADVANCED.md](README_ADVANCED.md)**
 
@@ -25,7 +25,11 @@ As the end-goal is an IoT solution, this repo has a preference for installing on
 # Quick Start
 The goal here is to install AIO on an Ubuntu machine (like a local NUC, PC, or a VM) so that you can get working quickly on your dataflow pipelines and get data into Fabric quickly. 
 * _if you are in a purely testing or validation phase you can create a quick VM using [this process](docs/quick_vm_build.md)_
-* _if you are building on a windows machine, you should follow [this process](https://github.com/Azure/AKS-Edge/tree/main/tools/scripts/AksEdgeQuickStart) at the edge, after that you can use the other scripts here._
+* _if you are building on a Windows machine using AKS Edge Essentials, see the [Single Windows Machine (AKS-EE)](#single-windows-machine-aks-ee) section below._
+
+> **Using AKS Edge Essentials (Windows-based edge)?**  
+> Follow the [Deploy AIO on AKS Edge Essentials](https://learn.microsoft.com/en-us/azure/aks/aksarc/aks-edge-howto-deploy-azure-iot) guide to set up your edge cluster, then **skip to step 4** (Azure Configuration from Windows Machine) below. Steps 1–3b do not apply to AKS-EE.
+
 Once you have setup AIO via this process, you should be able to do everything that you want in the cloud without touching the Ubuntu machine again.
 
 
@@ -46,14 +50,36 @@ Specific commands for them are below.
 
 ## Prerequisites
 
+### Hardware (Ubuntu / K3s path)
 - **Hardware**: Ubuntu machine with 16GB RAM, 4 CPU cores, 50GB disk
 - **Azure**: Active subscription with admin access
 - **Network**: Internet connectivity (edge device and management machine)
 
+### Windows Management Machine (required for all paths)
+- **PowerShell 7+** (strongly recommended — 5.1 will produce a warning but may still work)  
+  Download: <https://aka.ms/install-powershell>
+- **Azure CLI ≥ 2.64.0**  
+  Install: <https://aka.ms/installazurecliwindows>  
+  Check version: `az --version`  
+  Upgrade: `az upgrade`
+- **Required CLI extensions** (install once, then update with `az extension update --name <ext>`):
+  ```powershell
+  az extension add --upgrade --name azure-iot-ops
+  az extension add --upgrade --name connectedk8s
+  ```
+- **Execution Policy** — the scripts in this repo are unsigned. Run this once at the start of each PS session:
+  ```powershell
+  Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
+  ```
+
 ## Installation
 
-### 1. Clone Repository
+### 1. Get the Repository
 
+**Option A — Download ZIP** (no Git required):  
+Click the green **Code** button on this GitHub page and choose **Download ZIP**, then extract to a local working directory.
+
+**Option B — Clone with Git**:
 ```bash
 # Install git if not already installed
 sudo apt update && sudo apt install -y git
@@ -124,6 +150,9 @@ Transfer the `config/` folder to your Windows management machine, then:
 ```powershell
 cd external_configuration
 
+# Run this once at the start of your PS session (scripts are unsigned)
+Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
+
 # First, grant yourself the required Azure permissions
 # This uses your current signed-in Azure identity by default
 .\grant_entra_id_roles.ps1
@@ -139,6 +168,10 @@ This is separate because it may be that the person who has the ability to assign
 ```powershell
 # Deploy Azure IoT Operations
 .\External-Configurator.ps1
+
+# On a single-node demo machine (laptop / AKS-EE), add -DemoMode to reduce broker RAM
+# from ~15.8 GB (default) to ~303 MiB — NOT for production use
+.\External-Configurator.ps1 -DemoMode
 ```
 
 > **⚠️ IMPORTANT: You may need to run `grant_entra_id_roles.ps1` multiple times!**  
@@ -216,6 +249,52 @@ Customize Azure deployment via `config/aio_config.json`:
 - Azure subscription and resource group settings
 - Location and namespace configuration
 - Key Vault settings for secret management
+- `container_registry` — short name (e.g. `myregistry`) for the Azure Container Registry used by `Deploy-EdgeModules.ps1`; auto-generated if blank
+
+---
+
+## Single Windows Machine (AKS-EE)
+
+If you are running both AKS Edge Essentials (edge) and the Azure management scripts on the **same Windows laptop**, use `session-bootstrap.ps1` to configure everything once per session — no JSON file editing required.
+
+### Prerequisites
+- PowerShell 7+ (`winget install Microsoft.PowerShell`)
+- Azure CLI ≥ 2.64.0 (`winget install Microsoft.AzureCLI`)
+- `azure-iot-ops` and `connectedk8s` extensions (see [Prerequisites](#prerequisites))
+
+### Workflow
+
+**Step 1 — Fill in your details once**
+
+Open `external_configuration\session-bootstrap.ps1` and fill in the 6 required values at the top:
+```powershell
+$AZ_SUBSCRIPTION_ID    = "your-subscription-id"
+$AZ_TENANT_ID          = "your-tenant-id"
+$AZ_LOCATION           = "eastus2"   # or your preferred region
+$AZ_RESOURCE_GROUP     = "rg-my-iot"  # created if it doesn't exist
+$AKS_EDGE_CLUSTER_NAME = "my-aksee-cluster"
+$CUSTOM_LOCATIONS_OID  = ""  # az ad sp show --id bc313c14-388c-4e7d-a58e-70017303ee3b --query id -o tsv
+```
+
+**Step 2 — Run session-bootstrap.ps1** (once at the start of each PS7 session)
+```powershell
+cd external_configuration
+Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
+.\session-bootstrap.ps1
+```
+This sets `$global:*` variables (for `AksEdgeQuickStartForAio.ps1`) and `$env:AZURE_*` variables (for `grant_entra_id_roles.ps1` and `External-Configurator.ps1`).
+
+**Step 3 — Set up your AKS-EE edge cluster**
+
+Follow the [Deploy AIO on AKS Edge Essentials](https://learn.microsoft.com/en-us/azure/aks/aksarc/aks-edge-howto-deploy-azure-iot) guide. The `$global:*` variables set by `session-bootstrap.ps1` are picked up automatically.
+
+**Step 4 — Grant permissions and deploy AIO**
+```powershell
+.\grant_entra_id_roles.ps1
+.\External-Configurator.ps1 -DemoMode   # -DemoMode recommended for single-machine setups
+```
+
+> **Tip**: Run `session-bootstrap.ps1` once each time you open a new PS7 window. All other scripts pick up the values automatically — no need to re-edit `aio_config.json`.
 
 ## Next Steps
 

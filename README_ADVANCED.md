@@ -148,11 +148,14 @@ The `External-Configurator.ps1` script connects the edge cluster to Azure and de
 
 ```powershell
 # From Windows machine with Azure CLI
-az login
+az login --tenant <your-tenant-id>
+az account set --subscription <your-subscription-id>
 
 cd external_configuration
-.\External-Configurator.ps1 -ClusterInfo "..\config\cluster_info.json"
+.\External-Configurator.ps1
 ```
+
+> **Zero-JSON single-machine workflow**: Run `session-bootstrap.ps1` first to pre-load all Azure context into your PS7 session. See [readme.md](readme.md#single-windows-machine-aks-ee) for details.
 
 #### Command Line Parameters
 
@@ -160,20 +163,22 @@ cd external_configuration
 .\External-Configurator.ps1 [OPTIONS]
 
 Parameters:
-    -ClusterInfo      Path to cluster_info.json (default: cluster_info.json)
+    -ClusterInfo      Path to cluster_info.json (optional; AKS-EE users can omit)
     -ConfigFile       Path to azure config file (default: searches for aio_config.json)
     -DryRun           Validate configuration without making changes
     -SkipVerification Skip post-deployment verification
-    -UseArcProxy      Use Azure Arc proxy for kubectl (for remote networks)
-    -SkipKeyVault     Skip Key Vault creation
+    -SkipIoTOps       Deploy infrastructure only, skip IoT Operations
+    -DemoMode         Low-resource MQTT broker sizing (~303 MiB vs ~15.8 GB default)
+                      Recommended for single-node demo machines. Not for production.
 ```
 
 #### What External-Configurator.ps1 Does
 
-1. **Infrastructure Deployment**
-   - Creates storage account and Key Vault
-   - Sets up schema registry
-   - Deploys IoT Operations components
+1. **Infrastructure Deployment** (Steps 1–7)
+   - Creates resource group, storage account, and Key Vault
+   - Sets up Device Registry namespace and schema registry
+   - Creates managed identity for secret sync
+   - Creates Azure Container Registry (ACR) and attaches it to the AIO instance
    
    > **Note**: Azure Arc connection is handled by `arc_enable.ps1` on the edge device
 
@@ -672,8 +677,10 @@ bash get-k8s-bearer-token.sh
 
 Then in Azure Portal:
 1. Navigate to Arc-enabled Kubernetes cluster
-2. Click "Kubernetes resources (preview)"
+2. Click **Kubernetes resources**
 3. Enter bearer token when prompted
+
+> **Note**: "Kubernetes resources" was previously labelled "(preview)" in the portal. The feature is now generally available. If you still see the preview label, your portal blade may be cached — refresh the page.
 
 #### Azure IoT Operations Metrics
 
@@ -1001,6 +1008,17 @@ bash backup_aio_configs.sh
 ---
 
 ## Advanced Topics
+
+### Arc Gateway (GA)
+
+Azure Arc Gateway simplifies network connectivity by reducing the number of endpoints that must be allowed through firewalls. It is now **generally available** for both Arc-enabled servers and Arc-enabled Kubernetes.
+
+- [Arc Gateway for Arc-enabled Kubernetes](https://learn.microsoft.com/en-us/azure/azure-arc/kubernetes/arc-gateway-simplify-networking)
+- [Arc Gateway for Arc-enabled servers](https://learn.microsoft.com/en-us/azure/azure-arc/servers/arc-gateway)
+
+For AIO deployments in restricted networks, using the Arc Gateway is recommended over per-endpoint firewall rules.
+
+---
 
 ### Multi-Cluster Management
 
