@@ -1,0 +1,50 @@
+# Graph definition for the factory OEE enrichment module.
+#
+# This file is pushed to ACR as factory-transform-graph:latest (see acr-task.yaml).
+# It describes HOW data flows through the WASM transform.
+# The Kubernetes DataflowGraph CRD (see dataflow-graph.yaml) references this
+# artifact and adds the MQTT source/destination configuration.
+#
+# Reference:
+#   https://learn.microsoft.com/azure/iot-operations/develop-edge-apps/howto-develop-wasm-modules#step-3-push-to-a-registry
+
+metadata:
+  name: "Factory OEE Transform"
+  description: "Enriches factory telemetry messages with OEE metrics (Availability, Quality, Performance)"
+  version: "1.0.0"
+  $schema: "https://www.schemastore.org/aio-wasm-graph-config-1.0.0.json"
+  vendor: "learn-iothub"
+
+moduleRequirements:
+  apiVersion: "1.1.0"
+  runtimeVersion: "1.1.0"
+
+# Module configuration passed to the oee_enrich_init() function.
+# No runtime parameters required for this module.
+moduleConfigurations:
+  - name: factory-oee/map
+    parameters: {}
+
+# Processing pipeline: source → WASM map → sink
+operations:
+  - operationType: "source"
+    name: "source"
+
+  - operationType: "map"
+    name: "factory-oee/map"
+    # References factory-transform-wasm:latest in the same ACR registry.
+    module: "factory-transform-wasm:latest"
+
+  - operationType: "sink"
+    name: "sink"
+
+connections:
+  - from:
+      name: "source"
+    to:
+      name: "factory-oee/map"
+
+  - from:
+      name: "factory-oee/map"
+    to:
+      name: "sink"

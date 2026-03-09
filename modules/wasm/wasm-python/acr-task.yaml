@@ -1,0 +1,45 @@
+# ACR Task: Build Python WASM module and push as OCI artifacts to ACR
+#
+# Usage (from modules/wasm/wasm-python/ directory):
+#   az acr run --registry testaioacr --file acr-task.yaml .
+#
+# This runs entirely in Azure using the official Python WASM builder image.
+# No local Python/componentize-py installation required.
+# $Registry is automatically set to testaioacr.azurecr.io by ACR Tasks.
+#
+# Artifacts produced:
+#   testaioacr.azurecr.io/factory-transform-wasm-py:latest  (WASM binary)
+#   testaioacr.azurecr.io/factory-transform-graph-py:latest (graph definition)
+
+version: v1.1.0
+steps:
+  # Step 1: Compile oee_enrich.py to a WASM component using the official builder image.
+  # The builder finds oee_enrich.py in /workspace and outputs oee_enrich.wasm there.
+  # Schemas (all .wit files) are baked into the builder image - no separate download needed.
+  - id: build-wasm
+    cmd: >-
+      ghcr.io/azure-samples/explore-iot-operations/python-wasm-builder
+      --app-name oee_enrich --app-type map
+    workingDirectory: /workspace
+
+  # Step 2: Push the compiled .wasm binary as a raw OCI artifact.
+  # Layer media type and --artifact-type must match the Rust version exactly
+  # so the AIO DataflowGraph runtime can load both interchangeably.
+  - id: push-wasm
+    cmd: >-
+      ghcr.io/oras-project/oras:v1.2.2
+      push $Registry/factory-transform-wasm-py:latest
+      --artifact-type application/vnd.module.wasm.content.layer.v1+wasm
+      --disable-path-validation
+      /workspace/bin/x86_64/release/oee_enrich.wasm:application/wasm
+    workingDirectory: /workspace
+
+  # Step 3: Push the graph definition YAML as a separate OCI artifact.
+  - id: push-graph
+    cmd: >-
+      ghcr.io/oras-project/oras:v1.2.2
+      push $Registry/factory-transform-graph-py:latest
+      --config /dev/null:application/vnd.microsoft.aio.graph.v1+yaml
+      /workspace/graph.yaml:application/yaml
+      --disable-path-validation
+    workingDirectory: /workspace

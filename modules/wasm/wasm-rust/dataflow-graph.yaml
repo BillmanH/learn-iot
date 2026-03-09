@@ -1,0 +1,97 @@
+# Kubernetes DataflowGraph resource for the factory OEE WASM transformation.
+#
+# Prerequisites (do these first — see README or below):
+#   1. Registry endpoint created in AIO portal (Components -> Registry endpoints)
+#      pointing to testaioacr.azurecr.io with System managed identity.
+#      Name it: factory-acr-registry
+#   2. AIO system-assigned managed identity must have AcrPull on testaioacr.
+#      (See grant_entra_id_roles.ps1 or the manual steps at the bottom of this file.)
+#   3. Both OCI artifacts live in ACR:
+#        testaioacr.azurecr.io/factory-transform-wasm:latest  (WASM binary)
+#        testaioacr.azurecr.io/factory-transform-graph:latest (graph definition)
+#
+# Deploy:
+#   kubectl apply -f dataflow-graph.yaml
+#
+# Verify:
+#   kubectl get datafloWgraph -n azure-iot-operations
+#   kubectl describe datafloWgraph factory-oee-graph -n azure-iot-operations
+#
+# Portal visibility:
+#   AIO portal -> Dataflows -> Graphs -> "Factory OEE Transform" should appear.
+
+apiVersion: connectivity.iotoperations.azure.com/v1
+kind: DataflowGraph
+metadata:
+  name: factory-oee-graph
+  namespace: azure-iot-operations
+spec:
+  # References a DataflowProfile; "default" is created automatically.
+  profileRef: default
+
+  nodes:
+    # Source: subscribe to all factory MQTT topics
+    - nodeType: Source
+      name: mqtt-source
+      sourceSettings:
+        endpointRef: default       # built-in MQTT broker endpoint
+        dataSources:
+          - factory/#              # receives all edgemqttsim messages
+
+    # Transform: run the OEE enrichment WASM module
+    - nodeType: Graph
+      name: factory-oee-transform
+      graphSettings:
+        # Must match the name of a registry endpoint in AIO that covers testaioacr.azurecr.io
+        # Check existing endpoints: az iot ops registry list --resource-group rg-test-vm --instance cluster-test-vm-aio -o table
+        registryEndpointRef: testaioacr
+        # OCI tag in testaioacr.azurecr.io
+        artifact: factory-transform-graph:latest
+
+    # Destination: publish enriched messages to transformed topic
+    - nodeType: Destination
+      name: mqtt-destination
+      destinationSettings:
+        endpointRef: default
+        dataDestination: factory/transformed
+
+  nodeConnections:
+    - from:
+        name: mqtt-source
+      to:
+        name: factory-oee-transform
+    - from:
+        name: factory-oee-transform
+      to:
+        name: mqtt-destination
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PREREQUISITE: AcrPull role for the AIO system-assigned managed identity
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# 1. Find the AIO Arc extension name:
+#    In Azure portal -> AIO instance -> Overview -> look for "Arc extension"
+#    It will be something like azure-iot-operations-xxxx7
+#
+# 2. Grant AcrPull via PowerShell (run from Windows machine):
+#
+#    $aioExtensionName = "azure-iot-operations-xxxx7"  # replace with actual name
+#    $acrId = (az acr show --name testaioacr --resource-group rg-test-vm --query id -o tsv)
+#    az role assignment create \
+#      --assignee-object-id (az k8s-extension show --name $aioExtensionName \
+#        --cluster-name cluster-test-vm --resource-group rg-test-vm \
+#        --cluster-type connectedClusters --query identity.principalId -o tsv) \
+#      --role AcrPull \
+#      --scope $acrId \
+#      --assignee-principal-type ServicePrincipal
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# PREREQUISITE: Registry endpoint in AIO portal
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Azure portal -> IoT Operations instance -> Components -> Registry endpoints
+#   -> + Create a registry endpoint
+#   Name:           testaioacr (pre-existing) or any endpoint pointing at testaioacr.azurecr.io
+#   Hostname:       testaioacr.azurecr.io
+#   Authentication: System managed identity
+# ─────────────────────────────────────────────────────────────────────────────

@@ -1,0 +1,49 @@
+# ACR Task: Build Rust WASM module and push as OCI artifacts to ACR
+#
+# Usage (from modules/wasm/wasm-rust/ directory):
+#   az acr run --registry testaioacr --file acr-task.yaml .
+#
+# This runs entirely in Azure (no local Rust/MSVC toolchain required).
+# $Registry is automatically set to testaioacr.azurecr.io by ACR Tasks.
+#
+# Note: If cargo fails to fetch wasm_graph_sdk from the AIO private registry,
+# you may need to pass a PAT as an ACR Task secret:
+#   az acr run --registry testaioacr --file acr-task.yaml --set CARGO_TOKEN=<pat> .
+# Then reference it in the cargo config as CARGO_REGISTRIES_AZURE_IOT_SDKS_TOKEN.
+
+version: v1.1.0
+steps:
+  # Step 1: Compile the WASM module inside a Rust Linux container
+  # The /workspace directory contains the cloned source from the current directory.
+  - id: build-wasm
+    cmd: >-
+      rust:1.85 bash -c
+      "rustup target add wasm32-wasip2 &&
+      mkdir -p /root/.cargo &&
+      printf '[registries.azure-iot-sdks]\nindex = \"sparse+https://pkgs.dev.azure.com/azure-iot-sdks/iot-operations/_packaging/preview/Cargo/index/\"\n' >> /root/.cargo/config.toml &&
+      cd /workspace &&
+      cargo build --release --target wasm32-wasip2"
+    workingDirectory: /workspace
+
+  # Step 2: Push the compiled .wasm binary as a raw OCI artifact
+  # Layer media type is application/wasm; --artifact-type sets the OCI artifact type.
+  # Syntax from: https://learn.microsoft.com/azure/iot-operations/develop-edge-apps/howto-develop-wasm-modules#step-3-push-to-a-registry
+  - id: push-wasm
+    cmd: >-
+      ghcr.io/oras-project/oras:v1.2.2
+      push $Registry/factory-transform-wasm:latest
+      --artifact-type application/vnd.module.wasm.content.layer.v1+wasm
+      --disable-path-validation
+      /workspace/target/wasm32-wasip2/release/factory_transform_wasm.wasm:application/wasm
+    workingDirectory: /workspace
+
+  # Step 3: Push the graph definition YAML as a separate OCI artifact
+  # Uses --config flag (not --artifact-type) for the graph YAML.
+  - id: push-graph
+    cmd: >-
+      ghcr.io/oras-project/oras:v1.2.2
+      push $Registry/factory-transform-graph:latest
+      --config /dev/null:application/vnd.microsoft.aio.graph.v1+yaml
+      /workspace/graph.yaml:application/yaml
+      --disable-path-validation
+    workingDirectory: /workspace

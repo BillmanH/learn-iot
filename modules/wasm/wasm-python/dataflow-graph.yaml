@@ -1,0 +1,62 @@
+# Kubernetes DataflowGraph resource for the Python WASM OEE transformation.
+#
+# This is the Python equivalent of ../wasm/dataflow-graph.yaml.
+# It uses factory-transform-wasm-py:latest (Python build) instead of the Rust build.
+#
+# Deploy:
+#   kubectl apply -f dataflow-graph.yaml
+#
+# Verify:
+#   kubectl get dataflowgraph -n azure-iot-operations
+#   kubectl describe dataflowgraph factory-oee-graph-py -n azure-iot-operations
+#
+# Portal:
+#   AIO portal -> Dataflows -> Graphs -> "Factory OEE Transform (Python)" should appear.
+#
+# Prerequisites (same as Rust version):
+#   1. testaioacr registry endpoint configured in AIO (Components -> Registry endpoints).
+#   2. AIO managed identity has AcrPull on testaioacr.
+#   3. Both OCI artifacts pushed via acr-task.yaml:
+#        testaioacr.azurecr.io/factory-transform-wasm-py:latest  (WASM binary)
+#        testaioacr.azurecr.io/factory-transform-graph-py:latest (graph definition)
+
+apiVersion: connectivity.iotoperations.azure.com/v1
+kind: DataflowGraph
+metadata:
+  name: factory-oee-graph-py
+  namespace: azure-iot-operations
+spec:
+  profileRef: default
+
+  nodes:
+    # Source: subscribe to all factory MQTT topics
+    - nodeType: Source
+      name: mqtt-source
+      sourceSettings:
+        endpointRef: default
+        dataSources:
+          - factory/#
+
+    # Transform: Python WASM OEE enrichment
+    - nodeType: Graph
+      name: factory-oee-transform-py
+      graphSettings:
+        registryEndpointRef: testaioacr
+        artifact: factory-transform-graph-py:latest
+
+    # Destination: publish enriched messages to a Python-tagged topic
+    - nodeType: Destination
+      name: mqtt-destination
+      destinationSettings:
+        endpointRef: default
+        dataDestination: factory/transformed-py
+
+  nodeConnections:
+    - from:
+        name: mqtt-source
+      to:
+        name: factory-oee-transform-py
+    - from:
+        name: factory-oee-transform-py
+      to:
+        name: mqtt-destination

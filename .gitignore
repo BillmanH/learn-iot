@@ -91,6 +91,9 @@ Thumbs.db
 # Windows
 *.lnk
 
+# Rust
+target/
+
 # Logs
 *.log
 logs/
@@ -100,3 +103,7 @@ error.json
 *.swp
 *.swo
 *~
+
+# zip files
+*.zip
+modules/wasm/wasm-rust/src/lib.rs

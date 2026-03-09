@@ -1,0 +1,46 @@
+# Graph definition for the Python OEE enrichment module.
+#
+# Pushed to ACR as factory-transform-graph-py:latest (see acr-task.yaml).
+# The Kubernetes DataflowGraph CRD (dataflow-graph.yaml) references this artifact.
+#
+# Reference:
+#   https://learn.microsoft.com/azure/iot-operations/develop-edge-apps/howto-develop-wasm-modules
+
+metadata:
+  name: "Factory OEE Transform (Python)"
+  description: "Python WASM: enriches factory telemetry with OEE metrics (Availability, Quality, Performance)"
+  version: "1.0.0"
+  $schema: "https://www.schemastore.org/aio-wasm-graph-config-1.0.0.json"
+  vendor: "learn-iothub"
+
+moduleRequirements:
+  apiVersion: "1.1.0"
+  runtimeVersion: "1.1.0"
+
+moduleConfigurations:
+  - name: factory-oee-py/map
+    parameters: {}
+
+# Processing pipeline: source -> WASM map -> sink
+operations:
+  - operationType: "source"
+    name: "source"
+
+  - operationType: "map"
+    name: "factory-oee-py/map"
+    # References factory-transform-wasm-py:latest in the same ACR registry.
+    module: "factory-transform-wasm-py:latest"
+
+  - operationType: "sink"
+    name: "sink"
+
+connections:
+  - from:
+      name: "source"
+    to:
+      name: "factory-oee-py/map"
+
+  - from:
+      name: "factory-oee-py/map"
+    to:
+      name: "sink"

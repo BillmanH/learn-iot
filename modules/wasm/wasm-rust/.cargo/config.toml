@@ -1,0 +1,13 @@
+# Cargo registry configuration for the AIO DataflowGraph SDK.
+#
+# wasm_graph_sdk is published to a private Azure Artifacts Cargo feed.
+# This file registers that feed so `cargo build` can resolve the crate.
+#
+# Registry name "azure-iot-sdks" matches the registry key in Cargo.toml:
+#   wasm_graph_sdk = { version = "1.1.3", registry = "azure-iot-sdks" }
+#
+# Reference:
+#   https://learn.microsoft.com/azure/iot-operations/connect-to-cloud/howto-develop-wasm-modules
+
+[registries.azure-iot-sdks]
+index = "sparse+https://pkgs.dev.azure.com/azure-iot-sdks/iot-operations/_packaging/preview/Cargo/index/"

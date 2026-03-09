@@ -58,7 +58,10 @@ param(
     [string]$AddUser,
     
     [Parameter(Mandatory=$false)]
-    [string]$SubscriptionId
+    [string]$SubscriptionId,
+
+    [Parameter(Mandatory=$false)]
+    [string]$AcrName   # Container registry name (without .azurecr.io) or full hostname
 )
 
 # ============================================================================
@@ -146,9 +149,14 @@ function Load-Configuration {
             if ($config.azure.key_vault_name) {
                 $script:KeyVaultName = $config.azure.key_vault_name
             }
+            if ($config.azure.container_registry) {
+                # Store just the registry name (strip .azurecr.io if present)
+                $script:AcrName = $config.azure.container_registry -replace '\.azurecr\.io$', ''
+            }
             Write-Info "  Resource Group: $script:ResourceGroup"
             Write-Info "  Subscription: $script:SubscriptionId"
             Write-Info "  Cluster Name: $script:ClusterName"
+            if ($script:AcrName) { Write-Info "  Container Registry: $script:AcrName" }
         } catch {
             Write-Warning "Could not parse aio_config.json"
         }
@@ -195,6 +203,9 @@ if ($PSBoundParameters.ContainsKey('KeyVaultName')) {
 }
 if ($PSBoundParameters.ContainsKey('SubscriptionId')) {
     $script:SubscriptionId = $SubscriptionId
+}
+if ($PSBoundParameters.ContainsKey('AcrName')) {
+    $script:AcrName = $AcrName -replace '\.azurecr\.io$', ''
 }
 
 # Prompt for missing required values
@@ -636,6 +647,59 @@ foreach ($role in $fabricRoles) {
 }
 
 # ============================================================================
+# GRANT ROLES - CONTAINER REGISTRY (AcrPull for DataflowGraph WASM modules)
+# ============================================================================
+
+Write-Header "Container Registry Permissions (for WASM DataflowGraph)"
+
+if ($script:AcrName) {
+    Write-SubHeader "Looking up ACR: $script:AcrName"
+    $acrResource = az acr show --name $script:AcrName --resource-group $script:ResourceGroup 2>$null | ConvertFrom-Json
+    if (-not $acrResource) {
+        # Try without resource group (ACR might be in a different RG)
+        $acrResource = az acr show --name $script:AcrName 2>$null | ConvertFrom-Json
+    }
+
+    if ($acrResource) {
+        $acrScope = $acrResource.id
+        Write-Success "Found ACR: $script:AcrName"
+        Write-Info "  Resource ID: $acrScope"
+
+        # Grant AcrPull to the AIO instance managed identity.
+        # This is the identity the registry endpoint uses when pulling WASM artifacts.
+        if ($aioIdentity.principalId) {
+            Write-Info "Granting 'AcrPull' to AIO instance on ACR..."
+            az role assignment create `
+                --role "AcrPull" `
+                --assignee-object-id $aioIdentity.principalId `
+                --assignee-principal-type ServicePrincipal `
+                --scope $acrScope `
+                --output none 2>$null
+            Write-Success "  Granted AcrPull to AIO instance"
+        }
+
+        # Also grant to Arc cluster identity for coverage
+        if ($arcClusterIdentity.principalId) {
+            Write-Info "Granting 'AcrPull' to Arc cluster on ACR..."
+            az role assignment create `
+                --role "AcrPull" `
+                --assignee-object-id $arcClusterIdentity.principalId `
+                --assignee-principal-type ServicePrincipal `
+                --scope $acrScope `
+                --output none 2>$null
+            Write-Success "  Granted AcrPull to Arc cluster"
+        }
+    } else {
+        Write-Warning "ACR '$script:AcrName' not found -- skipping AcrPull grants."
+        Write-Info "  If the ACR is in a different subscription, grant AcrPull manually:"
+        Write-Info "  Azure portal -> testaioacr -> Access control (IAM) -> Add AcrPull for the AIO extension"
+    }
+} else {
+    Write-Warning "No container_registry in aio_config.json -- skipping AcrPull grants."
+    Write-Info "  Add 'container_registry': '<name>.azurecr.io' to config/aio_config.json and re-run."
+}
+
+# ============================================================================
 # GRANT ROLES - SUBSCRIPTION LEVEL (Optional)
 # ============================================================================
 
@@ -841,6 +905,15 @@ Write-Info "  [OK] Arc Cluster: Event Hubs Data Sender/Receiver"
 Write-Info "  [OK] Arc Cluster: Storage Blob Data Contributor"
 Write-Info "  [OK] User '$AddUser': Event Hubs Data Sender/Receiver"
 Write-Info "  [OK] User '$AddUser': Storage Blob Data Contributor"
+
+Write-Host ""
+Write-Success "Container Registry Permissions (for WASM DataflowGraph):"
+if ($script:AcrName) {
+    Write-Info "  [OK] AIO Instance: AcrPull on $script:AcrName"
+    Write-Info "  [OK] Arc Cluster:  AcrPull on $script:AcrName"
+} else {
+    Write-Warning "  (No ACR configured - AcrPull skipped)"
+}
 
 Write-Host ""
 Write-Success "Custom Location Permissions (for Discovered Asset Sync):"

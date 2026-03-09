@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oee-transform
+  namespace: default
+  labels:
+    app: oee-transform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oee-transform
+  template:
+    metadata:
+      labels:
+        app: oee-transform
+    spec:
+      serviceAccountName: mqtt-client
+      containers:
+      - name: oee-transform
+        image: testaioacr.azurecr.io/oee-transform:latest
+        env:
+        - name: MQTT_BROKER
+          value: "aio-broker.azure-iot-operations.svc.cluster.local"
+        - name: MQTT_PORT
+          value: "18883"
+        - name: INPUT_TOPIC
+          value: "factory/#"
+        - name: OUTPUT_PREFIX
+          value: "factory/transformed"
+        - name: MQTT_AUTH_METHOD
+          value: "K8S-SAT"
+        - name: SAT_TOKEN_PATH
+          value: "/var/run/secrets/tokens/broker-sat"
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+        livenessProbe:
+          exec:
+            command: ["python3", "-c", "import os; exit(0 if os.path.exists('/proc/1') else 1)"]
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        volumeMounts:
+        - name: broker-sat
+          mountPath: /var/run/secrets/tokens
+          readOnly: true
+      volumes:
+      - name: broker-sat
+        projected:
+          sources:
+          - serviceAccountToken:
+              path: broker-sat
+              expirationSeconds: 86400
+              audience: aio-internal

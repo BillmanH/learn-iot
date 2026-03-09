@@ -893,7 +893,7 @@ function Deploy-IoTOperations {
     }
     
     # Check if already deployed
-    $existingInstance = az iot ops show --name $instanceName --resource-group $script:ResourceGroup 2>&1
+    $existingInstance = az iot ops show --name $instanceName --resource-group $script:ResourceGroup --subscription $script:SubscriptionId 2>&1
     
     $aioAlreadyExists = $LASTEXITCODE -eq 0
     
@@ -906,9 +906,11 @@ function Deploy-IoTOperations {
         $clusterResult = az connectedk8s show `
         --name $script:ClusterName `
         --resource-group $script:ResourceGroup `
+        --subscription $script:SubscriptionId `
         --output json 2>&1
     
     if ($LASTEXITCODE -ne 0) {
+        Write-WarnLog "az connectedk8s show output: $clusterResult"
         Write-Host ""
         Write-Host "============================================================================" -ForegroundColor Red
         Write-Host "ARC CLUSTER NOT FOUND" -ForegroundColor Red
