@@ -32,7 +32,8 @@
 # ============================================================================
 
 $AZ_SUBSCRIPTION_ID    = ""   # Find yours: az account list -o table
-$AZ_TENANT_ID          = ""   # Find yours: az account show --query tenantId -o tsv
+$AZ_TENANT_ID          = ""   # OPTIONAL - only needed if you have multiple Azure tenants
+                               # Find yours: az account show --query tenantId -o tsv
 $AZ_LOCATION           = ""   # e.g. eastus2, westus, westeurope
 $AZ_RESOURCE_GROUP     = ""   # Will be created if it does not exist
 $AKS_EDGE_CLUSTER_NAME = ""   # Must be lowercase, no spaces
@@ -50,7 +51,7 @@ $WORKDIR = ""                  # e.g. C:\workingdir  (leave blank to skip)
 # Validate required fields
 $missingFields = @()
 if ([string]::IsNullOrWhiteSpace($AZ_SUBSCRIPTION_ID))    { $missingFields += "AZ_SUBSCRIPTION_ID" }
-if ([string]::IsNullOrWhiteSpace($AZ_TENANT_ID))          { $missingFields += "AZ_TENANT_ID" }
+# AZ_TENANT_ID is optional - only required if you have multiple Azure tenants
 if ([string]::IsNullOrWhiteSpace($AZ_LOCATION))           { $missingFields += "AZ_LOCATION" }
 if ([string]::IsNullOrWhiteSpace($AZ_RESOURCE_GROUP))     { $missingFields += "AZ_RESOURCE_GROUP" }
 if ([string]::IsNullOrWhiteSpace($AKS_EDGE_CLUSTER_NAME)) { $missingFields += "AKS_EDGE_CLUSTER_NAME" }
@@ -99,8 +100,13 @@ if (-not [string]::IsNullOrWhiteSpace($AZ_CONTAINER_REGISTRY)) {
 
 # Log into Azure
 Write-Host ""
-Write-Host "Logging into Azure (tenant: $AZ_TENANT_ID)..." -ForegroundColor Cyan
-az login --tenant $AZ_TENANT_ID | Out-Null
+if (-not [string]::IsNullOrWhiteSpace($AZ_TENANT_ID)) {
+    Write-Host "Logging into Azure (tenant: $AZ_TENANT_ID)..." -ForegroundColor Cyan
+    az login --tenant $AZ_TENANT_ID | Out-Null
+} else {
+    Write-Host "Logging into Azure..." -ForegroundColor Cyan
+    az login | Out-Null
+}
 az account set --subscription $AZ_SUBSCRIPTION_ID
 
 Write-Host ""
