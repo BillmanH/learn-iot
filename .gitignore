@@ -100,3 +100,6 @@ error.json
 *.swp
 *.swo
 *~
+
+# any zipped file
+*.zip

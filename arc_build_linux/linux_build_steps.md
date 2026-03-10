@@ -2,7 +2,62 @@
 
 > **For basic installation, see [readme.md](../readme.md)**. This document covers advanced features, flags, and troubleshooting.
 
-## Script Flags
+## External Configuration Steps (Steps 4+)
+
+After `installer.sh` and `arc_enable.ps1` complete on the Linux edge device, the remaining steps run **from a Windows machine** using PowerShell. You need to provide your Azure configuration values to those scripts. There are two ways to do this:
+
+---
+
+### Option A: Copy aio_config.json (Recommended)
+
+If you already filled in `config/aio_config.json` on the Linux machine, copy it to the same path on the Windows machine. The `External-Configurator.ps1` script reads it automatically.
+
+Required fields in `aio_config.json`:
+```json
+{
+  "azure": {
+    "subscription_id": "your-subscription-id",
+    "resource_group":  "rg-my-iot",
+    "location":        "eastus2",
+    "cluster_name":    "my-cluster"
+  }
+}
+```
+
+---
+
+### Option B: Fill in session-bootstrap.ps1 (Zero-JSON workflow)
+
+On the Windows machine, open `external_configuration\session-bootstrap.ps1` and fill in the required values at the top:
+
+```powershell
+$AZ_SUBSCRIPTION_ID    = "your-subscription-id"
+$AZ_TENANT_ID          = "your-tenant-id"
+$AZ_LOCATION           = "eastus2"      # or your preferred region
+$AZ_RESOURCE_GROUP     = "rg-my-iot"   # created if it doesn't exist
+$AKS_EDGE_CLUSTER_NAME = "my-cluster"  # must match cluster_name in aio_config.json
+$CUSTOM_LOCATIONS_OID  = ""            # see below
+$AZ_CONTAINER_REGISTRY = ""            # short name, e.g. myregistry (optional)
+```
+
+To get `CUSTOM_LOCATIONS_OID`, run once in any Azure CLI session:
+```bash
+az ad sp show --id bc313c14-388c-4e7d-a58e-70017303ee3b --query id -o tsv
+```
+
+Then run the bootstrap script once at the start of each PowerShell session before any other scripts:
+```powershell
+cd external_configuration
+.\session-bootstrap.ps1
+
+# Then proceed with:
+.\External-Configurator.ps1
+.\grant_entra_id_roles.ps1
+```
+
+---
+
+
 
 ### installer.sh
 

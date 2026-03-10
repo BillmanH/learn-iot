@@ -67,6 +67,8 @@ param(
 
 $script:ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $script:LogFile = Join-Path $script:ScriptDir "grant_entra_id_roles_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+$script:ContainerRegistryName = $null
+$script:ContainerRegistryLoginServer = $null
 
 Start-Transcript -Path $script:LogFile -Append
 
@@ -146,6 +148,16 @@ function Load-Configuration {
             if ($config.azure.key_vault_name) {
                 $script:KeyVaultName = $config.azure.key_vault_name
             }
+            if ($config.azure.PSObject.Properties['container_registry'] -and $config.azure.container_registry) {
+                $rawReg = $config.azure.container_registry
+                if ($rawReg -match '\.azurecr\.io$') {
+                    $script:ContainerRegistryLoginServer = $rawReg
+                    $script:ContainerRegistryName = $rawReg -replace '\.azurecr\.io$', ''
+                } else {
+                    $script:ContainerRegistryName = $rawReg
+                    $script:ContainerRegistryLoginServer = "${rawReg}.azurecr.io"
+                }
+            }
             Write-Info "  Resource Group: $script:ResourceGroup"
             Write-Info "  Subscription: $script:SubscriptionId"
             Write-Info "  Cluster Name: $script:ClusterName"
@@ -204,6 +216,32 @@ if ([string]::IsNullOrEmpty($script:ResourceGroup)) {
 
 if ([string]::IsNullOrEmpty($script:ClusterName)) {
     $script:ClusterName = Read-Host "Enter Cluster name"
+}
+
+# Apply environment variable overrides / fallbacks (populated by session-bootstrap.ps1)
+if ($env:AZURE_SUBSCRIPTION_ID -and -not $script:SubscriptionId) {
+    Write-Warning "[ENV] Using AZURE_SUBSCRIPTION_ID from session-bootstrap: $env:AZURE_SUBSCRIPTION_ID"
+    $script:SubscriptionId = $env:AZURE_SUBSCRIPTION_ID
+}
+if ($env:AZURE_RESOURCE_GROUP -and -not $script:ResourceGroup) {
+    Write-Warning "[ENV] Using AZURE_RESOURCE_GROUP from session-bootstrap: $env:AZURE_RESOURCE_GROUP"
+    $script:ResourceGroup = $env:AZURE_RESOURCE_GROUP
+}
+if ($env:AKSEDGE_CLUSTER_NAME -and -not $script:ClusterName) {
+    Write-Warning "[ENV] Using AKSEDGE_CLUSTER_NAME from session-bootstrap: $env:AKSEDGE_CLUSTER_NAME"
+    $script:ClusterName = $env:AKSEDGE_CLUSTER_NAME
+}
+if ($env:AZURE_CONTAINER_REGISTRY) {
+    $rawReg = $env:AZURE_CONTAINER_REGISTRY
+    if ($script:ContainerRegistryName) { Write-Host "[INFO] AZURE_CONTAINER_REGISTRY env var overrides config ($script:ContainerRegistryName)" -ForegroundColor Cyan }
+    else                               { Write-Warning "[ENV] Using AZURE_CONTAINER_REGISTRY from session-bootstrap: $rawReg" }
+    if ($rawReg -match '\.azurecr\.io$') {
+        $script:ContainerRegistryLoginServer = $rawReg
+        $script:ContainerRegistryName = $rawReg -replace '\.azurecr\.io$', ''
+    } else {
+        $script:ContainerRegistryName = $rawReg
+        $script:ContainerRegistryLoginServer = "${rawReg}.azurecr.io"
+    }
 }
 
 # ============================================================================
@@ -348,6 +386,40 @@ if ($managedIdentities -and $managedIdentities.Count -gt 0) {
     }
 } else {
     Write-Info "No user-assigned managed identities found"
+}
+
+# Discover Container Registry
+Write-SubHeader "Container Registry"
+$containerRegistry = $null
+if ($script:ContainerRegistryName) {
+    $containerRegistry = az acr show --name $script:ContainerRegistryName --resource-group $script:ResourceGroup 2>$null | ConvertFrom-Json
+    if ($containerRegistry) {
+        Write-Success "Found container registry: $script:ContainerRegistryName"
+        Write-Info "  Login server: $($containerRegistry.loginServer)"
+        $script:ContainerRegistryLoginServer = $containerRegistry.loginServer
+    } else {
+        # Try without resource group (may be in a different RG)
+        $containerRegistry = az acr show --name $script:ContainerRegistryName 2>$null | ConvertFrom-Json
+        if ($containerRegistry) {
+            Write-Success "Found container registry (different RG): $script:ContainerRegistryName"
+            $script:ContainerRegistryLoginServer = $containerRegistry.loginServer
+        } else {
+            Write-Warning "Container registry '$script:ContainerRegistryName' not found - skipping ACR grants"
+        }
+    }
+} else {
+    # Auto-detect ACR in resource group
+    $allAcrs = az acr list --resource-group $script:ResourceGroup --query "[].{name:name, loginServer:loginServer}" 2>$null | ConvertFrom-Json
+    if ($allAcrs -and $allAcrs.Count -eq 1) {
+        $containerRegistry = az acr show --name $allAcrs[0].name --resource-group $script:ResourceGroup 2>$null | ConvertFrom-Json
+        $script:ContainerRegistryName = $allAcrs[0].name
+        $script:ContainerRegistryLoginServer = $allAcrs[0].loginServer
+        Write-Success "Auto-detected container registry: $script:ContainerRegistryName"
+    } elseif ($allAcrs -and $allAcrs.Count -gt 1) {
+        Write-Warning "Multiple ACRs found in resource group. Set 'container_registry' in aio_config.json to target a specific one."
+    } else {
+        Write-Info "No container registry found in resource group - skipping ACR grants"
+    }
 }
 
 # Get user to grant access to
@@ -727,8 +799,155 @@ az role assignment create `
 Write-Success "Granted Device Registry access via Contributor"
 
 # ============================================================================
-# SUMMARY
+# GRANT ROLES - CUSTOM LOCATION (for Discovered Asset ARM sync)
 # ============================================================================
+
+Write-Header "Granting Custom Location Permissions (for Discovered Asset Sync)"
+
+# The AIO ARM bridge needs Microsoft.ExtendedLocation/customLocations/deploy/action
+# on the custom location in order to sync discovered assets (discoveredAssets CRD)
+# up to Azure Resource Manager. Without this, discovered assets appear in kubectl
+# but never show up in the AIO portal.
+#
+# The Device Registry service principal (app ID 319f651f-7ddb-4fc6-9857-7aef9250bd05)
+# is the identity that performs the sync. We grant Contributor to the custom location
+# scope for this SP as well as the AIO and Arc identities.
+
+$customLocation = $null
+$customLocationScope = $null
+
+Write-SubHeader "Finding Custom Location"
+$customLocations = az resource list `
+    --resource-group $script:ResourceGroup `
+    --resource-type "Microsoft.ExtendedLocation/customLocations" `
+    --query "[].{name:name, id:id}" -o json 2>$null | ConvertFrom-Json
+
+if ($customLocations -and $customLocations.Count -gt 0) {
+    $customLocation = $customLocations[0]
+    $customLocationScope = $customLocation.id
+    Write-Success "Found custom location: $($customLocation.name)"
+    Write-Info "  Resource ID: $customLocationScope"
+
+    # Grant Contributor to AIO instance identity
+    if ($aioIdentity.principalId) {
+        Write-Info "Granting 'Contributor' to AIO instance on custom location..."
+        az role assignment create `
+            --role "Contributor" `
+            --assignee-object-id $aioIdentity.principalId `
+            --assignee-principal-type ServicePrincipal `
+            --scope $customLocationScope `
+            --output none 2>$null
+        Write-Success "Granted Contributor on custom location to AIO instance"
+    }
+
+    # Grant Contributor to Arc cluster identity
+    if ($arcClusterIdentity.principalId) {
+        Write-Info "Granting 'Contributor' to Arc cluster on custom location..."
+        az role assignment create `
+            --role "Contributor" `
+            --assignee-object-id $arcClusterIdentity.principalId `
+            --assignee-principal-type ServicePrincipal `
+            --scope $customLocationScope `
+            --output none 2>$null
+        Write-Success "Granted Contributor on custom location to Arc cluster"
+    }
+
+    # Grant Contributor to the Device Registry ARM bridge service principal
+    # App ID 319f651f-7ddb-4fc6-9857-7aef9250bd05 is the Microsoft Device Registry service
+    # that syncs discovered assets from the cluster to Azure Resource Manager.
+    Write-SubHeader "Device Registry ARM Bridge Service Principal"
+    $deviceRegistryAppId = "319f651f-7ddb-4fc6-9857-7aef9250bd05"
+    $deviceRegistrySpId = az ad sp show --id $deviceRegistryAppId --query id -o tsv 2>$null
+    if ($deviceRegistrySpId) {
+        Write-Success "Found Device Registry service principal: $deviceRegistrySpId"
+        Write-Info "Granting 'Contributor' to Device Registry bridge on custom location..."
+        az role assignment create `
+            --role "Contributor" `
+            --assignee-object-id $deviceRegistrySpId `
+            --assignee-principal-type ServicePrincipal `
+            --scope $customLocationScope `
+            --output none 2>$null
+        Write-Success "Granted Contributor on custom location to Device Registry bridge"
+    } else {
+        Write-Warning "Could not find Device Registry service principal (app ID: $deviceRegistryAppId)"
+        Write-Info "  This SP syncs discovered assets to ARM. If discovered assets don't appear"
+        Write-Info "  in the portal, grant Contributor on the custom location manually to the"
+        Write-Info "  service principal shown in the 'LinkedAuthorizationFailed' error message."
+    }
+
+} else {
+    Write-Warning "No custom location found in resource group - skipping custom location permissions"
+    Write-Info "  Custom location is created during AIO deployment. Re-run this script after"
+    Write-Info "  External-Configurator.ps1 completes if discovered assets don't appear in the portal."
+}
+
+# ============================================================================
+# GRANT ROLES - CONTAINER REGISTRY
+# ============================================================================
+
+if ($containerRegistry) {
+    Write-Header "Granting Container Registry Permissions"
+
+    $acrScope = $containerRegistry.id
+
+    # Current user: AcrPush (for pushing images) + AcrPull (for pulling images)
+    Write-SubHeader "User: $userObjectId (AcrPush + AcrPull)"
+    foreach ($role in @("AcrPush", "AcrPull")) {
+        Write-Info "Granting '$role' on $script:ContainerRegistryName..."
+        az role assignment create `
+            --role $role `
+            --assignee $userObjectId `
+            --scope $acrScope `
+            --output none 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Success "Granted $role to user"
+        } else {
+            Write-Warning "Could not grant ${role} to user (may already exist)"
+        }
+    }
+
+    # AIO instance system-assigned MI: AcrPull (for pulling edge module images)
+    if ($aioInstance) {
+        Write-SubHeader "AIO Instance (AcrPull for edge module pulls)"
+        $aioMiId = $aioInstance.identity.principalId
+        if ($aioMiId) {
+            Write-Info "Granting 'AcrPull' on $script:ContainerRegistryName to AIO MI..."
+            az role assignment create `
+                --role "AcrPull" `
+                --assignee-object-id $aioMiId `
+                --assignee-principal-type ServicePrincipal `
+                --scope $acrScope `
+                --output none 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                Write-Success "Granted AcrPull to AIO instance managed identity"
+            } else {
+                Write-Warning "Could not grant AcrPull to AIO MI (may already exist)"
+            }
+        } else {
+            Write-Warning "AIO instance does not have a system-assigned managed identity"
+        }
+    }
+
+    # Arc cluster system-assigned MI: AcrPull (for k8s node pulls)
+    if ($arcCluster -and $arcCluster.identity.principalId) {
+        Write-SubHeader "Arc Cluster (AcrPull for k8s node pulls)"
+        Write-Info "Granting 'AcrPull' on $script:ContainerRegistryName to Arc cluster MI..."
+        az role assignment create `
+            --role "AcrPull" `
+            --assignee-object-id $arcCluster.identity.principalId `
+            --assignee-principal-type ServicePrincipal `
+            --scope $acrScope `
+            --output none 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Success "Granted AcrPull to Arc cluster managed identity"
+        } else {
+            Write-Warning "Could not grant AcrPull to Arc cluster MI (may already exist)"
+        }
+    }
+} else {
+    Write-Warning "No container registry found - skipping ACR permission grants"
+    Write-Info "  Run External-Configurator.ps1 first to create the ACR, then re-run this script."
+}
 
 Write-Header "Summary - Permissions Granted"
 
@@ -741,6 +960,16 @@ if ($keyVault) {
     Write-Info "  [OK] All Managed Identities: Secrets read access (get, list)"
 } else {
     Write-Warning "  (No Key Vault found - permissions skipped)"
+}
+
+Write-Host ""
+Write-Success "Container Registry Permissions:"
+if ($containerRegistry) {
+    Write-Info "  [OK] User '$userObjectId': AcrPush + AcrPull on $script:ContainerRegistryName"
+    Write-Info "  [OK] AIO Instance: AcrPull on $script:ContainerRegistryName"
+    Write-Info "  [OK] Arc Cluster: AcrPull on $script:ContainerRegistryName"
+} else {
+    Write-Warning "  (No container registry found - re-run after ACR is created by External-Configurator.ps1)"
 }
 
 Write-Host ""
@@ -758,6 +987,16 @@ Write-Info "  [OK] Arc Cluster: Event Hubs Data Sender/Receiver"
 Write-Info "  [OK] Arc Cluster: Storage Blob Data Contributor"
 Write-Info "  [OK] User '$AddUser': Event Hubs Data Sender/Receiver"
 Write-Info "  [OK] User '$AddUser': Storage Blob Data Contributor"
+
+Write-Host ""
+Write-Success "Custom Location Permissions (for Discovered Asset Sync):"
+if ($customLocation) {
+    Write-Info "  [OK] AIO Instance: Contributor on custom location"
+    Write-Info "  [OK] Arc Cluster: Contributor on custom location"
+    Write-Info "  [OK] Device Registry bridge SP: Contributor on custom location"
+} else {
+    Write-Warning "  (No custom location found - re-run after AIO deployment)"
+}
 
 Write-Host ""
 Write-Success "Subscription-Level Permissions:"
