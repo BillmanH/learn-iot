@@ -1,15 +1,24 @@
 <#
 .SYNOPSIS
-    Session Bootstrap - Zero-JSON workflow for AKS-EE single-machine deployments
+    Session Bootstrap - Optional helper for AKS-EE single-machine deployments
 
 .DESCRIPTION
-    Fill in the variables in the REQUIRED section once, then run this script to
-    pre-load all Azure and AIO context into your PS7 session. All subsequent scripts
-    (External-Configurator.ps1, grant_entra_id_roles.ps1) will pick up these values
-    automatically -- no JSON file editing required.
+    OPTIONAL: You do not have to use this script.
 
-    Run this script FIRST at the start of every new PS7 session before running
-    any other scripts in this folder.
+    If you prefer, skip this script entirely and set the required environment
+    variables directly in your PS7 session, then run External-Configurator.ps1:
+
+        $env:AZURE_SUBSCRIPTION_ID = "your-sub-id"
+        $env:AZURE_TENANT_ID       = "your-tenant-id"
+        $env:AZURE_LOCATION        = "eastus2"
+        $env:AZURE_RESOURCE_GROUP  = "rg-my-iot"
+        az login --tenant $env:AZURE_TENANT_ID
+        az account set --subscription $env:AZURE_SUBSCRIPTION_ID
+        .\External-Configurator.ps1
+
+    Alternatively, fill in the REQUIRED section below, save the file, and run
+    this script once at the start of each PS7 session. It will set all variables
+    and log you in automatically.
 
 .NOTES
     Requires PowerShell 7+
@@ -19,7 +28,7 @@
 #>
 
 # ============================================================================
-# REQUIRED: Fill these in once, then run the script
+# REQUIRED (if using this script): Fill these in once, then run the script
 # ============================================================================
 
 $AZ_SUBSCRIPTION_ID    = ""   # Find yours: az account list -o table
@@ -54,7 +63,8 @@ if ($missingFields.Count -gt 0) {
         Write-Host "        $field" -ForegroundColor Red
     }
     Write-Host ""
-    Write-Host "Edit the REQUIRED section at the top of session-bootstrap.ps1 and run again." -ForegroundColor Yellow
+    Write-Host "Edit the REQUIRED section at the top of session-bootstrap.ps1 and run again," -ForegroundColor Yellow
+    Write-Host "OR skip this script and set env vars directly in your terminal (see .DESCRIPTION)." -ForegroundColor Yellow
     exit 1
 }
 

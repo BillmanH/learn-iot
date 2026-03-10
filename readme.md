@@ -2,6 +2,28 @@
 
 Automated deployment of Azure IoT Operations (AIO) on edge devices with industrial IoT applications.
 
+## Table of Contents
+
+- [What You Get](#what-you-get)
+- [Why not use codespaces from the docs?](#why-not-use-codespaces-from-the-docs)
+- [Quick Start](#quick-start)
+- [Prerequisites](#prerequisites)
+  - [Hardware (Ubuntu / K3s path)](#hardware-ubuntu--k3s-path)
+  - [Windows Management Machine](#windows-management-machine-required-for-all-paths)
+- [Installation](#installation)
+  - [1. Get the Repository](#1-get-the-repository)
+  - [2a. Create and Complete Config File](#2a-create-and-complete-config-file--do-this-first)
+  - [3. Edge Setup (Ubuntu)](#3-edge-setup-on-ubuntu-device)
+  - [3b. Arc-Enable Cluster](#3b-arc-enable-cluster-on-ubuntu-device)
+  - [4. Azure Configuration (Windows)](#4-azure-configuration-from-windows-machine)
+  - [5. Verify Installation](#5-verify-installation)
+- [Key Documentation](#key-documentation)
+- [What's Included](#whats-included)
+- [Configuration](#configuration)
+- [Single Windows Machine (AKS-EE)](#single-windows-machine-aks-ee)
+- [Next Steps](#next-steps)
+- [Support](#support)
+
 ## What You Get
 
 - ⚡ **One-command edge setup** - Automated K3s cluster with Azure IoT Operations
@@ -145,34 +167,65 @@ After this you should see the core arc-kubernetes components on your edge device
 
 ### 4. Azure Configuration (From Windows Machine)
 
-Transfer the `config/` folder to your Windows management machine, then:
+Choose one of three ways to provide your Azure settings to the scripts:
 
+**Option A — Paste values directly in your terminal (quickest, no file editing)**
+
+```powershell
+$env:AZURE_SUBSCRIPTION_ID = "your-subscription-id"
+$env:AZURE_TENANT_ID       = "your-tenant-id"
+$env:AZURE_LOCATION        = "eastus2"            # e.g. eastus2, westus, westeurope
+$env:AZURE_RESOURCE_GROUP  = "rg-my-iot"          # created if it does not exist
+$env:AKSEDGE_CLUSTER_NAME  = "my-aksee-cluster"   # must be lowercase, no spaces
+$env:CUSTOM_LOCATIONS_OID  = ""                   # az ad sp show --id bc313c14-388c-4e7d-a58e-70017303ee3b --query id -o tsv
+$env:AZURE_CONTAINER_REGISTRY = ""               # short name only, e.g. myregistry (leave blank to auto-generate)
+az login --tenant $env:AZURE_TENANT_ID
+az account set --subscription $env:AZURE_SUBSCRIPTION_ID
+
+cd external_configuration
+Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
+.\grant_entra_id_roles.ps1
+.\External-Configurator.ps1
+```
+
+**Option B — Edit session-bootstrap.ps1 and run it (recommended if you do this repeatedly)**
+
+Fill in the required variables in `external_configuration\session-bootstrap.ps1` and save. Then run it once per PS7 session — it sets all variables and logs you in automatically. This is especially useful if you open new terminal windows frequently or return to this setup over multiple sessions.
+```powershell
+$AZ_SUBSCRIPTION_ID    = "your-subscription-id"
+$AZ_TENANT_ID          = "your-tenant-id"
+$AZ_LOCATION           = "eastus2"
+$AZ_RESOURCE_GROUP     = "rg-my-iot"
+$AKS_EDGE_CLUSTER_NAME = "my-aksee-cluster"
+$CUSTOM_LOCATIONS_OID  = ""  # az ad sp show --id bc313c14-388c-4e7d-a58e-70017303ee3b --query id -o tsv
+```
 ```powershell
 cd external_configuration
-
-# Run this once at the start of your PS session (scripts are unsigned)
 Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
-
-# First, grant yourself the required Azure permissions
-# This uses your current signed-in Azure identity by default
+.\session-bootstrap.ps1
 .\grant_entra_id_roles.ps1
-
-# To grant permissions to a different user, use their Object ID (GUID):
-# Get your Object ID: az ad signed-in-user show --query id -o tsv
-# Find another user: az ad user list --filter "startswith(displayName,'username')" --query "[].{Name:displayName, OID:id}" -o table
-.\grant_entra_id_roles.ps1 -AddUser 12345678-1234-1234-1234-123456789abc
-```
-
-This is separate because it may be that the person who has the ability to assign permissions is different than the person who will be building the resource.
-
-```powershell
-# Deploy Azure IoT Operations
 .\External-Configurator.ps1
-
-# On a single-node demo machine (laptop / AKS-EE), add -DemoMode to reduce broker RAM
-# from ~15.8 GB (default) to ~303 MiB — NOT for production use
-.\External-Configurator.ps1 -DemoMode
 ```
+
+**Option C — Copy aio_config.json from the edge device (Linux/K3s path default)**
+
+Transfer the `config/` folder from your edge device to your Windows management machine (or copy `aio_config.json` directly). The scripts will read your settings automatically:
+```powershell
+cd external_configuration
+Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
+.\grant_entra_id_roles.ps1
+.\External-Configurator.ps1
+```
+
+> **Note:** Options A and B override any values in `aio_config.json` and work for both the Linux/K3s path and the AKS-EE path.
+
+> **Single-node or demo machine?** Add `-DemoMode` to `External-Configurator.ps1` to reduce broker RAM from ~15.8 GB to ~303 MiB — NOT for production use.
+
+> **Grant permissions separately?** It may be that the person who has permission to assign Azure roles is different from the person deploying. Run `grant_entra_id_roles.ps1` first with the appropriate identity, then `External-Configurator.ps1` separately. To grant permissions to a specific user, pass their Object ID (not email):
+> ```powershell
+> # Get your Object ID: az ad signed-in-user show --query id -o tsv
+> .\grant_entra_id_roles.ps1 -AddUser 12345678-1234-1234-1234-123456789abc
+> ```
 
 > **⚠️ IMPORTANT: You may need to run `grant_entra_id_roles.ps1` multiple times!**  
 > The script grants permissions to resources that exist at the time it runs. If `External-Configurator.ps1` creates new resources (like Schema Registry) and then fails on role assignments, simply run `grant_entra_id_roles.ps1` again to grant permissions to the newly created resources, then re-run `External-Configurator.ps1`.
@@ -255,7 +308,7 @@ Customize Azure deployment via `config/aio_config.json`:
 
 ## Single Windows Machine (AKS-EE)
 
-If you are running both AKS Edge Essentials (edge) and the Azure management scripts on the **same Windows laptop**, use `session-bootstrap.ps1` to configure everything once per session — no JSON file editing required.
+If you are running both AKS Edge Essentials (edge) and the Azure management scripts on the **same Windows laptop**, `session-bootstrap.ps1` is an optional convenience helper — or you can skip it entirely and paste values directly in your terminal.
 
 ### Prerequisites
 - PowerShell 7+ (`winget install Microsoft.PowerShell`)
@@ -264,37 +317,57 @@ If you are running both AKS Edge Essentials (edge) and the Azure management scri
 
 ### Workflow
 
-**Step 1 — Fill in your details once**
+**Step 1 — Set up your AKS-EE edge cluster**
 
-Open `external_configuration\session-bootstrap.ps1` and fill in the 6 required values at the top:
+Follow the [Deploy AIO on AKS Edge Essentials](https://learn.microsoft.com/en-us/azure/aks/aksarc/aks-edge-howto-deploy-azure-iot) guide. The `$global:*` variables set by `session-bootstrap.ps1` are picked up automatically if you use Option B below.
+
+**Step 2 — Set your Azure context (choose one option)**
+
+_Option A — Paste values directly in your terminal (quickest, no file editing):_
+
+```powershell
+$env:AZURE_SUBSCRIPTION_ID    = "your-subscription-id"
+$env:AZURE_TENANT_ID          = "your-tenant-id"
+$env:AZURE_LOCATION           = "eastus2"            # e.g. eastus2, westus, westeurope
+$env:AZURE_RESOURCE_GROUP     = "rg-my-iot"          # created if it does not exist
+$env:AKSEDGE_CLUSTER_NAME     = "my-aksee-cluster"   # must be lowercase, no spaces
+$env:CUSTOM_LOCATIONS_OID     = ""                   # az ad sp show --id bc313c14-388c-4e7d-a58e-70017303ee3b --query id -o tsv
+$env:AZURE_CONTAINER_REGISTRY = ""                   # short name only, e.g. myregistry (leave blank to auto-generate)
+az login --tenant $env:AZURE_TENANT_ID
+az account set --subscription $env:AZURE_SUBSCRIPTION_ID
+```
+
+_Option B — Use session-bootstrap.ps1 (recommended if you do this repeatedly):_
+
+Fill in the required variables in `external_configuration\session-bootstrap.ps1` and save. Run it once at the start of each PS7 session — it sets all variables, including the `$global:*` variables for the AKS-EE quickstart, and logs you in automatically. Especially useful if you open new terminal windows frequently.
 ```powershell
 $AZ_SUBSCRIPTION_ID    = "your-subscription-id"
 $AZ_TENANT_ID          = "your-tenant-id"
-$AZ_LOCATION           = "eastus2"   # or your preferred region
-$AZ_RESOURCE_GROUP     = "rg-my-iot"  # created if it doesn't exist
+$AZ_LOCATION           = "eastus2"
+$AZ_RESOURCE_GROUP     = "rg-my-iot"
 $AKS_EDGE_CLUSTER_NAME = "my-aksee-cluster"
 $CUSTOM_LOCATIONS_OID  = ""  # az ad sp show --id bc313c14-388c-4e7d-a58e-70017303ee3b --query id -o tsv
 ```
-
-**Step 2 — Run session-bootstrap.ps1** (once at the start of each PS7 session)
 ```powershell
 cd external_configuration
 Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
 .\session-bootstrap.ps1
 ```
-This sets `$global:*` variables (for `AksEdgeQuickStartForAio.ps1`) and `$env:AZURE_*` variables (for `grant_entra_id_roles.ps1` and `External-Configurator.ps1`).
 
-**Step 3 — Set up your AKS-EE edge cluster**
+**Step 3 — Grant permissions and deploy AIO**
 
-Follow the [Deploy AIO on AKS Edge Essentials](https://learn.microsoft.com/en-us/azure/aks/aksarc/aks-edge-howto-deploy-azure-iot) guide. The `$global:*` variables set by `session-bootstrap.ps1` are picked up automatically.
-
-**Step 4 — Grant permissions and deploy AIO**
+After either option above, run:
 ```powershell
 .\grant_entra_id_roles.ps1
 .\External-Configurator.ps1 -DemoMode   # -DemoMode recommended for single-machine setups
 ```
 
-> **Tip**: Run `session-bootstrap.ps1` once each time you open a new PS7 window. All other scripts pick up the values automatically — no need to re-edit `aio_config.json`.
+> To grant permissions to a specific user instead of yourself, pass their Object ID:
+> ```powershell
+> .\grant_entra_id_roles.ps1 -AddUser 12345678-1234-1234-1234-123456789abc
+> ```
+
+> **Tip**: Option A is the fastest way to get going — just paste and run. Option B is worth the one-time setup if you return to this workflow regularly or work across multiple terminal sessions.
 
 ## Next Steps
 
