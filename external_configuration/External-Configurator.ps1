@@ -325,7 +325,6 @@ function Import-AzureConfig {
         # Load Azure settings
         if ($script:AzureConfig.azure) {
             $script:SubscriptionId = $script:AzureConfig.azure.subscription_id
-            $script:SubscriptionName = $script:AzureConfig.azure.subscription_name
             $script:ResourceGroup = $script:AzureConfig.azure.resource_group
             $script:Location = $script:AzureConfig.azure.location
             $script:NamespaceName = $script:AzureConfig.azure.namespace_name

@@ -2,7 +2,6 @@
   "config_type": "advanced",
   "azure": {
     "subscription_id": "",
-    "subscription_name": "",
     "resource_group": "rg-iot-operations",
     "location": "eastus",
     "cluster_name": "iot-ops-cluster",
@@ -44,7 +43,6 @@
   "comments": {
     "config_type": "Advanced mode: manual control with skip flags for kubeconfig, container registry, and certificates; Quickstart mode: fully automated setup with Arc and IoT Operations.",
     "subscription_id": "Leave empty to use current logged-in subscription, or provide your Azure subscription GUID",
-    "subscription_name": "Leave empty to use current logged-in subscription, or provide subscription display name",
     "resource_group": "Name of Azure resource group (will be created if it doesn't exist)",
     "location": "Azure region (e.g., eastus, westus2, westeurope, northeurope)",
     "cluster_name": "Name for your Arc-enabled Kubernetes cluster",
