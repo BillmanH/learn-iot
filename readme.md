@@ -160,7 +160,7 @@ pwsh ./arc_enable.ps1
 **Time**: ~5 minutes  
 **Why on the edge device?**: Arc enablement requires kubectl access to the cluster, which isn't available remotely.
 
-![k9s pre iot](docs/img/k9s-pre-iot.jpg)
+
 After this you should see the core arc-kubernetes components on your edge device. 
 
 
@@ -169,6 +169,8 @@ After this you should see the core arc-kubernetes components on your edge device
 ![resources pre iot](docs/img/azure-resources-pre-iot.png)
 
 ### 4. Azure Configuration (From Windows Machine)
+
+> **These scripts are idempotent** — it is normal and expected to run them multiple times. Common reasons include adjusting a parameter, recovering from a partial failure, or re-running `grant_entra_id_roles.ps1` after new resources have been created by `External-Configurator.ps1`. Each run picks up where it left off.
 
 Choose one of three ways to provide your Azure settings to the scripts:
 
@@ -179,7 +181,6 @@ $env:AZURE_SUBSCRIPTION_ID    = "your-subscription-id"
 $env:AZURE_LOCATION           = "eastus2"            # e.g. eastus2, westus, westeurope
 $env:AZURE_RESOURCE_GROUP     = "rg-my-iot"          # created if it does not exist
 $env:AKSEDGE_CLUSTER_NAME     = "my-cluster"         # must be lowercase, no spaces
-$env:CUSTOM_LOCATIONS_OID     = ""                   # az ad sp show --id bc313c14-388c-4e7d-a58e-70017303ee3b --query id -o tsv
 $env:AZURE_CONTAINER_REGISTRY = ""                   # short name only, e.g. myregistry (leave blank to auto-generate)
 
 # Tenant ID is optional - only needed if you have multiple Azure tenants
@@ -206,7 +207,6 @@ $AZ_TENANT_ID          = ""   # optional - only needed if you have multiple Azur
 $AZ_LOCATION           = "eastus2"
 $AZ_RESOURCE_GROUP     = "rg-my-iot"          # created if it does not exist
 $AKS_EDGE_CLUSTER_NAME = "my-cluster"         # must be lowercase, no spaces
-$CUSTOM_LOCATIONS_OID  = ""   # az ad sp show --id bc313c14-388c-4e7d-a58e-70017303ee3b --query id -o tsv
 $AZ_CONTAINER_REGISTRY = ""   # short name only, e.g. myregistry (leave blank to auto-generate)
 
 # Key Vault, Storage Account, and Schema Registry names are not
@@ -270,7 +270,7 @@ Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
 **Time**: ~15-20 minutes  
 **Note**: Arc enablement was already done on the edge device in step 3b
 
-![k9s post iot](docs/img/k9s-post-iot.jpg)
+
 ![resources post iot](docs/img/azure-resources-post-iot.png)
 
 ### 5. Verify Installation
@@ -311,7 +311,6 @@ $env:AZURE_SUBSCRIPTION_ID    = "your-subscription-id"
 $env:AZURE_LOCATION           = "eastus2"            # e.g. eastus2, westus, westeurope
 $env:AZURE_RESOURCE_GROUP     = "rg-my-iot"          # created if it does not exist
 $env:AKSEDGE_CLUSTER_NAME     = "my-cluster"         # must be lowercase, no spaces
-$env:CUSTOM_LOCATIONS_OID     = ""                   # az ad sp show --id bc313c14-388c-4e7d-a58e-70017303ee3b --query id -o tsv
 $env:AZURE_CONTAINER_REGISTRY = ""                   # short name only, e.g. myregistry (leave blank to auto-generate)
 
 # Tenant ID is optional - only needed if you have multiple Azure tenants
@@ -333,7 +332,6 @@ $AZ_TENANT_ID          = ""   # optional - only needed if you have multiple Azur
 $AZ_LOCATION           = "eastus2"
 $AZ_RESOURCE_GROUP     = "rg-my-iot"          # created if it does not exist
 $AKS_EDGE_CLUSTER_NAME = "my-cluster"         # must be lowercase, no spaces
-$CUSTOM_LOCATIONS_OID  = ""   # az ad sp show --id bc313c14-388c-4e7d-a58e-70017303ee3b --query id -o tsv
 $AZ_CONTAINER_REGISTRY = ""   # short name only, e.g. myregistry (leave blank to auto-generate)
 
 # Key Vault, Storage Account, and Schema Registry names are not

@@ -37,7 +37,6 @@ $AZ_TENANT_ID          = ""   # OPTIONAL - only needed if you have multiple Azur
 $AZ_LOCATION           = ""   # e.g. eastus2, westus, westeurope
 $AZ_RESOURCE_GROUP     = ""   # Will be created if it does not exist
 $AKS_EDGE_CLUSTER_NAME = ""   # Must be lowercase, no spaces
-$CUSTOM_LOCATIONS_OID  = ""   # Run: az ad sp show --id bc313c14-388c-4e7d-a58e-70017303ee3b --query id -o tsv
 $AZ_CONTAINER_REGISTRY = ""   # Short name only, e.g. myregistry (NOT myregistry.azurecr.io)
                                # Leave blank to let External-Configurator.ps1 auto-generate one
 
@@ -55,7 +54,6 @@ if ([string]::IsNullOrWhiteSpace($AZ_SUBSCRIPTION_ID))    { $missingFields += "A
 if ([string]::IsNullOrWhiteSpace($AZ_LOCATION))           { $missingFields += "AZ_LOCATION" }
 if ([string]::IsNullOrWhiteSpace($AZ_RESOURCE_GROUP))     { $missingFields += "AZ_RESOURCE_GROUP" }
 if ([string]::IsNullOrWhiteSpace($AKS_EDGE_CLUSTER_NAME)) { $missingFields += "AKS_EDGE_CLUSTER_NAME" }
-if ([string]::IsNullOrWhiteSpace($CUSTOM_LOCATIONS_OID))  { $missingFields += "CUSTOM_LOCATIONS_OID" }
 
 if ($missingFields.Count -gt 0) {
     Write-Host ""
@@ -85,7 +83,6 @@ $global:TenantId          = $AZ_TENANT_ID
 $global:Location          = $AZ_LOCATION
 $global:ResourceGroupName = $AZ_RESOURCE_GROUP
 $global:ClusterName       = $AKS_EDGE_CLUSTER_NAME
-$global:CustomLocationOID = $CUSTOM_LOCATIONS_OID
 
 # Set environment variables (consumed by az CLI and our scripts)
 $env:AZURE_SUBSCRIPTION_ID    = $AZ_SUBSCRIPTION_ID
@@ -93,7 +90,6 @@ $env:AZURE_TENANT_ID          = $AZ_TENANT_ID
 $env:AZURE_LOCATION           = $AZ_LOCATION
 $env:AZURE_RESOURCE_GROUP     = $AZ_RESOURCE_GROUP
 $env:AKSEDGE_CLUSTER_NAME     = $AKS_EDGE_CLUSTER_NAME
-$env:CUSTOM_LOCATIONS_OID     = $CUSTOM_LOCATIONS_OID
 if (-not [string]::IsNullOrWhiteSpace($AZ_CONTAINER_REGISTRY)) {
     $env:AZURE_CONTAINER_REGISTRY = $AZ_CONTAINER_REGISTRY
 }
@@ -108,6 +104,13 @@ if (-not [string]::IsNullOrWhiteSpace($AZ_TENANT_ID)) {
     az login | Out-Null
 }
 az account set --subscription $AZ_SUBSCRIPTION_ID
+
+# Auto-lookup Custom Locations Resource Provider Object ID (tenant-specific, used by AKS-EE quickstart)
+$customLocOid = az ad sp show --id bc313c14-388c-4e7d-a58e-70017303ee3b --query id -o tsv 2>$null
+if (-not [string]::IsNullOrWhiteSpace($customLocOid)) {
+    $global:CustomLocationOID = $customLocOid
+    $env:CUSTOM_LOCATIONS_OID = $customLocOid
+}
 
 Write-Host ""
 Write-Host "============================================================" -ForegroundColor Green
