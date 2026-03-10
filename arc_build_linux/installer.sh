@@ -359,6 +359,12 @@ load_local_config() {
         return 0
     fi
     
+    # Strip Windows CRLF line endings if present (common when editing on Windows)
+    if grep -qP '\r' "$CONFIG_FILE" 2>/dev/null; then
+        sed -i 's/\r//' "$CONFIG_FILE"
+        log "Stripped Windows CRLF line endings from $CONFIG_FILE"
+    fi
+
     # Validate JSON
     if ! jq empty "$CONFIG_FILE" 2>/dev/null; then
         error "Invalid JSON in configuration file: $CONFIG_FILE"
