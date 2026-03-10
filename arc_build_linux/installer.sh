@@ -366,8 +366,9 @@ load_local_config() {
     fi
 
     # Validate JSON
-    if ! jq empty "$CONFIG_FILE" 2>/dev/null; then
-        error "Invalid JSON in configuration file: $CONFIG_FILE"
+    JQ_ERROR=$(jq empty "$CONFIG_FILE" 2>&1)
+    if [ $? -ne 0 ]; then
+        error "Invalid JSON in configuration file: $CONFIG_FILE - $JQ_ERROR"
     fi
     
     # Load config type
@@ -1499,7 +1500,18 @@ main() {
     
     # Setup logging
     setup_logging
-    
+
+    # Ensure jq is installed - required for JSON config parsing
+    if ! command -v jq &> /dev/null; then
+        echo "jq not found - installing..."
+        sudo apt-get update -qq && sudo apt-get install -y jq
+        if ! command -v jq &> /dev/null; then
+            echo "ERROR: Failed to install jq. Please run: sudo apt-get install -y jq"
+            exit 1
+        fi
+        echo "jq installed successfully"
+    fi
+
     # Load configuration first to get config_type
     load_local_config
     
