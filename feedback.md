@@ -2,7 +2,7 @@
 
 # Change Spec: User Feedback Implementation
 
-## Status: In Review — Open Questions Pending
+## Status: ✅ Implementation Complete
 
 ---
 
@@ -10,11 +10,11 @@
 
 | Phase | Scope | Status |
 |-------|-------|--------|
-| **1** | Create `external_configuration/session-bootstrap.ps1` | not started |
-| **2** | All changes to `external_configuration/External-Configurator.ps1` | not started |
-| **3** | All changes to `external_configuration/grant_entra_id_roles.ps1` | not started |
-| **4** | All changes to `readme.md` | not started |
-| **5** | Arc Gateway GA updates — `README_ADVANCED.md`, `arc_build_linux/linux_build_steps.md` | not started |
+| **1** | Create `external_configuration/session-bootstrap.ps1` | ✅ complete |
+| **2** | All changes to `external_configuration/External-Configurator.ps1` | ✅ complete |
+| **3** | All changes to `external_configuration/grant_entra_id_roles.ps1` | ✅ complete |
+| **4** | All changes to `readme.md` | ✅ complete |
+| **5** | Arc Gateway GA updates — `README_ADVANCED.md`, `arc_build_linux/linux_build_steps.md` | ✅ complete |
 
 ### Phase Details
 
