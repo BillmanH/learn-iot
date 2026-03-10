@@ -280,10 +280,16 @@ SSH into your Linux edge device and run:
 ```bash
 # Check pods are running
 kubectl get pods -n azure-iot-operations
-
-# View MQTT messages
-kubectl logs -n azure-iot-operations -l app=aio-broker-frontend --tail=20
 ```
+
+Once AIO is running, subscribe to all MQTT topics to confirm messages are flowing:
+
+```bash
+kubectl exec -it -n azure-iot-operations deploy/aio-broker-frontend -- \
+  mosquitto_sub -h localhost -p 18883 -t '#' -v
+```
+
+Press `Ctrl+C` to stop. If you see messages arriving, AIO is working end-to-end.
 
 ---
 
