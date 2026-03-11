@@ -654,6 +654,27 @@ if ($arcCluster) {
         --scope $arcCluster.id `
         --output none 2>$null
     Write-Success "Granted Arc Kubernetes Cluster Admin"
+
+    # IMPORTANT: Azure RBAC roles only take effect on Arc clusters with --enable-azure-rbac.
+    # K3s clusters connected WITHOUT Azure RBAC use Kubernetes-native RBAC instead.
+    # In that case, the proxy passes your Azure AD Object ID as the Kubernetes username,
+    # and you need a ClusterRoleBinding on the cluster itself.
+    Write-Host ""
+    Write-Host "============================================================" -ForegroundColor Yellow
+    Write-Host "REQUIRED: Bootstrap kubectl access on the edge device" -ForegroundColor Yellow
+    Write-Host "============================================================" -ForegroundColor Yellow
+    Write-Host "If your K3s cluster was connected WITHOUT --enable-azure-rbac" -ForegroundColor White
+    Write-Host "(the default in this repo), you must run this ONCE on the edge" -ForegroundColor White
+    Write-Host "device via SSH to allow this user to kubectl through the proxy:" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  kubectl create clusterrolebinding admin-$userObjectId \\" -ForegroundColor Green
+    Write-Host "    --clusterrole=cluster-admin \\" -ForegroundColor Green
+    Write-Host "    --user=$userObjectId" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "To check if this binding already exists:" -ForegroundColor Cyan
+    Write-Host "  kubectl get clusterrolebinding admin-$userObjectId" -ForegroundColor Cyan
+    Write-Host "============================================================" -ForegroundColor Yellow
+    Write-Host ""
 }
 
 # ============================================================================

@@ -14,6 +14,8 @@ spec:
         app: edgemqttsim
     spec:
       serviceAccountName: mqtt-client  # Use the service account for SAT authentication
+      imagePullSecrets:
+      - name: acr-pull-secret  # Created by Deploy-EdgeModules.ps1 for ACR authentication
       containers:
       - name: edgemqttsim
         image: <YOUR_REGISTRY>/edgemqttsim:latest
