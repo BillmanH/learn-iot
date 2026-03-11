@@ -304,11 +304,9 @@ If you are running both AKS Edge Essentials (edge) and the Azure management scri
 
 #### Workflow
 
-**Step 1 — Set up your AKS-EE edge cluster**
+> **AKS Edge Essentials vs. AKS**: In this path, Kubernetes runs locally on your Windows machine via **AKS Edge Essentials (AKS-EE)** — a lightweight, Microsoft-supported K8s distribution embedded in Windows. This is different from the Ubuntu/K3s path (which uses K3s) and from cloud-hosted AKS. AKS-EE is still Arc-enabled and managed through Azure the same way, but the cluster itself lives on your local machine rather than on a separate edge device or in the cloud.
 
-Follow the [Deploy AIO on AKS Edge Essentials](https://learn.microsoft.com/en-us/azure/aks/aksarc/aks-edge-howto-deploy-azure-iot) guide. The `$global:*` variables set by `session-bootstrap.ps1` are picked up automatically if you use Option B below.
-
-**Step 2 — Set your Azure context (choose one option)**
+**Step 1 — Set your Azure context (choose one option)**
 
 _Option A — Paste values directly in your terminal (quickest, no file editing):_
 
@@ -350,6 +348,10 @@ cd external_configuration
 Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
 .\session-bootstrap.ps1
 ```
+
+**Step 2 — Set up your AKS-EE edge cluster**
+
+Follow the [Deploy AIO on AKS Edge Essentials](https://learn.microsoft.com/en-us/azure/aks/aksarc/aks-edge-howto-deploy-azure-iot) guide. If you used Option B above, the `$global:*` variables set by `session-bootstrap.ps1` are picked up automatically by the AKS-EE quickstart.
 
 **Step 3 — Grant permissions and deploy AIO**
 
