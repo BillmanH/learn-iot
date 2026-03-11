@@ -312,6 +312,8 @@ Follow the [Deploy AIO on AKS Edge Essentials](https://learn.microsoft.com/en-us
 
 _Option A — Paste values directly in your terminal (quickest, no file editing):_
 
+> **Tip**: Option A is the fastest way to get going — just paste and run. Option B is worth the one-time setup if you return to this workflow regularly or work across multiple terminal sessions.
+
 ```powershell
 $env:AZURE_SUBSCRIPTION_ID    = "your-subscription-id"
 $env:AZURE_LOCATION           = "eastus2"            # e.g. eastus2, westus, westeurope
@@ -362,7 +364,42 @@ After either option above, run:
 > .\grant_entra_id_roles.ps1 -AddUser 12345678-1234-1234-1234-123456789abc
 > ```
 
-> **Tip**: Option A is the fastest way to get going — just paste and run. Option B is worth the one-time setup if you return to this workflow regularly or work across multiple terminal sessions.
+**Step 4 (Optional) — Deploy an edge module**
+
+> **These modules are not part of AIO itself.** They are demo applications that generate simulated data or mimic industrial processes so you can see AIO working end-to-end without needing real hardware or live signals. They would not belong in a production system — replace them with your own data sources when you're ready.
+
+Once AIO is running, you can push containerized applications to the edge cluster from your Windows machine. This step requires **Docker Desktop** running locally to build the image before pushing to ACR. 
+
+Deploy the factory MQTT simulator (`edgemqttsim`) as a first module:
+
+```powershell
+# Deploy edgemqttsim — builds the image, pushes to ACR, and applies the K8s manifest
+.\Deploy-EdgeModules.ps1 -ModuleName edgemqttsim
+```
+
+If the image is already built and in the registry (e.g. on a re-deploy), skip the Docker build step:
+
+```powershell
+.\Deploy-EdgeModules.ps1 -ModuleName edgemqttsim -SkipBuild
+```
+
+To force a fresh redeployment of a module that is already running:
+
+```powershell
+.\Deploy-EdgeModules.ps1 -ModuleName edgemqttsim -Force
+```
+
+To deploy all modules configured in `aio_config.json` at once, omit `-ModuleName`:
+
+```powershell
+.\Deploy-EdgeModules.ps1
+```
+
+**What it does**: Builds the container image on your Windows machine, pushes it to the Azure Container Registry created by `External-Configurator.ps1`, then applies the Kubernetes deployment manifest to the edge cluster via Azure Arc proxy — no direct network access to the edge device required.  
+**Available modules**: `edgemqttsim`, `hello-flask`, `sputnik`, `demohistorian`  
+**Note**: The ACR registry endpoint must be registered in AIO before image pulls will succeed — this is done automatically by `External-Configurator.ps1`.
+
+
 
 ## Key Documentation
 
