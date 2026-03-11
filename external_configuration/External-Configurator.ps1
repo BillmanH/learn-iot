@@ -990,7 +990,7 @@ function Deploy-Infrastructure {
     Write-Host "  - Schema Registry -> Storage Blob Data Contributor" -ForegroundColor Gray
     Write-Host "  - Managed Identity -> Key Vault Secrets User" -ForegroundColor Gray
     Write-Host "  - AIO Instance -> Event Hubs permissions for Fabric" -ForegroundColor Gray
-    Write-Host "  - AIO Instance -> AcrPull on Container Registry (if not done via acr attach)" -ForegroundColor Gray
+    Write-Host "  - AIO Instance -> AcrPull on Container Registry (via grant_entra_id_roles.ps1)" -ForegroundColor Gray
     Write-Host ""
     Write-Host "============================================================================" -ForegroundColor Cyan
     Write-Host ""
@@ -1006,6 +1006,85 @@ function Deploy-Infrastructure {
 # ============================================================================
 # NOTE: Arc enablement is handled by arc_enable.ps1 on the edge device
 # This script assumes the cluster is already Arc-enabled
+
+function Register-AcrRegistryEndpoint {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$InstanceName
+    )
+
+    if (-not $script:ContainerRegistryLoginServer) {
+        Write-WarnLog "No container registry configured - skipping registry endpoint registration."
+        return
+    }
+
+    Write-Log "Registering ACR as AIO registry endpoint: $script:ContainerRegistryLoginServer"
+
+    if ($DryRun) {
+        Write-InfoLog "[DRY-RUN] Would register registry endpoint for $script:ContainerRegistryLoginServer"
+        return
+    }
+
+    # Derive a consistent endpoint name from the registry name
+    $endpointName = "$($script:ContainerRegistryName)-endpoint"
+
+    # --- Step 1: Ensure AcrPull is granted to the AIO managed identity (safety net) ---
+    # grant_entra_id_roles.ps1 handles this in the normal flow; this is a fallback
+    # for cases where it hasn't been run yet or ran before AIO was deployed.
+    Write-InfoLog "Ensuring AcrPull role is assigned to AIO instance managed identity..."
+    $aioIdentity = az iot ops show `
+        --name $InstanceName `
+        --resource-group $script:ResourceGroup `
+        --query "identity.principalId" -o tsv 2>$null
+
+    $acrResourceId = az acr show `
+        --name $script:ContainerRegistryName `
+        --resource-group $script:ResourceGroup `
+        --query "id" -o tsv 2>$null
+
+    if ($aioIdentity -and $acrResourceId) {
+        az role assignment create `
+            --role "AcrPull" `
+            --assignee-object-id $aioIdentity `
+            --assignee-principal-type ServicePrincipal `
+            --scope $acrResourceId `
+            --output none 2>$null
+        # Non-zero exit is expected when the assignment already exists - not fatal
+        Write-InfoLog "AcrPull role assignment applied (idempotent)."
+    } else {
+        Write-WarnLog "Could not resolve AIO identity or ACR resource ID - AcrPull may need to be set manually via grant_entra_id_roles.ps1."
+    }
+
+    # --- Step 2: Check if the registry endpoint is already registered ---
+    $existingEndpoint = az iot ops registry list `
+        --instance $InstanceName `
+        --resource-group $script:ResourceGroup `
+        --query "[?properties.server=='$script:ContainerRegistryLoginServer'].name" `
+        -o tsv 2>$null
+
+    if ($existingEndpoint) {
+        Write-Success "Registry endpoint already registered for $script:ContainerRegistryLoginServer ($existingEndpoint) - skipping."
+        return
+    }
+
+    # --- Step 3: Create the registry endpoint ---
+    Write-Log "Creating registry endpoint '$endpointName'..."
+    az iot ops registry create `
+        --name $endpointName `
+        --host $script:ContainerRegistryLoginServer `
+        --instance $InstanceName `
+        --resource-group $script:ResourceGroup `
+        --output none 2>&1
+
+    if ($LASTEXITCODE -eq 0) {
+        Write-Success "Registry endpoint created: $endpointName -> $script:ContainerRegistryLoginServer"
+        $script:DeployedResources += "RegistryEndpoint:$endpointName"
+    } else {
+        Write-WarnLog "Registry endpoint creation returned non-zero. It may already exist or the AIO instance is not yet ready."
+        Write-WarnLog "You can register it manually with:"
+        Write-WarnLog "  az iot ops registry create -n $endpointName --host $script:ContainerRegistryLoginServer -i $InstanceName -g $script:ResourceGroup"
+    }
+}
 
 function Deploy-IoTOperations {
     if ($SkipIoTOps) {
@@ -1293,27 +1372,9 @@ function Deploy-IoTOperations {
     }
     $script:DeployedResources += "IoTOperationsInstance:$instanceName"
 
-    # Attach Container Registry to AIO instance (enables authenticated image pull for edge modules)
-    if ($script:ContainerRegistryLoginServer) {
-        Write-Log "Attaching Container Registry to AIO instance: $script:ContainerRegistryLoginServer"
-        Write-InfoLog "This grants AcrPull to the AIO managed identity and links the registry for image pulls."
-
-        az iot ops acr attach `
-            --name $instanceName `
-            --resource-group $script:ResourceGroup `
-            --registry $script:ContainerRegistryLoginServer 2>&1
-
-        if ($LASTEXITCODE -eq 0) {
-            Write-Success "Container Registry attached to AIO instance: $script:ContainerRegistryLoginServer"
-        } else {
-            Write-WarnLog "az iot ops acr attach returned non-zero (may already be attached, or extension does not support this subcommand)."
-            Write-WarnLog "Manual fallback: grant AcrPull to the AIO system-assigned managed identity, then run:"
-            Write-WarnLog "  az role assignment create --role AcrPull --assignee <mi-principal-id> --scope <acr-resource-id>"
-            Write-InfoLog "Registry login server saved in aio_config.json for use by Deploy-EdgeModules.ps1."
-        }
-    } else {
-        Write-WarnLog "No container registry configured - skipping ACR attach. Set 'container_registry' in aio_config.json."
-    }
+    # Register ACR as a named registry endpoint inside AIO
+    # (runs whether AIO was just created or already existed)
+    Register-AcrRegistryEndpoint -InstanceName $instanceName
     
     # Enable secret sync
     Write-Log "Enabling secret sync..."
