@@ -1372,10 +1372,6 @@ function Deploy-IoTOperations {
     }
     $script:DeployedResources += "IoTOperationsInstance:$instanceName"
 
-    # Register ACR as a named registry endpoint inside AIO
-    # (runs whether AIO was just created or already existed)
-    Register-AcrRegistryEndpoint -InstanceName $instanceName
-    
     # Enable secret sync
     Write-Log "Enabling secret sync..."
     $miName = "$($script:ClusterName)-secretsync-mi"
@@ -1420,7 +1416,11 @@ function Deploy-IoTOperations {
         Write-Success "Secret sync enabled"
         }
     }  # End of else block (AIO deployment)
-    
+
+    # Register ACR as a named registry endpoint inside AIO
+    # (runs whether AIO was just created or already existed)
+    Register-AcrRegistryEndpoint -InstanceName $instanceName
+
     # Configure Key Vault RBAC role assignments for Arc cluster and AIO instance
     # This runs whether AIO was just deployed or already existed
     Write-Log "Configuring Key Vault RBAC role assignments for AIO identities..."

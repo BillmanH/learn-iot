@@ -78,6 +78,7 @@ $script:StartTime = Get-Date
 $script:ProxyJob = $null      # Legacy - kept for cleanup safety
 $script:ProxyProcess = $null  # Current - background process for Arc proxy
 $script:ContainerRegistry = $null  # Container registry from config
+$script:ProxyStarted = $false  # Tracks whether Arc proxy was successfully started
 
 #region Logging Functions
 
@@ -237,8 +238,10 @@ function Test-DockerDesktop {
     try {
         $dockerVersion = docker version --format '{{.Server.Version}}' 2>&1
         $dockerExitCode = $LASTEXITCODE
+        # Also treat empty version string as a failure (exit 0 but server unreachable)
+        $dockerVersionStr = "$dockerVersion".Trim()
         
-        if ($dockerExitCode -ne 0) {
+        if ($dockerExitCode -ne 0 -or [string]::IsNullOrEmpty($dockerVersionStr) -or $dockerVersionStr -match "error during connect|cannot find the file|dockerDesktopLinuxEngine") {
             $ErrorActionPreference = $previousErrorPref
             
             # Check for ARM64-specific WSL2 mount error
@@ -521,6 +524,7 @@ function Start-ArcProxy {
     }
     
     Write-Success "Arc proxy established"
+    $script:ProxyStarted = $true
 }
 
 function Test-ClusterConnection {
@@ -644,12 +648,35 @@ function Build-AndPushContainer {
         throw "Dockerfile not found for module: $Module"
     }
     
-    Write-InfoLog "Building container image..."
     $imageName = "$Registry/${Module}:$Tag"
     Write-InfoLog "Image: $imageName"
     Write-InfoLog "Context: $modulePath"
     
-    # Build the image (allow docker's informational output)
+    # Use az acr build for Azure Container Registry (no local Docker required)
+    if ($Registry -match '\.azurecr\.io$') {
+        $acrName = $Registry -replace '\.azurecr\.io$', ''
+        Write-InfoLog "Using az acr build (cloud build - no local Docker needed)"
+        Write-InfoLog "ACR: $acrName"
+        
+        $previousErrorPref = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        
+        az acr build --registry $acrName --image "${Module}:${Tag}" $modulePath
+        $buildExitCode = $LASTEXITCODE
+        
+        $ErrorActionPreference = $previousErrorPref
+        
+        if ($buildExitCode -ne 0) {
+            throw "az acr build failed for $Module (exit code: $buildExitCode)"
+        }
+        
+        Write-Success "Container built and pushed via ACR: $imageName"
+        return $imageName
+    }
+    
+    # Fallback: local Docker build + push (for non-ACR registries)
+    Write-InfoLog "Using local Docker build..."
+    
     $previousErrorPref = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     
@@ -662,53 +689,16 @@ function Build-AndPushContainer {
         Write-ErrorLog "Docker build failed with exit code: $buildExitCode"
         $buildOutput | ForEach-Object { Write-ErrorLog $_ }
         
-        # Check for common Docker Desktop issues on Windows
         if ($buildOutput -match "dockerDesktopLinuxEngine|The system cannot find the file specified|error during connect|WSL_E_WSL_MOUNT_NOT_SUPPORTED|--mount on ARM64 requires") {
-            Write-ErrorLog ""
-            Write-ErrorLog "============================================================"
-            Write-ErrorLog "TROUBLESHOOTING: Docker Desktop Issue Detected"
-            Write-ErrorLog "============================================================"
-            
-            # Check for ARM64 WSL2 specific error
-            if ($buildOutput -match "WSL_E_WSL_MOUNT_NOT_SUPPORTED|--mount on ARM64 requires") {
-                $osBuild = [System.Environment]::OSVersion.Version.Build
-                Write-ErrorLog "ARM64 WSL2 ISSUE: Windows build $osBuild is too old"
-                Write-ErrorLog ""
-                Write-ErrorLog "Required: Windows build 27653 or newer for ARM64 + WSL2"
-                Write-ErrorLog ""
-                Write-ErrorLog "Quick workaround - Use -SkipBuild flag:"
-                Write-ErrorLog "  .\ Deploy-EdgeModules.ps1 -ModuleName $Module -SkipBuild"
-                Write-ErrorLog "  (Build containers on a different machine first)"
-                Write-ErrorLog ""
-                Write-ErrorLog "Permanent fix - Update Windows:"
-                Write-ErrorLog "  Settings > Windows Update > Windows Insider Program"
-                Write-ErrorLog "  Join Dev/Canary Channel and install build 27653+"
-            } else {
-                Write-ErrorLog "This error typically occurs when Docker Desktop is not running on Windows."
-                Write-ErrorLog ""
-                Write-ErrorLog "To resolve this issue:"
-                Write-ErrorLog "  1. Start Docker Desktop from the Start menu"
-                Write-ErrorLog "  2. Wait for Docker to fully initialize (whale icon in system tray)"
-                Write-ErrorLog "  3. Verify Docker is running with: docker ps"
-                Write-ErrorLog "  4. Re-run this deployment script"
-                Write-ErrorLog ""
-                Write-ErrorLog "If Docker Desktop is running and you still see this error:"
-                Write-ErrorLog "  - Run: wsl --shutdown"
-                Write-ErrorLog "  - Restart Docker Desktop"
-                Write-ErrorLog "  - Check if Docker is set to use Linux containers"
-                Write-ErrorLog "  - Verify Docker Desktop is fully updated"
-            }
-            Write-ErrorLog "============================================================"
-            Write-ErrorLog ""
+            Write-ErrorLog "Docker Desktop is not available or not running."
+            Write-ErrorLog "TIP: If your registry is Azure Container Registry, use an ACR FQDN"
+            Write-ErrorLog "     (e.g. myregistry.azurecr.io) to build in the cloud instead."
         }
         
         throw "Failed to build container image"
     }
     
     Write-Success "Container built successfully"
-    
-    # Push the image
-    Write-InfoLog "Pushing image to registry: $Registry"
     
     $ErrorActionPreference = "Continue"
     $pushOutput = docker push $imageName 2>&1
@@ -1156,10 +1146,14 @@ function Main {
         
         # Build and push containers BEFORE starting Arc proxy
         if (-not $SkipBuild -and $script:ContainerRegistry) {
-            # Check Docker Desktop availability (only needed for building)
-            Write-Host ""
-            Test-DockerDesktop
-            Write-Host ""
+            # Only check Docker Desktop for non-ACR registries (ACR builds in the cloud)
+            if ($script:ContainerRegistry -notmatch '\.azurecr\.io$') {
+                Write-Host ""
+                Test-DockerDesktop
+                Write-Host ""
+            } else {
+                Write-InfoLog "ACR registry detected - skipping Docker Desktop check (using az acr build)"
+            }
             
             Write-Host "`n========================================" -ForegroundColor Cyan
             Write-Host "Building and Pushing Containers" -ForegroundColor Cyan
@@ -1257,8 +1251,10 @@ function Main {
         exit 1
     }
     finally {
-        # Always clean up ALL proxy processes - this runs even if the script crashes
-        Stop-ArcProxies
+        # Only clean up proxy if it was actually started
+        if ($script:ProxyStarted) {
+            Stop-ArcProxies
+        }
         # Cleanup legacy job if present
         if ($script:ProxyJob) {
             Stop-Job -Job $script:ProxyJob -ErrorAction SilentlyContinue
