@@ -351,7 +351,20 @@ Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
 
 **Step 2 — Set up your AKS-EE edge cluster**
 
-Follow the [Deploy AIO on AKS Edge Essentials](https://learn.microsoft.com/en-us/azure/aks/aksarc/aks-edge-howto-deploy-azure-iot) guide. If you used Option B above, the `$global:*` variables set by `session-bootstrap.ps1` are picked up automatically by the AKS-EE quickstart.
+Download the AKS-EE quickstart files, then follow the [Deploy AIO on AKS Edge Essentials](https://learn.microsoft.com/en-us/azure/aks/aksarc/aks-edge-howto-deploy-azure-iot) guide:
+
+```powershell
+$giturl = "https://raw.githubusercontent.com/Azure/AKS-Edge/main/tools"
+Invoke-WebRequest -Uri "$giturl/scripts/AksEdgeQuickStart/AksEdgeQuickStartForAio.ps1" `
+    -OutFile .\AksEdgeQuickStartForAio.ps1 -UseBasicParsing
+Invoke-WebRequest -Uri "$giturl/aio-aide-userconfig.json" `
+    -OutFile .\aio-aide-userconfig.json -UseBasicParsing
+Invoke-WebRequest -Uri "$giturl/aio-aksedge-config.json" `
+    -OutFile .\aio-aksedge-config.json -UseBasicParsing
+Unblock-File .\AksEdgeQuickStartForAio.ps1
+```
+
+> **Note**: The AKS-EE quickstart script does **not** read environment variables. You must fill in `aio-aide-userconfig.json` and `aio-aksedge-config.json` manually before running it, even if you have set `$env:AKSEDGE_CLUSTER_NAME` etc. in your session. If you used Option B (`session-bootstrap.ps1`), the `$global:*` variables it sets are picked up automatically by the quickstart.
 
 **Step 3 — Grant permissions and deploy AIO**
 

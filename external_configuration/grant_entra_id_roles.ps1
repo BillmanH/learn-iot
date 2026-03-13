@@ -136,7 +136,10 @@ function Find-ConfigFile {
 function Load-Configuration {
     Write-SubHeader "Loading Configuration"
     
-    # Try to load aio_config.json first (primary source for Azure configuration)
+    # Try to load aio_config.json first (config file fills in gaps; env vars override below)
+    $repoRoot = Split-Path -Parent $script:ScriptDir
+    $defaultPath = Join-Path (Join-Path $repoRoot "config") "aio_config.json"
+    Write-Host "[CONFIG] Searching for aio_config.json (default: $defaultPath)" -ForegroundColor Gray
     $configPath = Find-ConfigFile "aio_config.json"
     if ($configPath) {
         Write-Success "Found aio_config.json: $configPath"
@@ -164,6 +167,9 @@ function Load-Configuration {
         } catch {
             Write-Warning "Could not parse aio_config.json"
         }
+    } else {
+        Write-Warning "[CONFIG] aio_config.json not found - will rely on environment variables or prompts"
+        Write-Host "         To use a config file: cp config/quickstart_config.template config/aio_config.json" -ForegroundColor Gray
     }
     
     # Try to load cluster_info.json to validate cluster name consistency
@@ -192,49 +198,30 @@ function Load-Configuration {
     }
 }
 
-# Load config first
+# Load config file first (env vars and CLI params override below)
 Load-Configuration
 
-# Override with command-line parameters if provided
-if ($PSBoundParameters.ContainsKey('ResourceGroup')) {
-    $script:ResourceGroup = $ResourceGroup
-}
-if ($PSBoundParameters.ContainsKey('ClusterName')) {
-    $script:ClusterName = $ClusterName
-}
-if ($PSBoundParameters.ContainsKey('KeyVaultName')) {
-    $script:KeyVaultName = $KeyVaultName
-}
-if ($PSBoundParameters.ContainsKey('SubscriptionId')) {
-    $script:SubscriptionId = $SubscriptionId
-}
-
-# Prompt for missing required values
-if ([string]::IsNullOrEmpty($script:ResourceGroup)) {
-    $script:ResourceGroup = Read-Host "Enter Resource Group name"
-}
-
-if ([string]::IsNullOrEmpty($script:ClusterName)) {
-    $script:ClusterName = Read-Host "Enter Cluster name"
-}
-
-# Apply environment variable overrides / fallbacks (populated by session-bootstrap.ps1)
-if ($env:AZURE_SUBSCRIPTION_ID -and -not $script:SubscriptionId) {
-    Write-Warning "[ENV] Using AZURE_SUBSCRIPTION_ID from session-bootstrap: $env:AZURE_SUBSCRIPTION_ID"
+# Apply environment variable overrides — env vars always win over config file values
+Write-Host ""
+Write-Host "[ENV] Checking environment variables..." -ForegroundColor Gray
+if ($env:AZURE_SUBSCRIPTION_ID) {
+    Write-Host "[ENV] AZURE_SUBSCRIPTION_ID = $env:AZURE_SUBSCRIPTION_ID" -ForegroundColor Cyan
     $script:SubscriptionId = $env:AZURE_SUBSCRIPTION_ID
-}
-if ($env:AZURE_RESOURCE_GROUP -and -not $script:ResourceGroup) {
-    Write-Warning "[ENV] Using AZURE_RESOURCE_GROUP from session-bootstrap: $env:AZURE_RESOURCE_GROUP"
+} else { Write-Host "[ENV] AZURE_SUBSCRIPTION_ID - not set" -ForegroundColor Gray }
+
+if ($env:AZURE_RESOURCE_GROUP) {
+    Write-Host "[ENV] AZURE_RESOURCE_GROUP = $env:AZURE_RESOURCE_GROUP" -ForegroundColor Cyan
     $script:ResourceGroup = $env:AZURE_RESOURCE_GROUP
-}
-if ($env:AKSEDGE_CLUSTER_NAME -and -not $script:ClusterName) {
-    Write-Warning "[ENV] Using AKSEDGE_CLUSTER_NAME from session-bootstrap: $env:AKSEDGE_CLUSTER_NAME"
+} else { Write-Host "[ENV] AZURE_RESOURCE_GROUP - not set" -ForegroundColor Gray }
+
+if ($env:AKSEDGE_CLUSTER_NAME) {
+    Write-Host "[ENV] AKSEDGE_CLUSTER_NAME = $env:AKSEDGE_CLUSTER_NAME" -ForegroundColor Cyan
     $script:ClusterName = $env:AKSEDGE_CLUSTER_NAME
-}
+} else { Write-Host "[ENV] AKSEDGE_CLUSTER_NAME - not set" -ForegroundColor Gray }
+
 if ($env:AZURE_CONTAINER_REGISTRY) {
     $rawReg = $env:AZURE_CONTAINER_REGISTRY
-    if ($script:ContainerRegistryName) { Write-Host "[INFO] AZURE_CONTAINER_REGISTRY env var overrides config ($script:ContainerRegistryName)" -ForegroundColor Cyan }
-    else                               { Write-Warning "[ENV] Using AZURE_CONTAINER_REGISTRY from session-bootstrap: $rawReg" }
+    Write-Host "[ENV] AZURE_CONTAINER_REGISTRY = $rawReg" -ForegroundColor Cyan
     if ($rawReg -match '\.azurecr\.io$') {
         $script:ContainerRegistryLoginServer = $rawReg
         $script:ContainerRegistryName = $rawReg -replace '\.azurecr\.io$', ''
@@ -242,6 +229,27 @@ if ($env:AZURE_CONTAINER_REGISTRY) {
         $script:ContainerRegistryName = $rawReg
         $script:ContainerRegistryLoginServer = "${rawReg}.azurecr.io"
     }
+} else { Write-Host "[ENV] AZURE_CONTAINER_REGISTRY - not set" -ForegroundColor Gray }
+
+# CLI parameters always win (applied last, before prompt)
+if ($PSBoundParameters.ContainsKey('ResourceGroup'))  { $script:ResourceGroup  = $ResourceGroup }
+if ($PSBoundParameters.ContainsKey('ClusterName'))    { $script:ClusterName    = $ClusterName }
+if ($PSBoundParameters.ContainsKey('KeyVaultName'))   { $script:KeyVaultName   = $KeyVaultName }
+if ($PSBoundParameters.ContainsKey('SubscriptionId')) { $script:SubscriptionId = $SubscriptionId }
+
+# Prompt only as last resort - log what was checked, then persist the answered value for this session
+if ([string]::IsNullOrEmpty($script:ResourceGroup)) {
+    Write-Warning "[INPUT] AZURE_RESOURCE_GROUP not found in env vars or config."
+    $script:ResourceGroup = Read-Host "Enter Resource Group name"
+    $env:AZURE_RESOURCE_GROUP = $script:ResourceGroup
+    Write-Host "[INPUT] Saved as `$env:AZURE_RESOURCE_GROUP for this session." -ForegroundColor Cyan
+}
+
+if ([string]::IsNullOrEmpty($script:ClusterName)) {
+    Write-Warning "[INPUT] AKSEDGE_CLUSTER_NAME not found in env vars or config."
+    $script:ClusterName = Read-Host "Enter Cluster name"
+    $env:AKSEDGE_CLUSTER_NAME = $script:ClusterName
+    Write-Host "[INPUT] Saved as `$env:AKSEDGE_CLUSTER_NAME for this session." -ForegroundColor Cyan
 }
 
 # ============================================================================

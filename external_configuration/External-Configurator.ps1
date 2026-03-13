@@ -309,6 +309,7 @@ function Import-AzureConfig {
         $configPath = Join-Path $script:ConfigDir "aio_config.json"
     }
     
+    Write-Host "[CONFIG] Looking for aio_config.json at: $configPath" -ForegroundColor Gray
     if (-not (Test-Path $configPath)) {
         Write-WarnLog "Config file not found: $configPath"
         Write-Host ""
@@ -420,7 +421,27 @@ function Test-ConfigConsistency {
     $aioConfigName = $script:ConfigClusterName
     
     if (-not $clusterInfoName) {
-        Write-ErrorLog "cluster_info.json is missing cluster_name" -Fatal
+        Write-WarnLog "cluster_info.json was found but cluster_name is empty."
+        Write-Host "  Falling back to env var / aio_config.json for cluster name." -ForegroundColor Yellow
+        Write-Host "  (On the AKS-EE path this file is not required - safe to delete.)" -ForegroundColor Gray
+
+        # 1. Env var
+        if ($env:AKSEDGE_CLUSTER_NAME) {
+            $script:ClusterName = $env:AKSEDGE_CLUSTER_NAME
+            Write-InfoLog "[ENV] Cluster name from AKSEDGE_CLUSTER_NAME: $script:ClusterName"
+        # 2. aio_config.json value already loaded into script:ConfigClusterName
+        } elseif ($script:ConfigClusterName) {
+            $script:ClusterName = $script:ConfigClusterName
+            Write-InfoLog "[CONFIG] Cluster name from aio_config.json: $script:ClusterName"
+        # 3. Prompt as last resort
+        } else {
+            Write-Warning "[INPUT] AKSEDGE_CLUSTER_NAME not found in env vars or config."
+            $script:ClusterName = Read-Host "Enter Cluster name"
+            $env:AKSEDGE_CLUSTER_NAME = $script:ClusterName
+            Write-Host "[INPUT] Saved as `$env:AKSEDGE_CLUSTER_NAME for this session." -ForegroundColor Cyan
+        }
+        $script:ClusterData = $null  # treat as not loaded
+        return
     }
     
     if (-not $aioConfigName) {
@@ -528,15 +549,21 @@ function Connect-ToAzure {
     $script:SubscriptionId = $currentAccount.id
     $script:SubscriptionName = $currentAccount.name
     
-    # Prompt for missing configuration values
+    # Prompt for missing configuration values - only reached if env vars and config both empty
     if (-not $script:ResourceGroup) {
         Write-Host ""
+        Write-Warning "[INPUT] AZURE_RESOURCE_GROUP not found in env vars or config."
         $script:ResourceGroup = Read-Host "Enter resource group name (will be created if it doesn't exist)"
+        $env:AZURE_RESOURCE_GROUP = $script:ResourceGroup
+        Write-Host "[INPUT] Saved as `$env:AZURE_RESOURCE_GROUP for this session." -ForegroundColor Cyan
     }
     
     if (-not $script:Location) {
         Write-Host ""
+        Write-Warning "[INPUT] AZURE_LOCATION not found in env vars or config."
         $script:Location = Read-Host "Enter Azure region (e.g., eastus, westus2, westeurope)"
+        $env:AZURE_LOCATION = $script:Location
+        Write-Host "[INPUT] Saved as `$env:AZURE_LOCATION for this session." -ForegroundColor Cyan
     }
     
     if (-not $script:NamespaceName) {
