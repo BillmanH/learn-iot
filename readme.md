@@ -332,10 +332,6 @@ If you are running both AKS Edge Essentials (edge) and the Azure management scri
 
 **Step 1 — Set your Azure context (choose one option)**
 
-_Option A — Paste values directly in your terminal (quickest, no file editing):_
-
-> **Tip**: Option A is the fastest way to get going — just paste and run. Option B is worth the one-time setup if you return to this workflow regularly or work across multiple terminal sessions.
-
 You can either clone the repository or download and unzip. 
 ```powershell
 $repo     = "BillmanH/learn-iot"
@@ -349,6 +345,10 @@ Expand-Archive $outZip -DestinationPath . -Force
 Rename-Item ".\learn-iot-$branch" $outDir -Force
 Remove-Item $outZip
 ```
+
+_Option A — Paste values directly in your terminal (quickest, no file editing):_
+
+> **Tip**: Option A is the fastest way to get going — just paste and run. Option B is worth the one-time setup if you return to this workflow regularly or work across multiple terminal sessions.
 
 ```powershell
 $env:AZURE_SUBSCRIPTION_ID    = "your-subscription-id"
