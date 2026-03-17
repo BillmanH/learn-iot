@@ -354,50 +354,51 @@ function Import-AzureConfig {
         Write-WarnLog "Configuration will be collected interactively"
     }
 
-    # Apply environment variable overrides / fallbacks (populated by session-bootstrap.ps1)
-    # INFO  = env var found, JSON value also present (env var wins)
-    # WARN  = env var is the only source (no JSON config loaded)
-    if ($env:AZURE_SUBSCRIPTION_ID) {
-        if ($script:SubscriptionId) { Write-InfoLog "[ENV] AZURE_SUBSCRIPTION_ID overrides JSON value ($script:SubscriptionId)" }
-        else                        { Write-WarnLog  "[ENV] AZURE_SUBSCRIPTION_ID not in config - using session-bootstrap value" }
-        $script:SubscriptionId = $env:AZURE_SUBSCRIPTION_ID
-    } elseif (-not $script:SubscriptionId) {
-        Write-WarnLog "[ENV] AZURE_SUBSCRIPTION_ID not set and not in config - will prompt or fail during deployment"
-    }
-    if ($env:AZURE_RESOURCE_GROUP) {
-        if ($script:ResourceGroup) { Write-InfoLog "[ENV] AZURE_RESOURCE_GROUP overrides JSON value ($script:ResourceGroup)" }
-        else                       { Write-WarnLog  "[ENV] AZURE_RESOURCE_GROUP not in config - using session-bootstrap value" }
-        $script:ResourceGroup = $env:AZURE_RESOURCE_GROUP
-    } elseif (-not $script:ResourceGroup) {
-        Write-WarnLog "[ENV] AZURE_RESOURCE_GROUP not set and not in config - will prompt or fail during deployment"
-    }
-    if ($env:AZURE_LOCATION) {
-        if ($script:Location) { Write-InfoLog "[ENV] AZURE_LOCATION overrides JSON value ($script:Location)" }
-        else                  { Write-WarnLog  "[ENV] AZURE_LOCATION not in config - using session-bootstrap value" }
-        $script:Location = $env:AZURE_LOCATION
-    } elseif (-not $script:Location) {
-        Write-WarnLog "[ENV] AZURE_LOCATION not set and not in config - will prompt or fail during deployment"
-    }
-    if ($env:AKSEDGE_CLUSTER_NAME) {
-        if ($script:ConfigClusterName) { Write-InfoLog "[ENV] AKSEDGE_CLUSTER_NAME overrides JSON value ($script:ConfigClusterName)" }
-        else                           { Write-WarnLog  "[ENV] AKSEDGE_CLUSTER_NAME not in config - using session-bootstrap value" }
-        $script:ConfigClusterName = $env:AKSEDGE_CLUSTER_NAME
-        if (-not $script:ClusterName) { $script:ClusterName = $env:AKSEDGE_CLUSTER_NAME }
-    } elseif (-not $script:ConfigClusterName) {
-        Write-WarnLog "[ENV] AKSEDGE_CLUSTER_NAME not set and not in config - will prompt or fail during deployment"
-    }
-    if ($env:AZURE_CONTAINER_REGISTRY) {
-        $rawReg = $env:AZURE_CONTAINER_REGISTRY
-        if ($script:ContainerRegistryName) { Write-InfoLog "[ENV] AZURE_CONTAINER_REGISTRY overrides config value ($script:ContainerRegistryName)" }
-        else                               { Write-WarnLog  "[ENV] AZURE_CONTAINER_REGISTRY not in config - using session-bootstrap value" }
-        if ($rawReg -match '\.azurecr\.io$') {
-            $script:ContainerRegistryLoginServer = $rawReg
-            $script:ContainerRegistryName = $rawReg -replace '\.azurecr\.io$', ''
-        } else {
-            $script:ContainerRegistryName = $rawReg
-            $script:ContainerRegistryLoginServer = "${rawReg}.azurecr.io"
-        }
-    }
+    # Step 2: Environment variables — only fill in values still empty after config file
+    Write-Host "[CONFIG] Step 2: Environment variables (fallback for values missing from config)" -ForegroundColor Gray
+
+    if (-not [string]::IsNullOrEmpty($env:AZURE_SUBSCRIPTION_ID)) {
+        if ([string]::IsNullOrEmpty($script:SubscriptionId)) {
+            $script:SubscriptionId = $env:AZURE_SUBSCRIPTION_ID
+            Write-InfoLog "  [env] AZURE_SUBSCRIPTION_ID    = $script:SubscriptionId"
+        } else { Write-InfoLog "  [env] AZURE_SUBSCRIPTION_ID    = (skipped - config file value used)" }
+    } else { Write-InfoLog "  [env] AZURE_SUBSCRIPTION_ID    - not set" }
+
+    if (-not [string]::IsNullOrEmpty($env:AZURE_RESOURCE_GROUP)) {
+        if ([string]::IsNullOrEmpty($script:ResourceGroup)) {
+            $script:ResourceGroup = $env:AZURE_RESOURCE_GROUP
+            Write-InfoLog "  [env] AZURE_RESOURCE_GROUP     = $script:ResourceGroup"
+        } else { Write-InfoLog "  [env] AZURE_RESOURCE_GROUP     = (skipped - config file value used)" }
+    } else { Write-InfoLog "  [env] AZURE_RESOURCE_GROUP     - not set" }
+
+    if (-not [string]::IsNullOrEmpty($env:AZURE_LOCATION)) {
+        if ([string]::IsNullOrEmpty($script:Location)) {
+            $script:Location = $env:AZURE_LOCATION
+            Write-InfoLog "  [env] AZURE_LOCATION           = $script:Location"
+        } else { Write-InfoLog "  [env] AZURE_LOCATION           = (skipped - config file value used)" }
+    } else { Write-InfoLog "  [env] AZURE_LOCATION           - not set" }
+
+    if (-not [string]::IsNullOrEmpty($env:AKSEDGE_CLUSTER_NAME)) {
+        if ([string]::IsNullOrEmpty($script:ConfigClusterName)) {
+            $script:ConfigClusterName = $env:AKSEDGE_CLUSTER_NAME
+            if ([string]::IsNullOrEmpty($script:ClusterName)) { $script:ClusterName = $env:AKSEDGE_CLUSTER_NAME }
+            Write-InfoLog "  [env] AKSEDGE_CLUSTER_NAME     = $script:ConfigClusterName"
+        } else { Write-InfoLog "  [env] AKSEDGE_CLUSTER_NAME     = (skipped - config file value used)" }
+    } else { Write-InfoLog "  [env] AKSEDGE_CLUSTER_NAME     - not set" }
+
+    if (-not [string]::IsNullOrEmpty($env:AZURE_CONTAINER_REGISTRY)) {
+        if ([string]::IsNullOrEmpty($script:ContainerRegistryName)) {
+            $rawReg = $env:AZURE_CONTAINER_REGISTRY
+            if ($rawReg -match '\.azurecr\.io$') {
+                $script:ContainerRegistryLoginServer = $rawReg
+                $script:ContainerRegistryName = $rawReg -replace '\.azurecr\.io$', ''
+            } else {
+                $script:ContainerRegistryName = $rawReg
+                $script:ContainerRegistryLoginServer = "${rawReg}.azurecr.io"
+            }
+            Write-InfoLog "  [env] AZURE_CONTAINER_REGISTRY = $script:ContainerRegistryName"
+        } else { Write-InfoLog "  [env] AZURE_CONTAINER_REGISTRY = (skipped - config file value used)" }
+    } else { Write-InfoLog "  [env] AZURE_CONTAINER_REGISTRY - not set (will auto-generate)" }
 }
 
 function Test-ConfigConsistency {
@@ -425,14 +426,14 @@ function Test-ConfigConsistency {
         Write-Host "  Falling back to env var / aio_config.json for cluster name." -ForegroundColor Yellow
         Write-Host "  (On the AKS-EE path this file is not required - safe to delete.)" -ForegroundColor Gray
 
-        # 1. Env var
-        if ($env:AKSEDGE_CLUSTER_NAME) {
-            $script:ClusterName = $env:AKSEDGE_CLUSTER_NAME
-            Write-InfoLog "[ENV] Cluster name from AKSEDGE_CLUSTER_NAME: $script:ClusterName"
-        # 2. aio_config.json value already loaded into script:ConfigClusterName
-        } elseif ($script:ConfigClusterName) {
+        # 1. aio_config.json value already loaded into script:ConfigClusterName
+        if ($script:ConfigClusterName) {
             $script:ClusterName = $script:ConfigClusterName
             Write-InfoLog "[CONFIG] Cluster name from aio_config.json: $script:ClusterName"
+        # 2. Env var fallback
+        } elseif ($env:AKSEDGE_CLUSTER_NAME) {
+            $script:ClusterName = $env:AKSEDGE_CLUSTER_NAME
+            Write-InfoLog "[ENV] Cluster name from AKSEDGE_CLUSTER_NAME: $script:ClusterName"
         # 3. Prompt as last resort
         } else {
             Write-Warning "[INPUT] AKSEDGE_CLUSTER_NAME not found in env vars or config."
@@ -506,6 +507,73 @@ function Test-ConfigConsistency {
     }
 }
 
+function Test-RequiredVariables {
+    Write-Log "Validating required configuration..."
+
+    $varHelp = @{
+        "ResourceGroup" = @{ Env = "AZURE_RESOURCE_GROUP"; Label = "Azure resource group name" }
+        "ClusterName"   = @{ Env = "AKSEDGE_CLUSTER_NAME"; Label = "Arc-enabled cluster name"  }
+        "Location"      = @{ Env = "AZURE_LOCATION";       Label = "Azure region (e.g. eastus2)" }
+    }
+
+    $missingRequired = [System.Collections.Generic.List[string]]::new()
+    if ([string]::IsNullOrEmpty($script:ResourceGroup)) { $missingRequired.Add("ResourceGroup") }
+    if ([string]::IsNullOrEmpty($script:ClusterName))   { $missingRequired.Add("ClusterName") }
+    if ([string]::IsNullOrEmpty($script:Location))      { $missingRequired.Add("Location") }
+
+    if ($missingRequired.Count -eq 0) {
+        Write-Success "All required variables present"
+        Write-InfoLog "  Resource Group : $script:ResourceGroup"
+        Write-InfoLog "  Cluster Name   : $script:ClusterName"
+        Write-InfoLog "  Location       : $script:Location"
+        return
+    }
+
+    Write-Host ""
+    Write-Host ("=" * 60) -ForegroundColor Yellow
+    Write-Host "REQUIRED CONFIGURATION MISSING" -ForegroundColor Yellow
+    Write-Host ("=" * 60) -ForegroundColor Yellow
+    Write-Host "The following values were not found in aio_config.json" -ForegroundColor Yellow
+    Write-Host "or environment variables:" -ForegroundColor Yellow
+    Write-Host ""
+    foreach ($var in $missingRequired) {
+        Write-Host "  - $($varHelp[$var].Label)" -ForegroundColor Red
+        Write-Host "    set via: `$env:$($varHelp[$var].Env) = `"your-value`"" -ForegroundColor Gray
+    }
+    Write-Host ""
+    Write-Host "Options to fix this without prompting:" -ForegroundColor Cyan
+    Write-Host '  Option A  env vars:   $env:AZURE_RESOURCE_GROUP = "rg-my-iot"' -ForegroundColor White
+    Write-Host '                         $env:AKSEDGE_CLUSTER_NAME = "my-cluster"' -ForegroundColor White
+    Write-Host '                         $env:AZURE_LOCATION       = "eastus2"' -ForegroundColor White
+    Write-Host "  Option B  config file: config/aio_config.json  (azure.resource_group, azure.cluster_name, azure.location)" -ForegroundColor White
+    Write-Host "  Option C  CLI param:   -ConfigFile path/to/aio_config.json" -ForegroundColor White
+    Write-Host ""
+
+    foreach ($var in $missingRequired) {
+        $value = Read-Host "  Enter $($varHelp[$var].Label)"
+        if ([string]::IsNullOrWhiteSpace($value)) {
+            Write-Host ""
+            Write-ErrorLog "No value provided for $var. Cannot continue." -Fatal
+        }
+        switch ($var) {
+            "ResourceGroup" { $script:ResourceGroup = $value.Trim() }
+            "ClusterName"   { $script:ClusterName   = $value.Trim() }
+            "Location"      { $script:Location      = $value.Trim() }
+        }
+    }
+
+    # Final guard
+    $stillMissing = @()
+    if ([string]::IsNullOrEmpty($script:ResourceGroup)) { $stillMissing += "ResourceGroup  (env: AZURE_RESOURCE_GROUP)" }
+    if ([string]::IsNullOrEmpty($script:ClusterName))   { $stillMissing += "ClusterName    (env: AKSEDGE_CLUSTER_NAME)" }
+    if ([string]::IsNullOrEmpty($script:Location))      { $stillMissing += "Location       (env: AZURE_LOCATION)" }
+    if ($stillMissing.Count -gt 0) {
+        Write-Host ""
+        foreach ($v in $stillMissing) { Write-ErrorLog "  Missing: $v" }
+        Write-ErrorLog "Cannot continue - required configuration still missing." -Fatal
+    }
+}
+
 # ============================================================================
 # AZURE AUTHENTICATION
 # ============================================================================
@@ -548,24 +616,7 @@ function Connect-ToAzure {
     $currentAccount = az account show | ConvertFrom-Json
     $script:SubscriptionId = $currentAccount.id
     $script:SubscriptionName = $currentAccount.name
-    
-    # Prompt for missing configuration values - only reached if env vars and config both empty
-    if (-not $script:ResourceGroup) {
-        Write-Host ""
-        Write-Warning "[INPUT] AZURE_RESOURCE_GROUP not found in env vars or config."
-        $script:ResourceGroup = Read-Host "Enter resource group name (will be created if it doesn't exist)"
-        $env:AZURE_RESOURCE_GROUP = $script:ResourceGroup
-        Write-Host "[INPUT] Saved as `$env:AZURE_RESOURCE_GROUP for this session." -ForegroundColor Cyan
-    }
-    
-    if (-not $script:Location) {
-        Write-Host ""
-        Write-Warning "[INPUT] AZURE_LOCATION not found in env vars or config."
-        $script:Location = Read-Host "Enter Azure region (e.g., eastus, westus2, westeurope)"
-        $env:AZURE_LOCATION = $script:Location
-        Write-Host "[INPUT] Saved as `$env:AZURE_LOCATION for this session." -ForegroundColor Cyan
-    }
-    
+
     if (-not $script:NamespaceName) {
         $script:NamespaceName = "$($script:ClusterName)-ns"
         Write-InfoLog "Using default namespace name: $script:NamespaceName"
@@ -1889,6 +1940,9 @@ function Main {
         
         # Validate cluster names match between config files
         Test-ConfigConsistency
+
+        # Validate all required variables are present before doing anything
+        Test-RequiredVariables
         
         Connect-ToAzure
         
