@@ -336,9 +336,23 @@ function Import-AzureConfig {
             $script:SubscriptionId = $script:AzureConfig.azure.subscription_id
             $script:ResourceGroup = $script:AzureConfig.azure.resource_group
             $script:Location = $script:AzureConfig.azure.location
-            $script:NamespaceName = $script:AzureConfig.azure.namespace_name
-            $script:StorageAccountName = $script:AzureConfig.azure.storage_account_name
-            $script:KeyVaultName = $script:AzureConfig.azure.key_vault_name
+            $rawNamespace = $script:AzureConfig.azure.namespace_name
+            if ($rawNamespace) {
+                $script:NamespaceName = $rawNamespace.ToLower()
+                if ($script:NamespaceName -cne $rawNamespace) { Write-Warning "[CONFIG] namespace_name '$rawNamespace' was converted to lowercase: '$script:NamespaceName'" }
+            }
+
+            $rawStorage = $script:AzureConfig.azure.storage_account_name
+            if ($rawStorage) {
+                $script:StorageAccountName = $rawStorage.ToLower()
+                if ($script:StorageAccountName -cne $rawStorage) { Write-Warning "[CONFIG] storage_account_name '$rawStorage' was converted to lowercase: '$script:StorageAccountName'" }
+            }
+
+            $rawKv = $script:AzureConfig.azure.key_vault_name
+            if ($rawKv) {
+                $script:KeyVaultName = $rawKv.ToLower()
+                if ($script:KeyVaultName -cne $rawKv) { Write-Warning "[CONFIG] key_vault_name '$rawKv' was converted to lowercase: '$script:KeyVaultName'" }
+            }
             
             # Store the config cluster name for validation (don't override yet)
             $script:ConfigClusterName = $script:AzureConfig.azure.cluster_name
@@ -628,12 +642,13 @@ function Connect-ToAzure {
     $script:SubscriptionName = $currentAccount.name
 
     if (-not $script:NamespaceName) {
-        $script:NamespaceName = "$($script:ClusterName)-ns"
+        $script:NamespaceName = "$($script:ClusterName)-ns".ToLower()
         Write-InfoLog "Using default namespace name: $script:NamespaceName"
     }
     
     # Generate resource names if not provided
     $clusterNameClean = $script:ClusterName.ToLower() -replace '[^a-z0-9]', ''
+    if ($clusterNameClean -cne $script:ClusterName) { Write-Warning "[NAME] Cluster name '$($script:ClusterName)' was sanitized to '$clusterNameClean' for use in resource names (lowercase, alphanumeric only)" }
     
     if (-not $script:StorageAccountName) {
         $script:StorageAccountName = ($clusterNameClean + "storage").Substring(0, [Math]::Min(24, ($clusterNameClean + "storage").Length))
@@ -641,7 +656,7 @@ function Connect-ToAzure {
     }
     
     if (-not $script:SchemaRegistryName) {
-        $script:SchemaRegistryName = "$($script:ClusterName)-schema-registry"
+        $script:SchemaRegistryName = "$($script:ClusterName)-schema-registry".ToLower()
         Write-InfoLog "Using auto-generated schema registry name: $script:SchemaRegistryName"
     }
 
@@ -656,6 +671,7 @@ function Connect-ToAzure {
         # Generate deterministic Key Vault name from resource group (for idempotency)
         # Key Vault names must be 3-24 chars, alphanumeric and hyphens only
         $rgClean = $script:ResourceGroup.ToLower() -replace '[^a-z0-9]', ''
+        if ($rgClean -cne $script:ResourceGroup) { Write-Warning "[NAME] Resource group '$($script:ResourceGroup)' was sanitized to '$rgClean' for use in Key Vault name (lowercase, alphanumeric only)" }
         $script:KeyVaultName = ("kv" + $rgClean).Substring(0, [Math]::Min(24, ("kv" + $rgClean).Length))
         Write-InfoLog "Using auto-generated Key Vault name: $script:KeyVaultName"
     }
