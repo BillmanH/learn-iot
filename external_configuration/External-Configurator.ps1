@@ -309,6 +309,15 @@ function Import-AzureConfig {
         $configPath = Join-Path $script:ConfigDir "aio_config.json"
     }
     
+    # Normalise env var aliases FIRST (before any early return) so they are available
+    # regardless of whether a config file is found.
+    # session-bootstrap.ps1 uses AZ_* / AKS_EDGE_* names; scripts check AZURE_* / AKSEDGE_*.
+    if ([string]::IsNullOrEmpty($env:AZURE_SUBSCRIPTION_ID)    -and -not [string]::IsNullOrEmpty($env:AZ_SUBSCRIPTION_ID))    { $env:AZURE_SUBSCRIPTION_ID    = $env:AZ_SUBSCRIPTION_ID }
+    if ([string]::IsNullOrEmpty($env:AZURE_RESOURCE_GROUP)     -and -not [string]::IsNullOrEmpty($env:AZ_RESOURCE_GROUP))     { $env:AZURE_RESOURCE_GROUP     = $env:AZ_RESOURCE_GROUP }
+    if ([string]::IsNullOrEmpty($env:AZURE_LOCATION)           -and -not [string]::IsNullOrEmpty($env:AZ_LOCATION))           { $env:AZURE_LOCATION           = $env:AZ_LOCATION }
+    if ([string]::IsNullOrEmpty($env:AKSEDGE_CLUSTER_NAME)     -and -not [string]::IsNullOrEmpty($env:AKS_EDGE_CLUSTER_NAME)) { $env:AKSEDGE_CLUSTER_NAME     = $env:AKS_EDGE_CLUSTER_NAME }
+    if ([string]::IsNullOrEmpty($env:AZURE_CONTAINER_REGISTRY) -and -not [string]::IsNullOrEmpty($env:AZ_CONTAINER_REGISTRY)) { $env:AZURE_CONTAINER_REGISTRY = $env:AZ_CONTAINER_REGISTRY }
+
     Write-Host "[CONFIG] Looking for aio_config.json at: $configPath" -ForegroundColor Gray
     if (-not (Test-Path $configPath)) {
         Write-WarnLog "Config file not found: $configPath"
@@ -317,7 +326,6 @@ function Import-AzureConfig {
         Write-Host "To use a config file, copy from template:" -ForegroundColor Yellow
         Write-Host "  cp config/quickstart_config.template config/aio_config.json" -ForegroundColor Gray
         Write-Host ""
-        return
     }
     
     try {
@@ -359,12 +367,6 @@ function Import-AzureConfig {
 
     # Normalise aliases: session-bootstrap uses AZ_* / AKS_EDGE_* names; scripts use AZURE_* / AKSEDGE_*
     # Accept both so users don't have to know the difference.
-    if ([string]::IsNullOrEmpty($env:AZURE_SUBSCRIPTION_ID)    -and -not [string]::IsNullOrEmpty($env:AZ_SUBSCRIPTION_ID))    { $env:AZURE_SUBSCRIPTION_ID    = $env:AZ_SUBSCRIPTION_ID }
-    if ([string]::IsNullOrEmpty($env:AZURE_RESOURCE_GROUP)     -and -not [string]::IsNullOrEmpty($env:AZ_RESOURCE_GROUP))     { $env:AZURE_RESOURCE_GROUP     = $env:AZ_RESOURCE_GROUP }
-    if ([string]::IsNullOrEmpty($env:AZURE_LOCATION)           -and -not [string]::IsNullOrEmpty($env:AZ_LOCATION))           { $env:AZURE_LOCATION           = $env:AZ_LOCATION }
-    if ([string]::IsNullOrEmpty($env:AKSEDGE_CLUSTER_NAME)     -and -not [string]::IsNullOrEmpty($env:AKS_EDGE_CLUSTER_NAME)) { $env:AKSEDGE_CLUSTER_NAME     = $env:AKS_EDGE_CLUSTER_NAME }
-    if ([string]::IsNullOrEmpty($env:AZURE_CONTAINER_REGISTRY) -and -not [string]::IsNullOrEmpty($env:AZ_CONTAINER_REGISTRY)) { $env:AZURE_CONTAINER_REGISTRY = $env:AZ_CONTAINER_REGISTRY }
-
     if (-not [string]::IsNullOrEmpty($env:AZURE_SUBSCRIPTION_ID)) {
         if ([string]::IsNullOrEmpty($script:SubscriptionId)) {
             $script:SubscriptionId = $env:AZURE_SUBSCRIPTION_ID
