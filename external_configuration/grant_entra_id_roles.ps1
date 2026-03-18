@@ -209,6 +209,14 @@ Load-ConfigFile
 # ---- Step 2: Environment variables (fallback for values still missing) -----
 Write-SubHeader "Step 2: Environment variables (fallback)"
 
+# Normalise aliases: session-bootstrap uses AZ_* / AKS_EDGE_* names; scripts use AZURE_* / AKSEDGE_*
+# Accept both so users don't have to know the difference.
+if ([string]::IsNullOrEmpty($env:AZURE_SUBSCRIPTION_ID)    -and -not [string]::IsNullOrEmpty($env:AZ_SUBSCRIPTION_ID))    { $env:AZURE_SUBSCRIPTION_ID    = $env:AZ_SUBSCRIPTION_ID }
+if ([string]::IsNullOrEmpty($env:AZURE_RESOURCE_GROUP)     -and -not [string]::IsNullOrEmpty($env:AZ_RESOURCE_GROUP))     { $env:AZURE_RESOURCE_GROUP     = $env:AZ_RESOURCE_GROUP }
+if ([string]::IsNullOrEmpty($env:AZURE_LOCATION)           -and -not [string]::IsNullOrEmpty($env:AZ_LOCATION))           { $env:AZURE_LOCATION           = $env:AZ_LOCATION }
+if ([string]::IsNullOrEmpty($env:AKSEDGE_CLUSTER_NAME)     -and -not [string]::IsNullOrEmpty($env:AKS_EDGE_CLUSTER_NAME)) { $env:AKSEDGE_CLUSTER_NAME     = $env:AKS_EDGE_CLUSTER_NAME }
+if ([string]::IsNullOrEmpty($env:AZURE_CONTAINER_REGISTRY) -and -not [string]::IsNullOrEmpty($env:AZ_CONTAINER_REGISTRY)) { $env:AZURE_CONTAINER_REGISTRY = $env:AZ_CONTAINER_REGISTRY }
+
 if (-not [string]::IsNullOrEmpty($env:AZURE_SUBSCRIPTION_ID)) {
     if ([string]::IsNullOrEmpty($script:SubscriptionId)) {
         $script:SubscriptionId = $env:AZURE_SUBSCRIPTION_ID
