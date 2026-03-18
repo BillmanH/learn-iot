@@ -28,6 +28,8 @@ spec:
         app: demohistorian
     spec:
       serviceAccountName: mqtt-client
+      imagePullSecrets:
+      - name: acr-pull-secret  # Created by Deploy-EdgeModules.ps1 for ACR authentication
       containers:
       # PostgreSQL Database Container
       - name: postgres

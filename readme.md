@@ -58,27 +58,51 @@ Once you have setup AIO via this process, you should be able to do everything th
 
 ![Process Overview](docs/img/process_1.png)
 
-### The process involves running four scripts:
-#### On the edge machine:
-1. arc_build_linux\installer.sh
-2. arc_build_linux\arc_enable.ps1
-#### On your Windows Machine:
-3. external_configuration\grant_entra_id_roles.ps1
-4. external_configuration\External-Configurator.ps1
+### The process (high level)
 
+There are two supported paths. Choose the one that matches your setup:
 
-Specific commands for them are below. 
+**Path A — Ubuntu / K3s** (dedicated edge device):
 
-**Note** Installing AIO can be different depending on your setup. In many cases, you have to run some scripts multiple times or in different order. The log messages in each script should tell you what to do next. 
+| Step | Where | Script |
+|------|-------|--------|
+| [1. Edge Setup](#3-edge-setup-on-ubuntu-device) | Edge machine (Ubuntu) | `arc_build_linux/installer.sh` |
+| [2. Arc-Enable Cluster](#3b-arc-enable-cluster-on-ubuntu-device) | Edge machine (Ubuntu) | `arc_build_linux/arc_enable.ps1` |
+| [3. Grant Roles](#4-azure-configuration-from-windows-machine) | Windows machine | `external_configuration/grant_entra_id_roles.ps1` |
+| [4. Deploy AIO](#4-azure-configuration-from-windows-machine) | Windows machine | `external_configuration/External-Configurator.ps1` |
+
+**Path B — AKS Edge Essentials** (single Windows machine):
+
+| Step | Where | Action |
+|------|-------|--------|
+| [1. Set up AKS-EE cluster](#path-b-single-windows-machine-aks-ee) | Windows machine | [Microsoft AKS-EE quickstart](https://learn.microsoft.com/en-us/azure/aks/aksarc/aks-edge-howto-deploy-azure-iot) |
+| [2. Grant Roles](#path-b-single-windows-machine-aks-ee) | Windows machine | `external_configuration/grant_entra_id_roles.ps1` |
+| [3. Deploy AIO](#path-b-single-windows-machine-aks-ee) | Windows machine | `external_configuration/External-Configurator.ps1` |
+
+Specific commands for each path are in the [Installation](#installation) section below.
+
+> **Note**: Installing AIO can vary depending on your setup. You may need to run scripts more than once or in a different order. The log messages in each script will tell you what to do next.
 
 ## Prerequisites
 
-### Hardware (Ubuntu / K3s path)
-- **Hardware**: Ubuntu machine with 16GB RAM, 4 CPU cores, 50GB disk
-- **Azure**: Active subscription with admin access
-- **Network**: Internet connectivity (edge device and management machine)
+### Path A: Ubuntu / K3s
+
+**Edge device:**
+- Ubuntu machine with 16GB RAM, 4 CPU cores, 50GB disk
+- Internet connectivity
+
+**Windows management machine** (see below)
+
+### Path B: AKS Edge Essentials (single Windows machine)
+
+- Windows 10/11 or Windows Server 2019/2022
+- 16GB RAM, 4 CPU cores, 50GB free disk
+- [AKS Edge Essentials](https://learn.microsoft.com/en-us/azure/aks/aksarc/aks-edge-quickstart) installed
+- Internet connectivity
+- **Windows management machine** requirements below also apply
 
 ### Windows Management Machine (required for all paths)
+- **Azure**: Active subscription with admin access
 - **PowerShell 7+** (strongly recommended — 5.1 will produce a warning but may still work)  
   Download: <https://aka.ms/install-powershell>
 - **Azure CLI ≥ 2.64.0**  
@@ -308,6 +332,20 @@ If you are running both AKS Edge Essentials (edge) and the Azure management scri
 
 **Step 1 — Set your Azure context (choose one option)**
 
+You can either clone the repository or download and unzip. 
+```powershell
+$repo     = "BillmanH/learn-iot"
+$branch   = "main"
+$zipUrl   = "https://github.com/$repo/archive/refs/heads/$branch.zip"
+$outZip   = ".\learn-iot.zip"
+$outDir   = ".\learn-iot"
+
+Invoke-WebRequest -Uri $zipUrl -OutFile $outZip -UseBasicParsing
+Expand-Archive $outZip -DestinationPath . -Force
+Rename-Item ".\learn-iot-$branch" $outDir -Force
+Remove-Item $outZip
+```
+
 _Option A — Paste values directly in your terminal (quickest, no file editing):_
 
 > **Tip**: Option A is the fastest way to get going — just paste and run. Option B is worth the one-time setup if you return to this workflow regularly or work across multiple terminal sessions.
@@ -351,7 +389,20 @@ Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
 
 **Step 2 — Set up your AKS-EE edge cluster**
 
-Follow the [Deploy AIO on AKS Edge Essentials](https://learn.microsoft.com/en-us/azure/aks/aksarc/aks-edge-howto-deploy-azure-iot) guide. If you used Option B above, the `$global:*` variables set by `session-bootstrap.ps1` are picked up automatically by the AKS-EE quickstart.
+Download the AKS-EE quickstart files, then follow the [Deploy AIO on AKS Edge Essentials](https://learn.microsoft.com/en-us/azure/aks/aksarc/aks-edge-howto-deploy-azure-iot) guide:
+
+```powershell
+$giturl = "https://raw.githubusercontent.com/Azure/AKS-Edge/main/tools"
+Invoke-WebRequest -Uri "$giturl/scripts/AksEdgeQuickStart/AksEdgeQuickStartForAio.ps1" `
+    -OutFile .\AksEdgeQuickStartForAio.ps1 -UseBasicParsing
+Invoke-WebRequest -Uri "$giturl/aio-aide-userconfig.json" `
+    -OutFile .\aio-aide-userconfig.json -UseBasicParsing
+Invoke-WebRequest -Uri "$giturl/aio-aksedge-config.json" `
+    -OutFile .\aio-aksedge-config.json -UseBasicParsing
+Unblock-File .\AksEdgeQuickStartForAio.ps1
+```
+
+> **Note**: The AKS-EE quickstart script does **not** read environment variables. You must fill in `aio-aide-userconfig.json` and `aio-aksedge-config.json` manually before running it, even if you have set `$env:AKSEDGE_CLUSTER_NAME` etc. in your session. If you used Option B (`session-bootstrap.ps1`), the `$global:*` variables it sets are picked up automatically by the quickstart.
 
 **Step 3 — Grant permissions and deploy AIO**
 
