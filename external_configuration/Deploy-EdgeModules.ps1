@@ -1113,13 +1113,7 @@ function Main {
         Test-Prerequisites
         Write-Host ""
         
-        # Find and load cluster info (for cluster name)
-        Write-InfoLog "Loading cluster information..."
-        $clusterInfoPath = Find-ClusterInfoFile
-        $clusterInfo = Load-ClusterInfo -ClusterInfoPath $clusterInfoPath
-        $script:ClusterName = $clusterInfo.cluster_name
-        
-        # Find and load Azure config (for resource group and subscription)
+        # Find and load Azure config
         Write-InfoLog "Loading Azure configuration..."
         $configPath = Find-ConfigFile
         $config = Load-Configuration -ConfigFilePath $configPath
@@ -1127,12 +1121,16 @@ function Main {
         # Extract Azure settings from config file
         $script:ResourceGroup = $config.azure.resource_group
         $script:SubscriptionId = $config.azure.subscription_id
+        $script:ClusterName = $config.azure.cluster_name
+        
+        if (-not $script:ClusterName) {
+            throw "cluster_name is not set in aio_config.json (azure.cluster_name)"
+        }
         
         Write-Host "`nConfiguration Summary:"
         Write-Host "  Subscription: $script:SubscriptionId"
         Write-Host "  Resource Group: $script:ResourceGroup"
         Write-Host "  Cluster Name: $script:ClusterName"
-        Write-Host "  Node: $($clusterInfo.node_name)"
         Write-Host ""
         
         # Get modules to deploy
