@@ -67,16 +67,15 @@ netsh advfirewall firewall add rule name="AIO-MQTT-1883" dir=in action=allow pro
 Required to prevent Arc connection timeouts.
 
 ### On NUC (SSH in and run):
+
+Switch the repo to the dev branch first:
 ```bash
-sudo tee -a /etc/sysctl.conf <<EOF
+cd ~/learn-iothub && git fetch && git checkout dev && git pull
+```
 
-fs.inotify.max_user_instances=8192
-fs.inotify.max_user_watches=524288
-fs.file-max = 100000
-EOF
-
-sudo sysctl -p &> /dev/null
-sudo systemctl restart k3s
+Then set the kernel parameters (single line):
+```bash
+printf '\nfs.inotify.max_user_instances=8192\nfs.inotify.max_user_watches=524288\nfs.file-max = 100000\n' | sudo tee -a /etc/sysctl.conf && sudo sysctl -p > /dev/null && sudo systemctl restart k3s
 ```
 
 ### On ThinkStation (PowerShell as Administrator — runs inside the AKS EE Linux VM):
