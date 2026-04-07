@@ -73,9 +73,10 @@ Switch the repo to the dev branch first:
 cd ~/learn-iothub && git fetch && git checkout dev && git pull
 ```
 
-Then set the kernel parameters (single line):
+Then set the kernel parameters:
 ```bash
-printf '\nfs.inotify.max_user_instances=8192\nfs.inotify.max_user_watches=524288\nfs.file-max = 100000\n' | sudo tee -a /etc/sysctl.conf && sudo sysctl -p > /dev/null && sudo systemctl restart k3s
+chmod +x ~/learn-iothub/arc_build_linux/set_kernel_params.sh
+~/learn-iothub/arc_build_linux/set_kernel_params.sh
 ```
 
 ### On ThinkStation (PowerShell as Administrator — runs inside the AKS EE Linux VM):
