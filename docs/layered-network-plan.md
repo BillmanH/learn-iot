@@ -76,6 +76,26 @@ kubectl get service publiclistener -n azure-iot-operations
 
 Everything from here is done in a single office session. The AIO portal steps for the NUC (dataflow config) are done here too, since the portal is browser-based and controls both clusters from anywhere.
 
+### Step 0: Load the AKS Edge PowerShell Module
+
+> **CRITICAL**: The `AksEdge` module has a `#Requires -RunAsAdministrator` directive. Every PowerShell session used in Part 2 **must be launched with "Run as Administrator"** — right-click the PowerShell icon and choose **Run as Administrator**, or from Windows Terminal use the dropdown → PowerShell → Run as Administrator. A non-elevated session will fail with `ScriptRequiresElevation`.
+
+With an elevated session, import the module:
+
+```powershell
+Import-Module AksEdge
+
+# Confirm the command is available
+Get-Command Invoke-AksEdgeNodeCommand
+```
+
+> **Tip**: Add `Import-Module AksEdge` to your Administrator PowerShell profile so it loads automatically:
+> ```powershell
+> Add-Content $PROFILE "`nImport-Module AksEdge"
+> ```
+
+**Assumptions for Part 2**: AKS Edge Essentials is already installed and the `bel-aio-work-cluster` cluster is already running with Azure IoT Operations deployed. The steps below pick up from that state — no fresh AKS EE or AIO deployment is needed.
+
 ### Step 1: Set Kernel Parameters
 
 Open PowerShell as Administrator on the ThinkStation and run these against the AKS EE Linux VM:
@@ -122,15 +142,14 @@ kubectl get service publiclistener -n azure-iot-operations
 # Wait until it is no longer <pending>
 ```
 
-Write down the LoadBalancer IP: `___________________`
-
 ### Step 4: Set Up Port Forwarding on ThinkStation
 
 The NUC cannot reach the AKS EE virtual IP directly. Windows forwards inbound traffic from the Tailscale interface to the broker:
 
 ```powershell
-# Replace $lbIP with the EXTERNAL-IP recorded in Step 3
-$lbIP = "<LOADBALANCER_IP>"
+# Pull the LoadBalancer IP directly from the service
+$lbIP = kubectl get service publiclistener -n azure-iot-operations -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+Write-Host "LoadBalancer IP: $lbIP"
 
 # Forward Tailscale port 1883 to the AKS EE broker
 netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=1883 connectaddress=$lbIP connectport=1883
@@ -281,7 +300,6 @@ Data context added at each hop:
 - [ ] Kernel parameters set on ThinkStation (via `Invoke-AksEdgeNodeCommand`)
 - [ ] Tailscale installed on ThinkStation (IP visible at https://login.tailscale.com/admin/machines)
 - [ ] MQTT public listener `publiclistener` created on ThinkStation (`kubectl apply -f operations\publiclistener.yaml`)
-- [ ] AKS EE LoadBalancer IP recorded: `___________________`
 - [ ] `netsh portproxy` rule set up (ThinkStation Tailscale → AKS EE LoadBalancer)
 - [ ] Windows Firewall rule `AIO-MQTT-1883` created
 - [ ] DataFlow endpoint `thinkstation` created on NUC (host = ThinkStation Tailscale IP:1883, via AIO portal)
@@ -304,5 +322,6 @@ Data context added at each hop:
 | All machines run Linux | ThinkStation is Windows + AKS EE | Tailscale on Windows host; commands use `Invoke-AksEdgeNodeCommand` or PowerShell kubectl |
 | Jump box for SSH access | Windows dev machine | Use kubectl contexts or PowerShell from Windows |
 | Arc not yet connected | Both already Arc-connected | Skip arc-enable-clusters steps |
-| AIO not yet deployed | Both already have AIO | Skip deploy-aio steps |
+| AIO not yet deployed | Both already have AIO deployed and running | Skip deploy-aio steps |
+| AKS EE not installed | AKS EE already installed on ThinkStation | Skip AKS EE installation; just `Import-Module AksEdge` in elevated session |
 | Kernel params unknown | Likely unset | Set via `Invoke-AksEdgeNodeCommand` on ThinkStation |
