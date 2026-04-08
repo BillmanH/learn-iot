@@ -1,0 +1,24 @@
+# Creates an unauthenticated, unencrypted MQTT LoadBalancer listener on port 1883.
+# Used for inter-cluster MQTT relay in the layered network setup (NUC <-> ThinkStation).
+#
+# NOTE: No TLS and no authentication — suitable for internal/trusted networks only.
+# Do not expose this endpoint to untrusted networks.
+#
+# Apply with:
+#   kubectl apply -f operations/publiclistener.yaml
+#
+# Verify:
+#   kubectl get service publiclistener -n azure-iot-operations
+#   kubectl get brokerlistener publiclistener -n azure-iot-operations
+
+apiVersion: mqttbroker.iotoperations.azure.com/v1
+kind: BrokerListener
+metadata:
+  name: publiclistener
+  namespace: azure-iot-operations
+spec:
+  brokerRef: default
+  serviceType: LoadBalancer
+  ports:
+  - port: 1883
+    protocol: Mqtt

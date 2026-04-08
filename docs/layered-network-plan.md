@@ -21,65 +21,65 @@ The Purdue-model concept being implemented here is: **each level's MQTT broker a
 
 ---
 
-## Pre-Condition: Cross-Network IP Reachability
-
-The NUC (home `10.186.247.76`) and ThinkStation (work) are on different physical networks and cannot reach each other's LAN IPs directly. You need a stable IP that each machine can use to reach the other.
-
-**Recommended: Tailscale** — free, gives each machine a stable `100.x.x.x` IP that works across any network.
-
-### On NUC (Ubuntu Server — SSH in and run):
-```bash
-curl -fsSL https://tailscale.com/install.sh | sh
-sudo tailscale up
-tailscale ip -4  # record this, e.g. 100.x.x.10
-```
-
-### On ThinkStation (Windows — run in PowerShell as Administrator):
-Tailscale installs on the **Windows host**, not inside the AKS EE Linux VM. AKS EE's LoadBalancer IPs are internal virtual IPs, so Windows needs to forward port 1883 to the broker after Tailscale is running.
-
-```powershell
-# Install Tailscale on Windows
-winget install tailscale.tailscale
-# Sign in via the system tray icon, using the same account as the NUC
-
-# Record the Windows Tailscale IP
-tailscale ip -4  # e.g. 100.x.x.20
-
-# After Phase 2 (creating the public listener), get the AKS EE LoadBalancer IP:
-$lbIP = kubectl get service publiclistener -n azure-iot-operations -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
-Write-Host "LoadBalancer IP: $lbIP"
-
-# Forward Windows Tailscale interface port 1883 to the AKS EE broker
-netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=1883 connectaddress=$lbIP connectport=1883
-
-# Open Windows Firewall for inbound MQTT
-netsh advfirewall firewall add rule name="AIO-MQTT-1883" dir=in action=allow protocol=TCP localport=1883
-```
-
-> The NUC's DataFlow endpoint will use the **Windows Tailscale IP** (`100.x.x.20`) on port 1883. Windows forwards that to the AKS EE broker automatically.
-
-> The `netsh portproxy` rule persists across reboots but must be re-run if the AKS EE LoadBalancer IP changes (it typically doesn't). Verify with `netsh interface portproxy show all`.
+> **Travel note**: Steps are organized so everything at home is done first, then everything at the office in a single trip. AIO portal steps (creating listeners, endpoints, dataflows) are browser-based and can be done from anywhere — so the NUC's dataflow configuration is done from the office after you have the ThinkStation's Tailscale IP.
 
 ---
 
-## Phase 1 — Set Kernel Parameters (Both Machines)
+## Part 1 — At Home (NUC)
 
-Required to prevent Arc connection timeouts.
+The only steps that require being home are SSH commands on the NUC. Do these three things, then you're done at home.
 
-### On NUC (SSH in and run):
+### Step 1: Set Kernel Parameters
 
 Switch the repo to the dev branch first:
 ```bash
 cd ~/learn-iothub && git fetch && git checkout dev && git pull
 ```
 
-Then set the kernel parameters:
+Then run the kernel params script:
 ```bash
 chmod +x ~/learn-iothub/arc_build_linux/set_kernel_params.sh
 ~/learn-iothub/arc_build_linux/set_kernel_params.sh
 ```
 
-### On ThinkStation (PowerShell as Administrator — runs inside the AKS EE Linux VM):
+### Step 2: Install Tailscale and Record NUC IP
+
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+```
+
+> Your NUC's Tailscale IP is always visible at https://login.tailscale.com/admin/machines — no need to write it down. You can look it up from the ThinkStation at the office.
+
+### Step 3: Create MQTT Public Listener on NUC
+
+The manifest is already in the repo at `operations/publiclistener.yaml`. Apply it:
+
+```bash
+cd ~/learn-iothub
+kubectl apply -f operations/publiclistener.yaml
+```
+
+Verify the LoadBalancer service is up and has an EXTERNAL-IP:
+```bash
+kubectl get service publiclistener -n azure-iot-operations
+# Wait until EXTERNAL-IP is assigned (not <pending>)
+```
+
+> The NUC's EXTERNAL-IP is its LAN IP with port 1883 forwarded, reachable over Tailscale from the office.
+
+**That's everything at home.** Leave the NUC running — K3s and AIO will stay up while you travel.
+
+---
+
+## Part 2 — At the Office (ThinkStation)
+
+Everything from here is done in a single office session. The AIO portal steps for the NUC (dataflow config) are done here too, since the portal is browser-based and controls both clusters from anywhere.
+
+### Step 1: Set Kernel Parameters
+
+Open PowerShell as Administrator on the ThinkStation and run these against the AKS EE Linux VM:
+
 ```powershell
 Invoke-AksEdgeNodeCommand -NodeType Linux -command "sudo tee -a /etc/sysctl.conf << 'EOF'
 fs.inotify.max_user_instances=8192
@@ -91,57 +91,69 @@ Invoke-AksEdgeNodeCommand -NodeType Linux -command "sudo sysctl -p"
 Invoke-AksEdgeNodeCommand -NodeType Linux -command "sudo systemctl restart k3s"
 ```
 
----
+### Step 2: Install Tailscale and Record ThinkStation IP
 
-## Phase 2 — Create MQTT Public Listeners on Both Clusters
+Tailscale installs on the **Windows host**, not inside the AKS EE Linux VM:
 
-Each AIO MQTT broker needs a `LoadBalancer` listener on port 1883 so that the other cluster can connect to it as a remote MQTT endpoint. By default the AIO MQTT broker only listens internally within the cluster.
+```powershell
+# Install Tailscale on Windows
+winget install tailscale.tailscale
+# Sign in via the system tray icon using the same Tailscale account as the NUC
 
-**Do this in the AIO portal at https://iotoperations.azure.com/**
+# Record the Windows Tailscale IP
+tailscale ip -4  # e.g. 100.x.x.20
+```
 
-### On ThinkStation (`bel-aio-work-cluster`) — do this first
-1. Open the `bel-aio-work-cluster` instance
-2. Components → MQTT Broker → Create new listener
-   - Name: `publiclistener`
-   - Service name: (leave blank)
-   - Port: `1883`, Authentication: None, Authorization: None, Protocol: MQTT, No TLS
-3. Create the listener and wait for it to deploy
+> Both IPs are also visible at https://login.tailscale.com/admin/machines.
 
-Verify the LoadBalancer has an external IP (run from Windows PowerShell on the ThinkStation):
+### Step 3: Create MQTT Public Listener on ThinkStation
+
+The same manifest in the repo works for both clusters. Apply it from Windows PowerShell:
+
+```powershell
+cd C:\path\to\learn-iothub  # wherever you cloned the repo on the ThinkStation
+kubectl apply -f operations\publiclistener.yaml
+```
+
+Verify the LoadBalancer service is up and get its IP:
 ```powershell
 kubectl get service publiclistener -n azure-iot-operations
 # EXTERNAL-IP will be a virtual IP from the AKS EE service range (e.g. 192.168.x.x)
-# This is the IP you'll use in the netsh portproxy command from the Pre-Condition section
+# Wait until it is no longer <pending>
 ```
 
-> The `EXTERNAL-IP` is an internal AKS EE virtual IP. The NUC cannot reach it directly.
-> Use the **Windows Tailscale IP** in the DataFlow endpoint config and rely on the `netsh portproxy` rule to forward traffic from there to this IP.
+Write down the LoadBalancer IP: `___________________`
 
-### On NUC (`iot-ops-cluster`)
-Same steps — this listener is needed so the ThinkStation can optionally inspect or subscribe to the NUC's broker directly, and for future reverse-flow scenarios.
+### Step 4: Set Up Port Forwarding on ThinkStation
 
-1. Open the `iot-ops-cluster` instance
-2. Components → MQTT Broker → Create new listener
-   - Name: `publiclistener`
-   - Port: `1883`, Authentication: None, Authorization: None, Protocol: MQTT, No TLS
+The NUC cannot reach the AKS EE virtual IP directly. Windows forwards inbound traffic from the Tailscale interface to the broker:
 
----
+```powershell
+# Replace $lbIP with the EXTERNAL-IP recorded in Step 3
+$lbIP = "<LOADBALANCER_IP>"
 
-## Phase 3 — Configure NUC DataFlow: Factory MQTT → ThinkStation MQTT
+# Forward Tailscale port 1883 to the AKS EE broker
+netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=1883 connectaddress=$lbIP connectport=1883
 
-This is the core of the layered setup. The NUC's DataFlow reads from its own local MQTT broker and **publishes to the ThinkStation's public listener** — making the NUC's outgoing stream the ThinkStation's incoming stream.
+# Open Windows Firewall for inbound MQTT
+netsh advfirewall firewall add rule name="AIO-MQTT-1883" dir=in action=allow protocol=TCP localport=1883
+```
 
-### Step 1: Create a DataFlow Endpoint on the NUC pointing to the ThinkStation
+> This rule persists across reboots. Verify with `netsh interface portproxy show all`. Only needs to be re-run if the AKS EE LoadBalancer IP changes (it typically doesn't).
 
-In the AIO portal, go to the `iot-ops-cluster` (NUC) instance:
+### Step 5: Configure NUC DataFlow → ThinkStation
+
+The NUC's DataFlow reads from its own local broker and publishes to the ThinkStation's public listener. This is done entirely in the AIO portal — no SSH needed.
+
+**Create the DataFlow endpoint** — in the AIO portal, go to the `iot-ops-cluster` (NUC) instance:
 
 1. **Data flow endpoints** → Custom MQTT Broker → Create
    - Name: `thinkstation`
-   - Host: `<THINKSTATION_TAILSCALE_IP>:1883`
+   - Host: `<THINKSTATION_TAILSCALE_IP>:1883`  _(the IP recorded in Step 2)_
    - Authentication: None
 2. Apply and wait for creation
 
-### Step 2: Create the DataFlow on the NUC
+**Create the DataFlow** — still on the `iot-ops-cluster` (NUC) instance:
 
 1. **Data flows** → Create new data flow
 2. **Source** — Select source → Message broker
@@ -155,32 +167,29 @@ In the AIO portal, go to the `iot-ops-cluster` (NUC) instance:
    - Name: `nuc-to-thinkstation`, Enable data flow: checked
 6. Save and wait for deployment
 
-Verify from your ThinkStation (Windows PowerShell):
+### Step 6: Verify NUC→ThinkStation Relay
+
 ```powershell
-# Using mqttui inside the AKS EE Linux VM:
+# Subscribe with mosquitto inside the AKS EE VM:
+Invoke-AksEdgeNodeCommand -NodeType Linux -command "mosquitto_sub -h localhost -p 1883 -t 'nuc/factory/#'"
+
+# Or use mqttui for a visual view:
 Invoke-AksEdgeNodeCommand -NodeType Linux -command "mqttui --broker mqtt://localhost:1883"
 # Navigate to nuc/factory/ in the left pane
-
-# Or subscribe with mosquitto:
-Invoke-AksEdgeNodeCommand -NodeType Linux -command "mosquitto_sub -h localhost -p 1883 -t 'nuc/factory/#'"
 ```
 
-You should see the NUC's factory messages arriving in the ThinkStation's broker under the `nuc/factory/#` topic.
+You should see the NUC's factory messages arriving in the ThinkStation's broker. If nothing appears within 30 seconds, check the DataFlow status in the AIO portal (`iot-ops-cluster` → Data flows → `nuc-to-thinkstation`).
 
----
+### Step 7: Assign Event Hubs Permissions
 
-## Phase 4 — Configure ThinkStation DataFlow: MQTT → Azure
-
-This creates the pipeline: **ThinkStation MQTT → Azure Event Hubs** (or Fabric Event Stream).
-
-### Step 1: Assign Event Hubs Permissions
 1. In Azure Portal, go to your Event Hubs namespace
 2. Access Control (IAM) → Add role assignment
    - Role: `Azure Event Hubs Data Sender`
    - Member: The managed identity of the `bel-aio-work-cluster` AIO instance  
      (same name as the Arc extension: `bel-aio-work-cluster-aio`)
 
-### Step 2: Create an Event Hubs DataFlow Endpoint on the ThinkStation
+### Step 8: Create Event Hubs DataFlow Endpoint on ThinkStation
+
 1. In AIO portal, go to `bel-aio-work-cluster` instance
 2. Data flow endpoints → Azure Event Hubs → Create
    - Name: `cloud-eventhubs`
@@ -188,14 +197,16 @@ This creates the pipeline: **ThinkStation MQTT → Azure Event Hubs** (or Fabric
    - Authentication: System assigned managed identity
 3. Apply and wait
 
-### Step 3: Create the DataFlow on the ThinkStation
+### Step 9: Create ThinkStation DataFlow → Azure
+
+This creates the pipeline: **ThinkStation MQTT → Azure Event Hubs**.
+
 1. Data flows → Create new data flow
 2. **Source** — Message broker
    - Data flow endpoint: `default` (ThinkStation's own local broker)
-   - Topic: `nuc/factory/#`  _(matches the destination topic you set in Phase 3)_
+   - Topic: `nuc/factory/#`  _(matches the destination topic from Step 5)_
    - Message schema: Upload — sample a message first:
      ```powershell
-     # On ThinkStation Windows PowerShell:
      Invoke-AksEdgeNodeCommand -NodeType Linux -command "mosquitto_sub -h localhost -p 1883 -t 'nuc/factory/#' -C 1"
      # Copy the output, paste into https://azure-samples.github.io/explore-iot-operations/schema-gen-helper/
      # Set all fields nullable, download as thinkstation-inschema.json
@@ -209,31 +220,22 @@ This creates the pipeline: **ThinkStation MQTT → Azure Event Hubs** (or Fabric
 
 > **Using Fabric instead of Event Hubs?** Use a Kafka endpoint with `SystemAssignedManagedIdentity` auth — no connection strings needed. See `fabric_setup/` docs in this repo.
 
----
+### Step 10: Validate End-to-End
 
-## Phase 5 — Validate End-to-End
-
-1. **Confirm edgemqttsim is running on the NUC:**
+1. **Confirm edgemqttsim is running on the NUC** (SSH or via Tailscale from the ThinkStation):
    ```bash
-   # SSH to NUC
    kubectl get pods -l app=edgemqttsim -n default
    kubectl logs -l app=edgemqttsim -f
    ```
 
 2. **Confirm factory messages are on the NUC broker:**
    ```bash
-   # SSH to NUC (or from Windows dev machine via Tailscale)
    mosquitto_sub -h localhost -p 1883 -t "factory/#"
    # Should see edgemqttsim messages flowing
    ```
 
 3. **Confirm NUC→ThinkStation relay is working:**
    ```powershell
-   # On ThinkStation Windows PowerShell:
-   # Using mqttui inside the AKS EE VM:
-   Invoke-AksEdgeNodeCommand -NodeType Linux -command "mqttui --broker mqtt://localhost:1883"
-
-   # Or subscribe with mosquitto inside the VM:
    Invoke-AksEdgeNodeCommand -NodeType Linux -command "mosquitto_sub -h localhost -p 1883 -t 'nuc/factory/#'"
    ```
    You should see NUC factory messages arriving ~instantly.
@@ -270,19 +272,25 @@ Data context added at each hop:
 
 ## Checklist
 
-- [ ] **Cross-network connectivity working** (Tailscale or equivalent)
-- [ ] Record ThinkStation reachable IP from NUC: `___________________`
-- [ ] **Kernel parameters set on NUC** (`/etc/sysctl.conf` + k3s restart)
-- [ ] **Kernel parameters set on ThinkStation** (`/etc/sysctl.conf` + k3s restart)
-- [ ] **MQTT public listener `publiclistener` created on ThinkStation** (port 1883)
-- [ ] **MQTT public listener `publiclistener` created on NUC** (port 1883)
-- [ ] **DataFlow endpoint `thinkstation` created on NUC** (host = ThinkStation reachable IP:1883)
-- [ ] **DataFlow `nuc-to-thinkstation` deployed and running on NUC**
-- [ ] **Verified NUC messages arriving in ThinkStation broker** (`nuc/factory/#`)
-- [ ] **Event Hubs role assignment for ThinkStation AIO managed identity**
-- [ ] **DataFlow endpoint `cloud-eventhubs` created on ThinkStation**
-- [ ] **DataFlow `thinkstation-to-cloud` deployed and running on ThinkStation**
-- [ ] **End-to-end telemetry verified in Azure Event Hubs metrics**
+**At Home (NUC):**
+- [ ] Kernel parameters set on NUC (`set_kernel_params.sh` run successfully)
+- [ ] Tailscale installed on NUC (IP visible at https://login.tailscale.com/admin/machines)
+- [ ] MQTT public listener `publiclistener` created on NUC (`kubectl apply -f operations/publiclistener.yaml`)
+
+**At the Office (ThinkStation):**
+- [ ] Kernel parameters set on ThinkStation (via `Invoke-AksEdgeNodeCommand`)
+- [ ] Tailscale installed on ThinkStation (IP visible at https://login.tailscale.com/admin/machines)
+- [ ] MQTT public listener `publiclistener` created on ThinkStation (`kubectl apply -f operations\publiclistener.yaml`)
+- [ ] AKS EE LoadBalancer IP recorded: `___________________`
+- [ ] `netsh portproxy` rule set up (ThinkStation Tailscale → AKS EE LoadBalancer)
+- [ ] Windows Firewall rule `AIO-MQTT-1883` created
+- [ ] DataFlow endpoint `thinkstation` created on NUC (host = ThinkStation Tailscale IP:1883, via AIO portal)
+- [ ] DataFlow `nuc-to-thinkstation` deployed and running on NUC
+- [ ] Verified NUC messages arriving in ThinkStation broker (`nuc/factory/#`)
+- [ ] Event Hubs role assignment for ThinkStation AIO managed identity
+- [ ] DataFlow endpoint `cloud-eventhubs` created on ThinkStation
+- [ ] DataFlow `thinkstation-to-cloud` deployed and running on ThinkStation
+- [ ] End-to-end telemetry verified in Azure Event Hubs metrics
 
 ---
 
