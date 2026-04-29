@@ -199,47 +199,7 @@ Invoke-AksEdgeNodeCommand -NodeType Linux -command "mqttui --broker mqtt://local
 
 You should see the NUC's factory messages arriving in the ThinkStation's broker. If nothing appears within 30 seconds, check the DataFlow status in the AIO portal (`iot-ops-cluster` → Data flows → `nuc-to-thinkstation`).
 
-### Step 7: Assign Event Hubs Permissions
-
-1. In Azure Portal, go to your Event Hubs namespace
-2. Access Control (IAM) → Add role assignment
-   - Role: `Azure Event Hubs Data Sender`
-   - Member: The managed identity of the `bel-aio-work-cluster` AIO instance  
-     (same name as the Arc extension: `bel-aio-work-cluster-aio`)
-
-### Step 8: Create Event Hubs DataFlow Endpoint on ThinkStation
-
-1. In AIO portal, go to `bel-aio-work-cluster` instance
-2. Data flow endpoints → Azure Event Hubs → Create
-   - Name: `cloud-eventhubs`
-   - Host: Search for your Event Hubs namespace by name
-   - Authentication: System assigned managed identity
-3. Apply and wait
-
-### Step 9: Create ThinkStation DataFlow → Azure
-
-This creates the pipeline: **ThinkStation MQTT → Azure Event Hubs**.
-
-1. Data flows → Create new data flow
-2. **Source** — Message broker
-   - Data flow endpoint: `default` (ThinkStation's own local broker)
-   - Topic: `nuc/factory/#`  _(matches the destination topic from Step 5)_
-   - Message schema: Upload — sample a message first:
-     ```powershell
-     Invoke-AksEdgeNodeCommand -NodeType Linux -command "mosquitto_sub -h localhost -p 1883 -t 'nuc/factory/#' -C 1"
-     # Copy the output, paste into https://azure-samples.github.io/explore-iot-operations/schema-gen-helper/
-     # Set all fields nullable, download as thinkstation-inschema.json
-     ```
-3. **Destination** — `cloud-eventhubs`
-   - Topic: `<your-event-hub-name>` (the Event Hub name, not the namespace)
-4. **Transform** (optional) — Add property:
-   - Key: `relay-node`, Value: `thinkstation-work`
-5. Pipeline name: `thinkstation-to-cloud`, Enable data flow: checked
-6. Save and wait for deployment
-
-> **Using Fabric instead of Event Hubs?** Use a Kafka endpoint with `SystemAssignedManagedIdentity` auth — no connection strings needed. See `fabric_setup/` docs in this repo.
-
-### Step 10: Validate End-to-End
+### Step 7: Validate Local End-to-End
 
 1. **Confirm edgemqttsim is running on the NUC** (SSH or via Tailscale from the ThinkStation):
    ```bash
@@ -253,39 +213,26 @@ This creates the pipeline: **ThinkStation MQTT → Azure Event Hubs**.
    # Should see edgemqttsim messages flowing
    ```
 
-3. **Confirm NUC→ThinkStation relay is working:**
-   ```powershell
-   Invoke-AksEdgeNodeCommand -NodeType Linux -command "mosquitto_sub -h localhost -p 1883 -t 'nuc/factory/#'"
-   ```
+3. **Confirm NUC→ThinkStation relay is working** — subscribe to `nuc/factory/#` in MQTT Studio on the ThinkStation.
    You should see NUC factory messages arriving ~instantly.
 
 4. **Check DataFlow health** in AIO portal:
    - `iot-ops-cluster` → Data flows → `nuc-to-thinkstation` → should show `Running`
-   - `bel-aio-work-cluster` → Data flows → `thinkstation-to-cloud` → should show `Running`
-
-5. **Check Azure Event Hubs metrics:**
-   - Azure Portal → Event Hubs namespace → Metrics → Incoming Messages (Sum)
-   - Messages should appear within 1–2 minutes of starting edgemqttsim
 
 ---
 
 ## Architecture Diagram (Your Setup)
 
 ```
-[NUC - Home - Ubuntu]            [ThinkStation - Work - Windows]         [Azure]
+[NUC - Home - Ubuntu]            [ThinkStation - Work - Windows]
   K3s + AIO                        AKS Edge Essentials + AIO
   edgemqttsim                       Linux VM (internal)
   MQTT Broker (:1883)               AIO MQTT Broker (virtual IP)
-  DataFlow: factory/# ──────────►  Windows Tailscale IP:1883          Event Hubs
-    (via Tailscale 100.x.x.x)       netsh portproxy ↓          ─────► / Fabric RTI
+  DataFlow: factory/# ──────────►  Windows Tailscale IP:1883
+    (via Tailscale 100.x.x.x)       netsh portproxy ↓
                                     AKS EE broker (nuc/factory/#)
-                                    DataFlow → Azure ──────────▲
+                                    MQTT Studio ← subscribes to nuc/factory/#
 ```
-
-Data context added at each hop:
-- **NUC DataFlow** adds `source-node: home-nuc` before forwarding
-- **ThinkStation DataFlow** adds `relay-node: thinkstation-work` before pushing to Azure
-- Azure receives the fully enriched message with context from both levels
 
 ---
 
@@ -304,11 +251,7 @@ Data context added at each hop:
 - [ ] Windows Firewall rule `AIO-MQTT-1883` created
 - [ ] DataFlow endpoint `thinkstation` created on NUC (host = ThinkStation Tailscale IP:1883, via AIO portal)
 - [ ] DataFlow `nuc-to-thinkstation` deployed and running on NUC
-- [ ] Verified NUC messages arriving in ThinkStation broker (`nuc/factory/#`)
-- [ ] Event Hubs role assignment for ThinkStation AIO managed identity
-- [ ] DataFlow endpoint `cloud-eventhubs` created on ThinkStation
-- [ ] DataFlow `thinkstation-to-cloud` deployed and running on ThinkStation
-- [ ] End-to-end telemetry verified in Azure Event Hubs metrics
+- [ ] Verified NUC messages arriving in ThinkStation broker (`nuc/factory/#`) via MQTT Studio
 
 ---
 
