@@ -1,0 +1,41 @@
+[project]
+name = "lerobot-edge"
+version = "1.0.0"
+description = "Lightweight robot control for edge devices - no ML dependencies"
+readme = "README.md"
+requires-python = ">=3.10,<3.12"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "Hugging Face", email = "lerobot@huggingface.co"}
+]
+keywords = ["robotics", "robot control", "edge computing", "embedded"]
+
+dependencies = [
+    "numpy>=1.24.0",
+    "opencv-python>=4.8.0",
+    "pyserial>=3.5",
+    "feetech-servo-sdk==1.0.0",
+    "dynamixel-sdk>=3.7.0",
+    "pyyaml>=6.0",
+    "draccus>=0.7.0",
+    "pyusb>=1.2.1",
+    "av>=10.0.0",
+    "deepdiff>=6.0.0",
+    "tqdm>=4.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/huggingface/lerobot"
+Repository = "https://github.com/huggingface/lerobot-edge"
+Issues = "https://github.com/huggingface/lerobot/issues"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = {find = {}}
+
+[tool.ruff]
+line-length = 119
+target-version = "py310"

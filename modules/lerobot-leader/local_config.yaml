@@ -21,7 +21,7 @@ loop_hz: 20
 # IP address of the publiclistener LoadBalancer service.
 # Get it with: kubectl get service publiclistener -n azure-iot-operations
 # Look for the EXTERNAL-IP column.
-mqtt_broker: "192.168.0.x"
+mqtt_broker: "192.168.0.4"
 
 # Port exposed by publiclistener (plain TCP, no TLS, no auth)
 mqtt_port: 1883
