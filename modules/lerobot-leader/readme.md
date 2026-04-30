@@ -1,0 +1,232 @@
+# lerobot-leader
+
+Reads joint positions from an SO101 leader arm connected via USB (Windows COM port)
+and publishes them to the Azure IoT Operations MQTT broker via the `publiclistener`
+(port 1883, plain TCP, no authentication).
+
+Runs as a local Windows Python application using UV. No container, no Kubernetes pod.
+
+---
+
+## Prerequisites
+
+- Windows 10/11 (Thinkstation host)
+- Python 3.10 or 3.11
+- [UV](https://docs.astral.sh/uv/getting-started/installation/) installed
+- AKS Edge Essentials cluster running with AIO deployed
+- `kubectl` configured to reach the cluster
+
+---
+
+## First-Time Setup
+
+### 1. Apply the public MQTT listener
+
+The `publiclistener` exposes the AIO broker on port 1883 as a LoadBalancer service.
+
+```powershell
+# From the repo root
+kubectl apply -f operations/publiclistener.yaml
+```
+
+### 2. Get the broker IP
+
+```powershell
+kubectl get service publiclistener -n azure-iot-operations
+```
+
+Note the **EXTERNAL-IP** value (e.g. `192.168.0.105`). It may take a moment to appear.
+
+### 3. Find the leader arm COM port
+
+Plug in the USB cable for the SO101 leader arm, then open Device Manager:
+- `Win + X` -> Device Manager -> expand **Ports (COM & LPT)**
+- Note the port number (e.g. `COM3`)
+
+See [scripts/01_find_com_port.md](scripts/01_find_com_port.md) for detailed instructions.
+
+### 4. Edit the config file
+
+```powershell
+cd modules\lerobot-leader
+# Edit local_config.yaml
+```
+
+Set at minimum:
+```yaml
+leader_port: "COM3"          # your COM port
+mqtt_broker: "192.168.0.x"  # EXTERNAL-IP from step 2
+```
+
+### 5. Install dependencies
+
+```powershell
+cd modules\lerobot-leader
+
+# Step 1: install feetech-servo-sdk without dependencies (avoids platform conflicts)
+uv pip install feetech-servo-sdk==1.0.0 --no-deps
+
+# Step 2: install everything else
+uv sync
+```
+
+### 6. One-time motor setup (new motors only)
+
+Only needed if the motors haven't been ID-configured before. Skip if the arm was
+previously built and calibrated.
+
+```powershell
+uv run python scripts/02_setup_motors_leader.py
+```
+
+This walks through each motor one at a time. Connect one motor, press ENTER, repeat.
+
+### 7. Calibrate the arm
+
+Run once before first use, and any time the arm is reassembled or its zero position drifts.
+
+```powershell
+uv run python scripts/03_calibrate_leader.py
+```
+
+Follow the prompts:
+1. Move the arm to the **middle** of its range, press ENTER
+2. Move all joints through their **full range**, press ENTER to stop recording
+
+The calibration is saved to `calibration/<leader_id>.json`.
+
+### 8. Verify calibration
+
+```powershell
+uv run python scripts/04_check_calibration.py
+```
+
+Move the arm while watching the output. Joint values should change as you move.
+
+---
+
+## Running the Application
+
+```powershell
+cd modules\lerobot-leader
+uv run python app.py
+```
+
+Output:
+```
+============================================================
+lerobot-leader - SO101 -> AIO MQTT bridge (local Windows)
+  Leader port  : COM3
+  Leader ID    : my_awesome_leader_arm
+  Loop rate    : 20.0 Hz
+  MQTT broker  : 192.168.0.105:1883
+  Topic        : robot/leader/joint_positions
+  QoS          : 0
+============================================================
+
+[...] Connecting to leader arm on COM3 ...
+[OK] Leader arm connected
+
+[...] Connecting to MQTT broker 192.168.0.105:1883 ...
+[OK] Connected to MQTT broker at 192.168.0.105:1883
+
+[OK] Publishing at 20.0 Hz. Press Ctrl+C to stop.
+```
+
+Press `Ctrl+C` to stop.
+
+---
+
+## MQTT Message Format
+
+**Topic:** `robot/leader/joint_positions`
+
+```json
+{
+  "timestamp": "2026-04-29T14:23:01.123456+00:00",
+  "leader_id": "my_awesome_leader_arm",
+  "sequence": 12345,
+  "joints": {
+    "shoulder_pan.pos": -15.2,
+    "shoulder_lift.pos": 42.8,
+    "elbow_flex.pos": -5.1,
+    "wrist_flex.pos": 10.3,
+    "wrist_roll.pos": 0.0,
+    "gripper.pos": 67.4
+  },
+  "loop_hz": 20.0
+}
+```
+
+Joint values are normalized positions. Default mode is `RANGE_M100_100` (-100 to +100),
+gripper uses `RANGE_0_100` (0 to 100).
+
+---
+
+## Monitoring Messages
+
+From any machine with `kubectl` access:
+
+```powershell
+# Subscribe to joint position messages via the publiclistener
+mosquitto_sub -h <publiclistener-ip> -p 1883 -t "robot/leader/joint_positions"
+```
+
+---
+
+## File Structure
+
+```
+modules/lerobot-leader/
+  app.py                        # Main loop: read leader -> publish MQTT
+  local_config.yaml             # Config: COM port, broker IP, loop rate
+  pyproject.toml                # UV project definition
+  README.md                     # This file
+  lerobot-leader.md             # Architecture plan
+  scripts/
+    01_find_com_port.md         # Instructions to find COM port
+    02_setup_motors_leader.py   # One-time motor ID setup
+    03_calibrate_leader.py      # Interactive calibration
+    04_check_calibration.py     # Verify calibration + live readout
+  calibration/
+    my_awesome_leader_arm.json  # Generated by 03_calibrate_leader.py
+  src/
+    lerobot_edge/               # Vendored from BillmanH/lerobot@local_nuc
+```
+
+---
+
+## Refreshing the lerobot_edge Source
+
+To pull the latest from the fork:
+
+```powershell
+cd modules\lerobot-leader
+git clone --no-local --filter=blob:none --sparse -b local_nuc https://github.com/BillmanH/lerobot.git _tmp
+cd _tmp ; git sparse-checkout set --skip-checks lerobot-edge/src
+Remove-Item -Recurse -Force ..\src
+Copy-Item -Recurse -Force lerobot-edge\src ..\src
+cd .. ; Remove-Item -Recurse -Force _tmp
+```
+
+---
+
+## Troubleshooting
+
+**`[ERROR] Calibration file not found`**
+Run `uv run python scripts/03_calibrate_leader.py`
+
+**`[ERROR] Failed to connect to leader arm`**
+- Check Device Manager for the correct COM port
+- Make sure no other serial app (PuTTY, Arduino IDE) has the port open
+- Try unplugging and replugging the USB cable
+
+**`[ERROR] MQTT connect failed`**
+- Verify `mqtt_broker` in `local_config.yaml` matches the EXTERNAL-IP from `kubectl get svc publiclistener -n azure-iot-operations`
+- Check the publiclistener service is running: `kubectl get svc -n azure-iot-operations`
+
+**`feetech-servo-sdk` install error**
+Always install with `--no-deps`:
+```powershell
+uv pip install feetech-servo-sdk==1.0.0 --no-deps
+```

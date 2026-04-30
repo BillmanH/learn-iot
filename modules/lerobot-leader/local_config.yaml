@@ -1,0 +1,36 @@
+# lerobot-leader local configuration
+# Edit this file before running app.py
+
+# --- Leader Arm ---
+# Windows COM port for the SO101 leader arm.
+# Find it in Device Manager -> Ports (COM & LPT) while the arm is plugged in.
+leader_port: "COM3"
+
+# Must match the calibration JSON filename (without .json).
+# If you ran calibration with id="my_awesome_leader_arm", use that here.
+leader_id: "my_awesome_leader_arm"
+
+# Relative path to the calibration directory.
+# The calibration file will be at: ./calibration/<leader_id>.json
+calibration_dir: "./calibration"
+
+# Control loop frequency in Hz (publishes per second).
+loop_hz: 20
+
+# --- MQTT Broker ---
+# IP address of the publiclistener LoadBalancer service.
+# Get it with: kubectl get service publiclistener -n azure-iot-operations
+# Look for the EXTERNAL-IP column.
+mqtt_broker: "192.168.0.x"
+
+# Port exposed by publiclistener (plain TCP, no TLS, no auth)
+mqtt_port: 1883
+
+# MQTT topic to publish joint positions to
+mqtt_topic: "robot/leader/joint_positions"
+
+# MQTT client ID (must be unique per client on the broker)
+mqtt_client_id: "lerobot-leader"
+
+# QoS level: 0 = fire-and-forget (lowest latency), 1 = at-least-once
+mqtt_qos: 0

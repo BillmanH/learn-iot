@@ -1,0 +1,23 @@
+# Edge-only requirements for robot control (no ML/training dependencies)
+
+# Core dependencies
+numpy>=1.24.0
+pyyaml>=6.0
+draccus>=0.7.0
+pyserial>=3.5
+deepdiff>=6.0.0  # For motor control table comparison
+tqdm>=4.0.0  # Progress bars for motor scanning
+
+# Camera capture
+opencv-python>=4.8.0
+
+# Motor control
+# Note: Install feetech-servo-sdk with --no-deps if you encounter platform conflicts
+feetech-servo-sdk==1.0.0
+dynamixel-sdk>=3.7.0
+
+# USB communication
+pyusb>=1.2.1
+
+# Video encoding (for recording)
+av>=10.0.0

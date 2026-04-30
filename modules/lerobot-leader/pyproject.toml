@@ -1,0 +1,18 @@
+[project]
+name = "lerobot-leader"
+version = "1.0.0"
+description = "Reads SO101 leader arm joint positions via USB and publishes to AIO MQTT broker"
+requires-python = ">=3.10,<3.12"
+dependencies = [
+    "lerobot-edge",
+    "paho-mqtt>=2.0.0",
+    "pyyaml>=6.0",
+]
+
+[tool.uv.sources]
+lerobot-edge = { path = "src" }
+
+# NOTE: feetech-servo-sdk must be installed separately with --no-deps to avoid
+# platform-specific dependency conflicts. Run this once before `uv sync`:
+#
+#   uv pip install feetech-servo-sdk==1.0.0 --no-deps
