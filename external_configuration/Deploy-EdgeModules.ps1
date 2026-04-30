@@ -44,6 +44,38 @@
     Author: Azure IoT Operations Team
     Date: February 2026
     Version: 2.1.0 - Updated for separation of concerns architecture
+
+    REMOVING A DEPLOYED MODULE
+    --------------------------
+    Modules deployed by this script run in the 'default' namespace on the Arc-connected
+    cluster. Because the cluster is on a separate network, removal also requires the
+    Azure Arc proxy tunnel. Follow these steps from the Windows machine:
+
+    Step 1 - Open an Arc proxy tunnel (keep this terminal open):
+        az connectedk8s proxy --name <cluster_name> --resource-group <resource_group>
+
+        Where <cluster_name> and <resource_group> match the values in config/aio_config.json.
+
+    Step 2 - Delete the module's Kubernetes resources (in a second terminal):
+
+        Option A - Delete by label (removes the Deployment and any related resources):
+            kubectl delete all -n default -l app=<module-name>
+
+        Option B - Delete using the deployment manifest (removes exactly what was applied):
+            kubectl delete -f modules/<module-name>/deployment.yaml
+
+        Valid module names: edgemqttsim, hello-flask, sputnik, demohistorian
+
+    Step 3 - Verify removal:
+        kubectl get pods -n default -l app=<module-name>
+        # Should return "No resources found"
+
+    Step 4 - Close the Arc proxy tunnel (Ctrl+C in the proxy terminal).
+
+    NOTE: The mqtt-client service account and ACR pull secret created by this script
+    are shared across modules and are NOT removed by the steps above. To remove them:
+        kubectl delete serviceaccount mqtt-client -n default
+        kubectl delete secret acr-pull-secret -n default
 #>
 
 param(
