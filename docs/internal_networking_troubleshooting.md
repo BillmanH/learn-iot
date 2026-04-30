@@ -68,6 +68,17 @@ kubectl get nodes
 
 > **Tip**: Use separate terminals for NUC (proxied) and ThinkStation (direct) kubectl commands. Unsetting `$env:HTTPS_PROXY` switches back to the ThinkStation context.
 
+### Port-Forward for MQTT Explorer (NUC)
+
+To browse NUC MQTT messages with a local MQTT Explorer tool, open a **third terminal** (with `$env:HTTPS_PROXY` set) and run:
+
+```powershell
+$env:HTTPS_PROXY = "http://localhost:47011"
+kubectl port-forward svc/publiclistener 1883:1883 -n azure-iot-operations
+```
+
+> This blocks the terminal — keep it running. Connect MQTT Explorer to `localhost:1883` (no auth). You will see live messages from the NUC broker.
+
 ## Step 0b: Open Arc Proxy to ThinkStation
 
 Use `az connectedk8s proxy` to tunnel kubectl commands to the ThinkStation through Azure Arc. Open a **new terminal window** and run:
