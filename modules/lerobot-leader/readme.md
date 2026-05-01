@@ -198,14 +198,15 @@ modules/lerobot-leader/
 
 ## Refreshing the lerobot_edge Source
 
-To pull the latest from the fork:
+The shared source lives in `modules/lerobot-src/` (used by both leader and follower).
+To pull the latest from the fork, run from the **repo root**:
 
 ```powershell
-cd modules\lerobot-leader
+cd modules\lerobot-src
 git clone --no-local --filter=blob:none --sparse -b local_nuc https://github.com/BillmanH/lerobot.git _tmp
 cd _tmp ; git sparse-checkout set --skip-checks lerobot-edge/src
-Remove-Item -Recurse -Force ..\src
-Copy-Item -Recurse -Force lerobot-edge\src ..\src
+Remove-Item -Recurse -Force ..\lerobot-src\lerobot_edge
+Copy-Item -Recurse -Force lerobot-edge\src\lerobot_edge ..\lerobot-src\lerobot_edge
 cd .. ; Remove-Item -Recurse -Force _tmp
 ```
 

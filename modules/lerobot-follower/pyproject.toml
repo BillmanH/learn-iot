@@ -1,7 +1,7 @@
 [project]
-name = "lerobot-leader"
+name = "lerobot-follower"
 version = "1.0.0"
-description = "Reads SO101 leader arm joint positions via USB and publishes to AIO MQTT broker"
+description = "Subscribes to AIO-forwarded MQTT joint positions and commands an SO101 follower arm via USB"
 requires-python = ">=3.10,<3.12"
 dependencies = [
     "lerobot-edge",

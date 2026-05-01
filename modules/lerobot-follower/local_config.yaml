@@ -1,0 +1,31 @@
+# lerobot-follower local configuration
+# Edit this file before running app.py
+
+# --- Follower Arm ---
+# Windows COM port for the SO101 follower arm.
+# Find it in Device Manager -> Ports (COM & LPT) while the arm is plugged in.
+# The follower is typically on a different COM port than the leader.
+follower_port: "COM4"
+
+# Must match the calibration JSON filename (without .json).
+follower_id: "my_awesome_follower_arm"
+
+# Relative path to the calibration directory.
+# The calibration file will be at: ./calibration/<follower_id>.json
+calibration_dir: "./calibration"
+
+# --- MQTT Broker ---
+# IP or hostname of the LOCAL Mosquitto broker running on this machine.
+# AIO forwards leader joint positions to this broker via a dataflow endpoint.
+# Typically localhost unless Mosquitto is on a different host.
+mqtt_broker: "localhost"
+
+# Port Mosquitto is listening on (default 1883)
+mqtt_port: 1883
+
+# MQTT topic the AIO dataflow publishes joint positions to on this broker.
+# Must match the topic configured in the AIO dataflow endpoint.
+mqtt_topic: "robot/leader/joint_positions"
+
+# MQTT client ID (must be unique per client on the broker)
+mqtt_client_id: "lerobot-follower"
