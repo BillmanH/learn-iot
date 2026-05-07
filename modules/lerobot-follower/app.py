@@ -50,6 +50,7 @@ MQTT_BROKER       = _cfg["mqtt_broker"]
 MQTT_PORT         = int(_cfg["mqtt_port"])
 MQTT_TOPIC        = _cfg["mqtt_topic"]
 MQTT_CLIENT_ID    = _cfg["mqtt_client_id"]
+MQTT_HEALTH_TOPIC = _cfg["health_topic"]
 
 # ---------------------------------------------------------------------------
 # Globals
@@ -58,6 +59,7 @@ MQTT_CLIENT_ID    = _cfg["mqtt_client_id"]
 _follower = None   # set in main() before callbacks run
 _connected = False
 _msg_count = 0
+_last_message_time: float = 0.0  # epoch seconds of last joint message received
 
 # ---------------------------------------------------------------------------
 # MQTT callbacks
@@ -104,6 +106,7 @@ def on_message(client, userdata, msg):
         return
 
     _msg_count += 1
+    _last_message_time = time.time()
     if _msg_count % 100 == 0:
         print(f"[stats] messages received={_msg_count}  joints={list(joints.values())}")
 
@@ -195,9 +198,29 @@ def main():
 
     print("\n[OK] Waiting for joint position messages. Press Ctrl+C to stop.\n")
 
+    _health_interval = 20  # seconds between health publishes
+    _next_health = time.time() + _health_interval
+    print(f"[OK] Publishing health messages to: {MQTT_HEALTH_TOPIC}")
+
     try:
         while True:
             time.sleep(1)
+            now = time.time()
+            if now >= _next_health:
+                idle_secs = round(now - _last_message_time, 1) if _last_message_time else None
+                status = "busy" if (idle_secs is not None and idle_secs < 3) else "idle"
+                payload = json.dumps({
+                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
+                    "status": status,
+                    "mqtt_connected": _connected,
+                    "messages_received": _msg_count,
+                    "last_message_secs_ago": idle_secs,
+                    "follower_id": FOLLOWER_ID,
+                    "follower_port": FOLLOWER_PORT,
+                })
+                client.publish(MQTT_HEALTH_TOPIC, payload, qos=1, retain=True)
+                print(f"[health] {payload}")
+                _next_health = now + _health_interval
     except KeyboardInterrupt:
         print("\n[...] Shutting down...")
     finally:

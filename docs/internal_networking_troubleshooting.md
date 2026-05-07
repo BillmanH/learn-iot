@@ -36,20 +36,6 @@ az login --tenant 1c1264ca-77ff-400d-9608-c7305f777319
 
 ---
 
-## Step 0: Verify Both Clusters Are Connected to Azure Arc
-
-Run from the ThinkStation to confirm both clusters are online:
-
-```powershell
-# Check NUC cluster
-az connectedk8s show --name $NucClusterName --resource-group $NucResourceGroup --query "{name:name, connectivity:connectivityStatus, lastConnectivity:lastConnectivityTime, distribution:distribution}" -o table
-
-# Check ThinkStation cluster
-az connectedk8s show --name $ThinkClusterName --resource-group $ThinkResourceGroup --query "{name:name, connectivity:connectivityStatus, lastConnectivity:lastConnectivityTime, distribution:distribution}" -o table
-```
-
-> Both should show `connectivityStatus: Connected`. If the NUC shows `Expired` or `Offline`, the machine may be powered off or Arc agents are unhealthy.
-
 ## Step 0a: Open Arc Proxy to NUC
 
 Use `az connectedk8s proxy` to tunnel kubectl commands to the NUC through Azure Arc. Open a **new terminal window** and run:
@@ -70,10 +56,9 @@ kubectl get nodes
 
 ### Port-Forward for MQTT Explorer (NUC)
 
-To browse NUC MQTT messages with a local MQTT Explorer tool, open a **third terminal** (with `$env:HTTPS_PROXY` set) and run:
+To browse NUC MQTT messages with a local MQTT Explorer tool, open a **third terminal** and run:
 
 ```powershell
-$env:HTTPS_PROXY = "http://localhost:47011"
 kubectl port-forward svc/publiclistener 1883:1883 -n azure-iot-operations
 ```
 

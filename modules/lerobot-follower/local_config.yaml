@@ -29,3 +29,6 @@ mqtt_topic: "robot/leader/joint_positions"
 
 # MQTT client ID (must be unique per client on the broker)
 mqtt_client_id: "lerobot-follower"
+
+# Topic this app publishes health/status messages to every 20 seconds.
+health_topic: "robot/follower/health"
