@@ -15,7 +15,7 @@ echo ""
 # Try to match by USB vendor/product via udevadm
 echo "USB serial devices with details:"
 found=0
-for dev in /dev/ttyUSB* /dev/ttyACM* 2>/dev/null; do
+for dev in /dev/ttyUSB* /dev/ttyACM*; do
     [ -e "$dev" ] || continue
     found=1
     info=$(udevadm info --query=property --name="$dev" 2>/dev/null)
