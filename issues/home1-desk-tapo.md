@@ -61,12 +61,13 @@ Credentials sourced from Key Vault secrets:
 | Credentials in connector pod | `kubectl debug` ephemeral container + K8s secret hex decode | ✅ `homecamnet` (10 chars, `68 6F 6D 65 63 61 6D 6E 65 74`) and `40z$jiOdg6` (10 chars, `34 30 7A 24 6A 69 4F 64 67 36`) confirmed correct in the connector's own secret `azureiotoperationsconnectorforonvif-8404-612d9fbf` |
 | PasswordDigest vs PasswordText | `onvif_auth_test.py` + AIO docs | ✅ Only `PasswordDigest` works; `PasswordText` always rejected. AIO connector defaults to PasswordDigest ("Fallback to username token auth" option defaults to No). |
 | Clock skew (Python test) | Python test from same NUC node succeeds → proves NUC clock is fine | ✅ Python `onvif_auth_test.py` with same credentials, same node clock, SUCCEEDS → clock skew is NOT the cause (both test pod and connector use the same node clock) |
-| Connector two-phase auth | tcpdump capture 2026-05-11 | ✅ Connector sends **unauthenticated** `GetDeviceInformation` first, then a second **authenticated** request. The `NotAuthorized` in the logs comes from this second authenticated call, NOT the probe. |
-| IP lockout behavior | tcpdump: `.32` banned (unauthenticated probe also fails), `.34` fresh (unauthenticated probe succeeds but authenticated follow-up fails) | ✅ Camera bans IPs that make many failed auth attempts. Bans survive power cycle (stored in NVRAM). |
+| Connector auth flow | tcpdump 2026-05-11 (full capture) | ✅ Connector sends **unauthenticated** `GetDeviceInformation` probe first. If the probe returns `HTTP 400 + ter:NotAuthorized` (IP banned), connector logs `Failed to connect` and **never sends credentials at all**. The `NotAuthorized` in the logs IS the probe failure — not a separate authenticated call. |
+| IP lockout — full pod pool exhausted | tcpdump 2026-05-11 (v2 capture, pod `.112` and `.115`) | ❌ **BLOCKER**: Both new pod IPs get `HTTP 400` on the unauthenticated probe. Camera is banning the entire `10.42.0.x` pod CIDR due to hundreds of failed attempts since `2026-05-06`. The connector never gets a chance to send credentials. |
+| Camera clock skew | Section 1 of v2 diagnostic log | ✅ Camera UTC `2026-05-11T21:12:23Z`, NUC UTC `21:12:24.4Z`, skew = **+1.4s** — well within ONVIF's 300s window. Not a factor. |
 
-**Clock skew notes:** Ruled out. The Python `onvif_auth_test.py` using the SAME node clock succeeds with the same credentials. Clock skew cannot explain why the connector fails.
+**CONFIRMED ROOT CAUSE: IP ban exhaustion.** The camera has banned the entire `10.42.0.0/24` pod CIDR (or enough of it) that every new connector pod IP also gets `HTTP 400` immediately. The connector never even attempts authentication. The ban list survives power cycles (stored in NVRAM).
 
-**IP lockout notes:** Pod IPs `.27`, `.28`, `.29`, `.30`, `.32` are known to be banned. Pod IP `.34` got through the unauthenticated probe but still failed on the authenticated call — this means the failure is NOT just IP lockout. Something about the connector's authenticated WS-Security token is wrong.
+**Credentials are confirmed correct** — the only blocker is getting an unban IP to reach the camera.
 
 ### Confirmed Correct Credentials
 
@@ -74,94 +75,55 @@ Credentials sourced from Key Vault secrets:
 - **Password:** `40z$jiOdg6` (10 chars, PasswordDigest — verified working via direct SOAP test)
 - Both are set correctly in Key Vault `iot-opps-keys`, synced to K8s SecretSync secret `tapo-desk-secretsync-72f20aa8`, and mounted into the connector pod at `/etc/akri/secrets/device_endpoint_auth/azureiotoperationsconnectorforonvif-8404-612d9fbf/`.
 
-### Current Mystery (2026-05-11)
+### Current Status (2026-05-11 — RESOLVED ROOT CAUSE)
 
-All infrastructure is correct and credentials are verified working via a Python SOAP test pod on the same cluster using the same node clock. Yet the connector pod still gets `ter:NotAuthorized` immediately on startup. The connector behavior:
-- Sends unauthenticated `GetDeviceInformation` probe first (succeeds on fresh IPs)
-- Then sends an authenticated follow-up request with WS-Security → gets `NotAuthorized`
-- Logs "Failed to connect: ter:NotAuthorized" and retries every ~5 minutes
-- Only logs the first failure per retry cycle
+All infrastructure is correct. Credentials are confirmed working via `onvif_auth_test.py`. The only blocker is **IP ban exhaustion**:
 
-Remaining unknown: **what exactly is in the connector's WS-Security `UsernameToken` block?** Specifically:
-- Is the `wsse:Username` value exactly `homecamnet`?
-- Is the `PasswordDigest` computed correctly?
-- Is there any encoding or transformation happening to the password before hashing?
-
-The pcap from 2026-05-11 captured the unauthenticated probe but the full response body to `.34` was truncated (only first 1398 bytes = namespace declarations). The authenticated follow-up was not captured. Need `collect_onvif_diag2.sh` to get a full, untruncated capture.
+1. Connector has been retrying every ~30s since `2026-05-06` with bad credentials (original issues: wrong username casing, truncated password).
+2. Each retry cycle burned the current pod IP. Over hundreds of retries, enough IPs in `10.42.0.0/24` were banned that the camera now returns `HTTP 400 + ter:NotAuthorized` to **every** new pod IP on the first unauthenticated probe.
+3. The connector logic: if the unauthenticated probe fails → log error, store endpoint as unhealthy, retry in 5 min. It **does not** attempt an authenticated call after a probe failure.
+4. Result: the connector is permanently stuck — each retry burns another IP.
 
 ---
 
 ## Next Steps
 
-### 1. Capture the authenticated SOAP body (highest priority)
+### 1. Stop the connector immediately (prevent burning more IPs)
 
-Run the diagnostic script [issues/collect_onvif_diag.sh](collect_onvif_diag.sh) on the NUC:
-
-```bash
-cd ~/learn-iothub
-git pull
-chmod +x issues/collect_onvif_diag.sh
-bash issues/collect_onvif_diag.sh
-```
-
-Then upload and retrieve:
-```bash
-# The script prints the upload command at the end. Copy and run it.
-kubectl create configmap onvif-diag-log --from-file=diag.log=<path_from_script> \
-  -n azure-iot-operations --dry-run=client -o yaml | kubectl apply -f -
-```
-
-From Windows:
 ```powershell
-kubectl get configmap onvif-diag-log -n azure-iot-operations -o jsonpath='{.data.diag\.log}'
+kubectl scale statefulset azureiotoperationsconnectorforonvif-8404-612d9fbf-ss \
+  -n azure-iot-operations --replicas=0
 ```
 
-**What to look for in the output:**
-- Section 1: camera vs NUC clock diff (should be < 300s)
-- Section 4a (strings): find `wsse:Username`, `wsse:Password`, `wsse:Nonce`, `wsu:Created` in the POST body
-- Section 4b: full tcpdump decode showing the authenticated SOAP request to the camera
+Verify it's stopped:
+```powershell
+kubectl get pods -n azure-iot-operations | Select-String onvif
+```
 
-### 2. If capture shows wrong username/password in WS-Security
+### 2. Factory reset the camera to clear the IP ban list
 
-Check if the connector is applying any transformation. Look for the `Username` field in the SOAP body — it should be exactly `homecamnet` with no padding, prefix, or suffix.
+The ban list is stored in camera NVRAM and survives power cycles. The only way to clear it is a **factory reset**:
 
-### 3. Alternative: Python MITM proxy
+1. Hold the reset button on the Tapo camera for 10+ seconds until the LED flashes
+2. Wait for camera to reboot (~60s)
+3. Re-add the camera in the Tapo app
+4. Re-create the ONVIF user: **username `homecamnet`, password `40z$jiOdg6`** (case-sensitive)
+5. Confirm the camera still responds on `10.0.0.48:2020` (check DHCP lease / static IP)
 
-If tcpdump still doesn't capture the full authenticated body, run a simple Python proxy on the NUC:
+### 3. Scale the connector back up and verify
 
+```powershell
+kubectl scale statefulset azureiotoperationsconnectorforonvif-8404-612d9fbf-ss \
+  -n azure-iot-operations --replicas=1
+```
+
+Run `collect_onvif_diag.sh` immediately after scale-up to capture the first attempt from a fresh IP:
 ```bash
-# Run on NUC - listens on 18080, logs requests, forwards to camera
-python3 - <<'EOF'
-from http.server import HTTPServer, BaseHTTPRequestHandler
-import urllib.request, sys
-
-class LoggingProxy(BaseHTTPRequestHandler):
-    def do_POST(self):
-        body = self.rfile.read(int(self.headers.get('Content-Length', 0)))
-        print("\n=== CONNECTOR REQUEST ===")
-        print(body.decode('utf-8', errors='replace'))
-        req = urllib.request.Request("http://10.0.0.48:2020" + self.path, body, dict(self.headers))
-        try:
-            resp = urllib.request.urlopen(req, timeout=10)
-            rb = resp.read()
-            self.send_response(resp.status)
-            for h, v in resp.getheaders():
-                if h.lower() not in ('transfer-encoding', 'connection'):
-                    self.send_header(h, v)
-            self.end_headers()
-            self.wfile.write(rb)
-            print("=== CAMERA RESPONSE ===")
-            print(rb.decode('utf-8', errors='replace'))
-        except Exception as e:
-            print("PROXY ERROR:", e)
-            self.send_error(502, str(e))
-    def log_message(self, *args): pass
-
-HTTPServer(("0.0.0.0", 18080), LoggingProxy).serve_forever()
-EOF
+bash ~/learn-iothub/issues/collect_onvif_diag.sh
+bash ~/learn-iothub/issues/upload_diag.sh
 ```
 
-Then update the device endpoint address in the AIO portal from `http://10.0.0.48:2020/onvif/device_service` to `http://<NUC_LAN_IP>:18080/onvif/device_service`, watch the proxy output, then restore.
+Expected result: connector probe succeeds (HTTP 200 device info), followed by authenticated `GetDeviceInformation` with `wsse:UsernameToken`, camera returns success, connector logs endpoint as healthy.
 
 ---
 
