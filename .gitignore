@@ -103,3 +103,4 @@ error.json
 
 # any zipped file
 *.zip
+config/backup/*
