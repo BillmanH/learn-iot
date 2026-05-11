@@ -141,9 +141,10 @@ else
 
         # Save pcap to issues dir
         PCAP_OUT="$(dirname "$0")/onvif_full_$(date -u +%Y%m%dT%H%M%SZ).pcap"
-        cp "$PCAP_FILE" "$PCAP_OUT"
+        sudo cp "$PCAP_FILE" "$PCAP_OUT"
+        sudo chmod 644 "$PCAP_OUT"
         log "Pcap saved to: $PCAP_OUT"
-        rm -f "$PCAP_FILE"
+        sudo rm -f "$PCAP_FILE"
     fi
 fi
 
