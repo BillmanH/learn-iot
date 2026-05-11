@@ -62,7 +62,7 @@ Credentials sourced from Key Vault secrets:
 | PasswordDigest vs PasswordText | `onvif_auth_test.py` + AIO docs | ✅ Only `PasswordDigest` works; `PasswordText` always rejected. AIO connector defaults to PasswordDigest ("Fallback to username token auth" option defaults to No). |
 | Clock skew (Python test) | Python test from same NUC node succeeds → proves NUC clock is fine | ✅ Python `onvif_auth_test.py` with same credentials, same node clock, SUCCEEDS → clock skew is NOT the cause (both test pod and connector use the same node clock) |
 | Connector auth flow | tcpdump 2026-05-11 (full capture) | ✅ Connector sends **unauthenticated** `GetDeviceInformation` probe first. If the probe returns `HTTP 400 + ter:NotAuthorized` (IP banned), connector logs `Failed to connect` and **never sends credentials at all**. The `NotAuthorized` in the logs IS the probe failure — not a separate authenticated call. |
-| IP lockout — full pod pool exhausted | tcpdump 2026-05-11 (v2 capture, pod `.112` and `.115`) | ❌ **BLOCKER**: Both new pod IPs get `HTTP 400` on the unauthenticated probe. Camera is banning the entire `10.42.0.x` pod CIDR due to hundreds of failed attempts since `2026-05-06`. The connector never gets a chance to send credentials. |
+| IP lockout — full pod pool exhausted | tcpdump 2026-05-11 (v2 capture, pod `.112` and `.115`) | ❌ **BLOCKER**: Both new pod IPs get `HTTP 400 Bad Request` + `ter:NotAuthorized` on the unauthenticated probe. Earlier "fresh" IP `.34` got `HTTP 200` with device info on the same unauthenticated probe — same request, different HTTP status based on source IP. This is inferred as Tapo's brute-force protection (no specific "banned" error code — the `HTTP 400` vs `HTTP 200` discrepancy on the same unauthenticated request from different source IPs is the evidence; TP-Link does not publish a formal spec for this behavior but it is widely reported in [community forums](https://community.tp-link.com/en/home/forum/topic/686042)). The connector never gets a chance to send credentials. |
 | Camera clock skew | Section 1 of v2 diagnostic log | ✅ Camera UTC `2026-05-11T21:12:23Z`, NUC UTC `21:12:24.4Z`, skew = **+1.4s** — well within ONVIF's 300s window. Not a factor. |
 
 **CONFIRMED ROOT CAUSE: IP ban exhaustion.** The camera has banned the entire `10.42.0.0/24` pod CIDR (or enough of it) that every new connector pod IP also gets `HTTP 400` immediately. The connector never even attempts authentication. The ban list survives power cycles (stored in NVRAM).
@@ -75,55 +75,73 @@ Credentials sourced from Key Vault secrets:
 - **Password:** `40z$jiOdg6` (10 chars, PasswordDigest — verified working via direct SOAP test)
 - Both are set correctly in Key Vault `iot-opps-keys`, synced to K8s SecretSync secret `tapo-desk-secretsync-72f20aa8`, and mounted into the connector pod at `/etc/akri/secrets/device_endpoint_auth/azureiotoperationsconnectorforonvif-8404-612d9fbf/`.
 
-### Current Status (2026-05-11 — RESOLVED ROOT CAUSE)
+### Current Status (2026-05-11 — Factory Reset Done, New Auth Failure)
 
-All infrastructure is correct. Credentials are confirmed working via `onvif_auth_test.py`. The only blocker is **IP ban exhaustion**:
+All infrastructure is correct. Credentials were confirmed working via `onvif_auth_test.py` against the **pre-reset** camera. The only blocker was **IP ban exhaustion**.
 
-1. Connector has been retrying every ~30s since `2026-05-06` with bad credentials (original issues: wrong username casing, truncated password).
-2. Each retry cycle burned the current pod IP. Over hundreds of retries, enough IPs in `10.42.0.0/24` were banned that the camera now returns `HTTP 400 + ter:NotAuthorized` to **every** new pod IP on the first unauthenticated probe.
-3. The connector logic: if the unauthenticated probe fails → log error, store endpoint as unhealthy, retry in 5 min. It **does not** attempt an authenticated call after a probe failure.
-4. Result: the connector is permanently stuck — each retry burns another IP.
+**Factory reset performed 2026-05-11 ~22:00Z.** Result:
+- Camera rebooted and re-added to Tapo app.
+- ONVIF user re-created (username `homecamnet`, password `40z$jiOdg6`).
+- Connector pod deleted to force fresh start (the `--replicas=0/1` scale did not reset the backoff timer — pod deletion was required).
+- **IP ban is cleared**: connector now receives `HTTP 200` on the unauthenticated probe (no more `HTTP 400` rejection).
+- **New blocker**: connector now receives `HTTP 200 + SOAP ter:NotAuthorized` fault — a genuine credential rejection. This means the camera is accepting the connection but rejecting the username/password.
+
+**Possible causes:**
+1. ONVIF user was re-created with a different username or password than what is in K8s secrets.
+2. Username was entered with wrong casing (camera is case-sensitive — must be exactly `homecamnet`).
+3. Password contained a typo (watch for special chars like `$` which Tapo app may render oddly).
+
+**Next action**: re-run `onvif_auth_test.py` from a cluster pod to confirm whether credentials in K8s secrets still work against the freshly reset camera. If they fail, the ONVIF user on the camera needs to be re-created to match exactly.
 
 ---
 
 ## Next Steps
 
-### 1. Stop the connector immediately (prevent burning more IPs)
+### ✅ 1. Stop the connector (DONE)
 
-```powershell
-kubectl scale statefulset azureiotoperationsconnectorforonvif-8404-612d9fbf-ss \
-  -n azure-iot-operations --replicas=0
-```
+Connector scaled to 0, then pod deleted to force fresh backoff reset.
 
-Verify it's stopped:
-```powershell
-kubectl get pods -n azure-iot-operations | Select-String onvif
-```
+### ✅ 2. Factory reset the camera (DONE 2026-05-11)
 
-### 2. Factory reset the camera to clear the IP ban list
+Camera reset, re-added to Tapo app, ONVIF user re-created.
+IP ban confirmed cleared — camera now returns `HTTP 200` on unauthenticated probe.
 
-The ban list is stored in camera NVRAM and survives power cycles. The only way to clear it is a **factory reset**:
+### ⚠️ 3. Verify credentials and fix auth failure (IN PROGRESS)
 
-1. Hold the reset button on the Tapo camera for 10+ seconds until the LED flashes
-2. Wait for camera to reboot (~60s)
-3. Re-add the camera in the Tapo app
-4. Re-create the ONVIF user: **username `homecamnet`, password `40z$jiOdg6`** (case-sensitive)
-5. Confirm the camera still responds on `10.0.0.48:2020` (check DHCP lease / static IP)
+Connector is connecting but getting `ter:NotAuthorized` — credentials don't match.
 
-### 3. Scale the connector back up and verify
-
-```powershell
-kubectl scale statefulset azureiotoperationsconnectorforonvif-8404-612d9fbf-ss \
-  -n azure-iot-operations --replicas=1
-```
-
-Run `collect_onvif_diag.sh` immediately after scale-up to capture the first attempt from a fresh IP:
+**Step 3a — Test credentials directly from a cluster pod:**
 ```bash
-bash ~/learn-iothub/issues/collect_onvif_diag.sh
-bash ~/learn-iothub/issues/upload_diag.sh
+# SSH to NUC, then:
+kubectl delete pod onvif-test -n azure-iot-operations --ignore-not-found
+kubectl run onvif-test --rm -it --restart=Never --image=python:3.11-slim \
+  -n azure-iot-operations -- python3 /path/to/onvif_auth_test.py
+```
+Or copy the script to the NUC and run:
+```bash
+kubectl cp ~/learn-iothub/issues/onvif_auth_test.py \
+  azure-iot-operations/onvif-test:/tmp/test.py 2>/dev/null || true
 ```
 
-Expected result: connector probe succeeds (HTTP 200 device info), followed by authenticated `GetDeviceInformation` with `wsse:UsernameToken`, camera returns success, connector logs endpoint as healthy.
+**Step 3b — If test fails, re-create ONVIF user on camera:**
+1. Open Tapo app → camera → Settings → Advanced Settings → ONVIF Account
+2. Delete existing ONVIF account
+3. Create new account:
+   - Username: `homecamnet` (all lowercase, exactly 10 chars)
+   - Password: `40z$jiOdg6` (mixed case + special chars, exactly 10 chars)
+4. Confirm no auto-capitalisation applied (Tapo app may capitalise first letter)
+
+**Step 3c — Confirm connector picks up and goes healthy:**
+```powershell
+kubectl logs -f azureiotoperationsconnectorforonvif-8404-612d9fbf-ss-0 \
+  -n azure-iot-operations 2>&1 | Select-String -NotMatch "OnvifConnector is running"
+```
+Expected: `Endpoint tapo-desk/tapo-onvif-desk is now healthy` (or similar)
+
+**Note:** A stale `onvif-test` pod may be left running. Clean it up first:
+```powershell
+kubectl delete pod onvif-test -n azure-iot-operations --ignore-not-found
+```
 
 ---
 

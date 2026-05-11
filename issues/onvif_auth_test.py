@@ -1,7 +1,7 @@
 import urllib.request, hashlib, base64, datetime, os, re
 
 url = "http://10.0.0.48:2020/onvif/device_service"
-username = "Homecamnet"
+username = "homecamnet"
 password = "40z$jiOdg6"
 
 def onvif_auth_test(user, pw):
