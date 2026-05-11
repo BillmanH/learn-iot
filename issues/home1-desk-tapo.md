@@ -95,13 +95,13 @@ The pcap from 2026-05-11 captured the unauthenticated probe but the full respons
 
 ### 1. Capture the authenticated SOAP body (highest priority)
 
-Run the improved diagnostic script [issues/collect_onvif_diag2.sh](collect_onvif_diag2.sh) on the NUC:
+Run the diagnostic script [issues/collect_onvif_diag.sh](collect_onvif_diag.sh) on the NUC:
 
 ```bash
 cd ~/learn-iothub
 git pull
-chmod +x issues/collect_onvif_diag2.sh
-bash issues/collect_onvif_diag2.sh
+chmod +x issues/collect_onvif_diag.sh
+bash issues/collect_onvif_diag.sh
 ```
 
 Then upload and retrieve:
