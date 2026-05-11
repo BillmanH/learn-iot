@@ -160,8 +160,9 @@ log ""
 
 log "=== Done. Log: $LOGFILE ==="
 log ""
-log "Upload to ConfigMap (run this next):"
-log "  kubectl create configmap onvif-diag-log --from-file=diag.log='$LOGFILE' -n $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -"
+log "Uploading log to ConfigMap onvif-diag-log..."
+kubectl create configmap onvif-diag-log --from-file=diag.log="$LOGFILE" \
+    -n "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f - 2>&1 | tee -a "$LOGFILE"
 log ""
-log "Then retrieve from Windows with:"
+log "Retrieve from Windows with:"
 log "  kubectl get configmap onvif-diag-log -n azure-iot-operations -o jsonpath='{.data.diag\.log}'"
