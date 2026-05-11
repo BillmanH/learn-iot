@@ -56,6 +56,42 @@ def onvif_text_test(user, pw):
     except Exception as e:
         return f"ERROR: {e}"
 
+def onvif_clock_check():
+    """Check camera system time vs local time — reveals clock skew for WS-Security"""
+    soap = """<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">
+  <s:Body><GetSystemDateAndTime xmlns="http://www.onvif.org/ver10/device/wsdl"/></s:Body>
+</s:Envelope>"""
+    req = urllib.request.Request(url, soap.encode(),
+        {"Content-Type": "application/soap+xml; charset=utf-8", "SOAPAction": ""})
+    before = datetime.datetime.utcnow()
+    try:
+        resp = urllib.request.urlopen(req, timeout=5)
+        body = resp.read().decode()
+        after = datetime.datetime.utcnow()
+        import re
+        Y  = re.search(r'<tt:Year>(\d+)', body)
+        Mo = re.search(r'<tt:Month>(\d+)', body)
+        D  = re.search(r'<tt:Day>(\d+)', body)
+        H  = re.search(r'<tt:Hour>(\d+)', body)
+        Mi = re.search(r'<tt:Minute>(\d+)', body)
+        S  = re.search(r'<tt:Second>(\d+)', body)
+        if all([Y, Mo, D, H, Mi, S]):
+            cam_dt = datetime.datetime(int(Y.group(1)), int(Mo.group(1)), int(D.group(1)),
+                                        int(H.group(1)), int(Mi.group(1)), int(S.group(1)))
+            nuc_dt = before + (after - before) / 2
+            skew_s = (nuc_dt - cam_dt).total_seconds()
+            ok = "OK" if abs(skew_s) < 300 else "WARNING: >300s LIMIT!"
+            return f"Camera={cam_dt.strftime('%Y-%m-%dT%H:%M:%SZ')}  NUC={nuc_dt.strftime('%Y-%m-%dT%H:%M:%S')}Z  skew={skew_s:+.1f}s  [{ok}]"
+        return f"Could not parse time. Raw: {body[:300]}"
+    except Exception as e:
+        return f"ERROR: {e}"
+
+
+print("=== Clock skew check ===")
+print(" ", onvif_clock_check())
+print()
+
 print("=== PasswordDigest tests ===")
 for user, pw in [
     ("homecamnet", "40z$jiOdg6"),
