@@ -45,74 +45,78 @@ Credentials sourced from Key Vault secrets:
 
 ---
 
-## Investigation Log (2026-05-07)
+## Investigation Log
 
 ### Ruled Out
 
 | Check | Method | Result |
 |---|---|---|
 | Secret sync healthy | `az resource show` on SecretSync | ✅ `SecretSynchronized: True`, last sync `18:37:06Z` |
-| Credentials reach connector | K8s secret decoded via PowerShell | ✅ Both values present, 10 bytes each |
+| Credentials reach connector | K8s secret + connector pod secret decoded via PowerShell | ✅ Both values present, 10 bytes each, correct hex |
 | Trailing whitespace/newline in secrets | `$val.Contains([char]10)` + `$val[-1] -match '\s'` | ✅ Clean — no newlines or trailing spaces |
-| Node clock skew | kubelet last heartbeat vs. local clock | ✅ <4 min delta, well within ONVIF's 5-min WS-Security window |
-| Camera unreachable from cluster | `kubectl run curlimages/curl` pod → `curl http://10.0.0.48:2020` | ✅ TCP connects immediately, camera returns SOAP faults (not timeouts) |
+| Node clock skew | kubelet last heartbeat vs. local clock | ✅ ~4 min delta (node `20:07:50Z`, local `20:12:15Z`), within ONVIF's 5-min window |
+| Camera unreachable from cluster | curl pod → `curl http://10.0.0.48:2020` | ✅ TCP connects, camera returns SOAP faults (not timeouts) |
+| IP-based lockout | Tested from multiple fresh pod IPs (`.27`, `.28`, `.29`, `.30`, `.32`) | ✅ Ruled out — all fail; test pod on different IP also succeeded |
+| Correct username casing | `onvif_auth_test.py` from cluster pod | ✅ **`homecamnet` (lowercase) succeeds. `Homecamnet` (capital H) fails.** Camera is case-sensitive. |
+| Credentials in connector pod | `kubectl debug` ephemeral container reading `/etc/akri/secrets/device_endpoint_auth/.../tapo-desk_tapo-onvif-desk_username` | ✅ Reads `homecamnet` — correct |
+| PasswordDigest vs PasswordText | `onvif_auth_test.py` | ✅ Only `PasswordDigest` works; `PasswordText` always rejected |
 
-**Clock skew notes:** The ONVIF WS-UsernameToken spec rejects tokens with a timestamp >5 minutes from the server clock. Node heartbeat was checked on `2026-05-07T18:57:45Z` vs. local `19:01:42Z` — delta ~237s (< 5 min). Node clock is fine. The connector receives proper SOAP faults with `ter:NotAuthorized`, not connection timeouts — confirming the issue is auth rejection, not a network or timing problem. **Do not re-investigate clock skew unless the error changes to a timeout or the NUC has been offline/rebooted without NTP.**
+**Clock skew notes:** The ONVIF WS-UsernameToken spec rejects tokens with a timestamp >5 minutes from the server clock. Confirmed still within window on 2026-05-11. **Do not re-investigate clock skew unless the error changes to a timeout or the NUC has been offline/rebooted without NTP.**
 
-### Root Cause Analysis
+### Confirmed Correct Credentials
 
-All infrastructure (secret sync, K8s plumbing, network) is working correctly. The ONVIF service on the camera is actively receiving and rejecting the credentials.
+- **Username:** `homecamnet` (lowercase — verified working via direct SOAP test from cluster pod)
+- **Password:** `40z$jiOdg6` (10 chars, PasswordDigest — verified working via direct SOAP test)
+- Both are set correctly in Key Vault `iot-opps-keys`, synced to K8s SecretSync secret `tapo-desk-secretsync-72f20aa8`, and mounted into the connector pod at `/etc/akri/secrets/device_endpoint_auth/azureiotoperationsconnectorforonvif-8404-612d9fbf/`.
 
-### Remaining Suspects (in order)
+### Current Mystery (2026-05-11)
 
-1. **Tapo ONVIF account lockout** — The connector retries every 30s. After hundreds of failed attempts since May 6, some Tapo firmware versions temporarily or permanently lock the ONVIF account. **Fix: power-cycle the camera** to reset the lockout, then verify credentials before the connector starts retrying again.
+All infrastructure is correct and credentials are verified working via a Python SOAP test pod on the same cluster. Yet the connector pod still gets `ter:NotAuthorized` immediately on startup. The connector behavior:
+- Fails on `Device endpoint created` (~startup)
+- Fails again on `Device endpoint updated` (~5s later, triggered by ARM sync)
+- Then silently retries every ~5 minutes (only logs the first failure per retry cycle)
 
-2. **Tapo local ONVIF credentials ≠ Key Vault values** — Tapo cameras have a **separate ONVIF account** from the Tapo cloud login. It is configured via the camera's **local web UI** (`http://10.0.0.48`), not the Tapo app. If this password was changed on the camera or was never set to match what's in Key Vault, auth will always fail regardless of secret sync health.
+Suspect the AIO ONVIF connector (`akri-connectors/onvif:1.3.4`) may be reading credentials differently (e.g. from a different path, or building the WS-Security token incorrectly). Need to capture the actual SOAP request the connector sends.
 
 ---
 
-## Next Steps (requires physical/local access to NUC or camera)
+## Next Steps
 
-### 1. Power-cycle the camera to clear any ONVIF lockout
+### Capture the actual SOAP request the connector sends
 
-Unplug and replug the Tapo camera at `10.0.0.48`. Wait ~60s for it to come back online, then watch the connector health:
-
-```powershell
-# Watch for health state to change
-while ($true) {
-    $status = az resource show --ids "/subscriptions/5c043aac-3d88-43d5-aec8-cd02ee6c914a/resourceGroups/IoT-Operations/providers/Microsoft.DeviceRegistry/namespaces/iot-operations-ns/devices/tapo-desk" --query "properties.status.endpoints.inbound.\"tapo-onvif-desk\".healthState" -o json | ConvertFrom-Json
-    Write-Host "$(Get-Date -Format 'HH:mm:ss')  status=$($status.status)  reason=$($status.reasonCode)"
-    Start-Sleep 15
-}
-```
-
-### 2. Verify/reset ONVIF credentials on the camera
-
-From the NUC (or any machine on the `10.0.0.x` network), open the camera's local web UI:
-
-```
-http://10.0.0.48
-```
-
-Navigate to **Settings → Advanced Settings → ONVIF** (exact path varies by firmware). Confirm or reset the ONVIF username/password. Then update Key Vault to match:
+Run a local HTTP interceptor on the cluster to see what the connector is actually sending. Spin up a simple Python HTTP proxy on the camera's port:
 
 ```powershell
-$kvName = "<your-keyvault-name>"
-az keyvault secret set --vault-name $kvName --name "homecamnet" --value "<onvif-username>"
-az keyvault secret set --vault-name $kvName --name "homecamnetpass" --value "<onvif-password>"
+# On the cluster — redirect 10.0.0.48:2020 to a debug pod that logs then forwards
+# OR: check AIO telemetry/OTLP traces for the outgoing SOAP body
 ```
 
-Secret sync polls ~every 30s — confirm it picks up the new values:
-
-```powershell
-kubectl get secretsync tapo-desk-secretsync-72f20aa8 -n azure-iot-operations -o jsonpath='{.status.conditions[0].lastTransitionTime}'
+Alternatively, if the NUC has `tcpdump` available, capture traffic from the NUC:
+```bash
+sudo tcpdump -i any -s 0 -A host 10.0.0.48 and port 2020 -w /tmp/onvif.pcap
 ```
 
-### 3. Restart the connector after credentials are fixed
+### Quick diagnostic: run `onvif_auth_test.py` from the connector pod namespace
+
+File is at [issues/onvif_auth_test.py](onvif_auth_test.py). Run from cluster:
 
 ```powershell
+kubectl delete pod onvif-test -n azure-iot-operations --ignore-not-found
+kubectl run onvif-test --image=python:3.11-slim --restart=Never -n azure-iot-operations --command -- sleep 120
+kubectl wait pod onvif-test -n azure-iot-operations --for=condition=Ready --timeout=30s
+kubectl cp issues/onvif_auth_test.py azure-iot-operations/onvif-test:/tmp/test.py
+kubectl exec onvif-test -n azure-iot-operations -- python3 /tmp/test.py
+# Expected: homecamnet/PasswordDigest = SUCCESS
+```
+
+### Update credentials (if camera password was changed)
+
+```powershell
+# NOTE: Use single quotes or backtick-escape $ to prevent PowerShell variable expansion
+az keyvault secret set --vault-name iot-opps-keys --name homecamnet --value 'homecamnet'
+az keyvault secret set --vault-name iot-opps-keys --name homecamnetpass --value '40z$jiOdg6'
+# Wait ~40s for SecretSync, then restart pod
 kubectl delete pod azureiotoperationsconnectorforonvif-8404-612d9fbf-ss-0 -n azure-iot-operations
-# Pod will be recreated automatically by the StatefulSet
 ```
 
 ---
