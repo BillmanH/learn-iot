@@ -1,8 +1,8 @@
 """
 lerobot-follower - AIO MQTT -> SO101 Follower Arm
-Runs locally on Windows. Subscribes to a local MQTT broker that receives
+Runs locally on Linux. Subscribes to a local MQTT broker that receives
 joint position messages forwarded by an AIO dataflow endpoint, then commands
-the SO101 follower arm over USB (COM port).
+the SO101 follower arm over USB (Linux serial port e.g. /dev/ttyACM0).
 
 Architecture:
     AIO broker  -->  [AIO Dataflow]  -->  local Mosquitto (this machine)
@@ -15,7 +15,7 @@ Usage:
     uv run python app.py
 
 Edit local_config.yaml before running:
-    - follower_port: COM port of the follower arm (e.g. COM4)
+    - follower_port: serial port of the follower arm (e.g. /dev/ttyACM0)
     - mqtt_broker:   IP/hostname of the local Mosquitto broker (usually localhost)
 """
 

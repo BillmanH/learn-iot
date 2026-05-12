@@ -1,9 +1,9 @@
 # lerobot-follower
 
 Subscribes to joint position messages forwarded by an Azure IoT Operations (AIO)
-dataflow endpoint and commands an SO101 follower arm connected via USB (Windows COM port).
+dataflow endpoint and commands an SO101 follower arm connected via USB (Linux serial port).
 
-Runs as a local Windows Python application using UV. No container, no Kubernetes pod.
+Runs as a local Linux Python application using UV. No container, no Kubernetes pod.
 
 ---
 
@@ -23,17 +23,25 @@ AIO MQTT Broker  -->  [AIO Dataflow endpoint]  -->  Local Mosquitto (this machin
 ```
 
 The AIO dataflow forwards messages from the leader topic to the local Mosquitto
-broker running on the ThinkStation. The follower script subscribes to that local
+broker running on the Linux machine. The follower script subscribes to that local
 broker and commands the arm in real time.
 
 ---
 
 ## Prerequisites
 
-- Windows 10/11 (ThinkStation host)
+- Ubuntu 22.04 / Debian 12 or similar Linux host
 - Python 3.10 or 3.11
 - [UV](https://docs.astral.sh/uv/getting-started/installation/) installed
-- [Mosquitto](https://mosquitto.org/download/) installed and running locally
+- Mosquitto installed and running locally:
+  ```bash
+  sudo apt install mosquitto mosquitto-clients
+  sudo systemctl enable --now mosquitto
+  ```
+- User added to `dialout` group for serial port access (log out and back in after):
+  ```bash
+  sudo usermod -aG dialout $USER
+  ```
 - AIO dataflow endpoint configured to publish to this machine (see AIO Dataflow Setup below)
 - `kubectl` configured to reach the cluster (for verifying the dataflow)
 
@@ -52,8 +60,8 @@ joint positions to the local Mosquitto broker on this machine.
    - **Destination**: the external endpoint above, same topic
 
 3. Verify messages are arriving:
-   ```powershell
-   # On the ThinkStation, subscribe via local Mosquitto
+   ```bash
+   # On the Linux machine, subscribe via local Mosquitto
    mosquitto_sub -h localhost -p 1883 -t "robot/leader/joint_positions"
    ```
    You should see JSON messages with joint positions when the leader is running.
@@ -62,31 +70,45 @@ joint positions to the local Mosquitto broker on this machine.
 
 ## First-Time Setup
 
-### 1. Find the follower arm COM port
+### 1. Find the follower arm serial port
 
-Plug in the USB cable for the SO101 follower arm, then open Device Manager:
-- `Win + X` -> Device Manager -> expand **Ports (COM & LPT)**
-- Note the port number (e.g. `COM4`)
+Plug in the USB cable for the SO101 follower arm, then run:
+```bash
+bash scripts/01_find_serial_port.sh
+```
 
-See [scripts/01_find_com_port.md](scripts/01_find_com_port.md) for detailed instructions.
+Or manually:
+```bash
+# List ports before plugging in
+ls /dev/ttyUSB* /dev/ttyACM* 2>/dev/null
+
+# Plug in the arm, then list again — the new entry is the arm
+ls /dev/ttyUSB* /dev/ttyACM* 2>/dev/null
+```
+
+Common port names:
+- `/dev/ttyACM0` — STM32 / Arduino-based controllers
+- `/dev/ttyUSB0` — CH340 / CP2102 USB-serial chips
+
+See [scripts/01_find_serial_port.sh](scripts/01_find_serial_port.sh) for an automated helper.
 
 ### 2. Edit the config file
 
-```powershell
-cd modules\lerobot-follower
+```bash
+cd modules/lerobot-follower
 # Edit local_config.yaml
 ```
 
 Set at minimum:
 ```yaml
-follower_port: "COM4"     # your COM port
-mqtt_broker: "localhost"  # local Mosquitto
+follower_port: "/dev/ttyACM0"  # your serial port
+mqtt_broker: "localhost"        # local Mosquitto
 ```
 
 ### 3. Install dependencies
 
-```powershell
-cd modules\lerobot-follower
+```bash
+cd modules/lerobot-follower
 
 # Step 1: install feetech-servo-sdk without dependencies (avoids platform conflicts)
 uv pip install feetech-servo-sdk==1.0.0 --no-deps
@@ -100,7 +122,7 @@ uv sync
 Only needed if the motors haven't been ID-configured before. Skip if the arm was
 previously built and calibrated.
 
-```powershell
+```bash
 uv run python scripts/02_setup_motors_follower.py
 ```
 
@@ -108,7 +130,7 @@ uv run python scripts/02_setup_motors_follower.py
 
 Run once before first use, and any time the arm is reassembled or its zero position drifts.
 
-```powershell
+```bash
 uv run python scripts/03_calibrate_follower.py
 ```
 
@@ -120,7 +142,7 @@ The calibration is saved to `calibration/<follower_id>.json`.
 
 ### 6. Verify calibration
 
-```powershell
+```bash
 uv run python scripts/04_check_calibration.py
 ```
 
@@ -131,8 +153,8 @@ positions update correctly.
 
 ## Running the Application
 
-```powershell
-cd modules\lerobot-follower
+```bash
+cd modules/lerobot-follower
 uv run python app.py
 ```
 

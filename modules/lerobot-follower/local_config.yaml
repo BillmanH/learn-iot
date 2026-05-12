@@ -2,10 +2,10 @@
 # Edit this file before running app.py
 
 # --- Follower Arm ---
-# Windows COM port for the SO101 follower arm.
-# Find it in Device Manager -> Ports (COM & LPT) while the arm is plugged in.
-# The follower is typically on a different COM port than the leader.
-follower_port: "COM4"
+# Linux serial port for the SO101 follower arm.
+# Find it with: ls /dev/ttyUSB* /dev/ttyACM* (while arm is plugged in)
+# Common values: /dev/ttyACM0, /dev/ttyUSB0
+follower_port: "/dev/ttyACM0"
 
 # Must match the calibration JSON filename (without .json).
 follower_id: "my_awesome_follower_arm"
