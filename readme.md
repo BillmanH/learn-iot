@@ -16,15 +16,15 @@ dataflow and mirrors the motion in real time.
   ┌──────────────┐   USB                   │                                     │
   │  SO101       │◄──────                  │  ┌──────────────────────────────┐   │
   │  Leader Arm  │                         │  │   AIO MQTT Broker            │   │
-  └──────┬───────┘                         │  │   (port 1883, publiclistener) │   │
+  └──────┬───────┘                         │  │   (port 1883, publiclistener)│   │
          │ joint positions (20 Hz)         │  └──────────────┬───────────────┘   │
-         │                                 │                 │                    │
+         │                                 │                 │                   │
   ┌──────▼───────┐    MQTT publish         │  ┌──────────────▼───────────────┐   │
   │  lerobot-    │─────────────────────────►  │   AIO Dataflow Endpoint      │   │
   │  leader      │  robot/leader/          │  │   (forwards to follower LAN) │   │
   │  (app.py)    │  joint_positions        │  └──────────────┬───────────────┘   │
-  └──────────────┘                         │                 │                    │
-                                           └─────────────────┼────────────────────┘
+  └──────────────┘                         │                 │                   │
+                                           └─────────────────┼───────────────────┘
                                                              │ MQTT forward
   LINUX (Follower machine)                                   │
   ─────────────────────────────────────────────────────────  │
