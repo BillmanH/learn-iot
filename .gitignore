@@ -1,3 +1,15 @@
+# textual metadata
+textual/*
+build/*
+
+# config files
+config/backup/*
+config/aio_config*.json
+
+# logs
+*.log
+
+
 # vscode
 .vscode/settings.json
 
@@ -12,9 +24,11 @@ iot_keys.yaml
 # cahce
 devices/__pycache__/*
 devices/__pycache__/camera.cpython-37.pyc
+*.pyc
 
 # image files:
 *.jpg
 
 # MQTT Keys
 mqtt/mqtt_key.yaml
+textual/screens/__pycache__/main_screen.cpython-312.pyc
