@@ -1,0 +1,131 @@
+name: 🐛 Bug Report
+description: Report a bug or issue with scripts, deployments, or applications
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the information below to help us investigate.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which component is affected?
+      options:
+        - Linux Build / Installer (installer.sh, arc_enable.ps1)
+        - External Configurator (External-Configurator.ps1)
+        - Edge MQTT Simulator (edgemqttsim)
+        - Demo Historian (demohistorian)
+        - Sputnik
+        - Hello Flask
+        - Fabric Setup / Dataflows
+        - ARM Templates
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+      placeholder: Describe what went wrong...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior
+      placeholder: |
+        1. Run command '...'
+        2. Configure setting '...'
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Error Messages
+      description: Please paste any relevant log output or error messages
+      render: shell
+
+  - type: dropdown
+    id: edge-os
+    attributes:
+      label: Edge Device OS
+      description: What operating system is your edge device running?
+      options:
+        - Ubuntu 24.04
+        - Ubuntu 22.04
+        - Windows Server 2022
+        - Windows Server 2025
+        - Other Linux
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: k3s-version
+    attributes:
+      label: K3s Version
+      description: "Run `k3s --version` on the edge device"
+      placeholder: "e.g., v1.34.3+k3s1"
+
+  - type: input
+    id: aio-version
+    attributes:
+      label: Azure IoT Operations Version
+      description: "Run `az iot ops version` or check the deployment"
+      placeholder: "e.g., 1.0.0"
+
+  - type: dropdown
+    id: management-os
+    attributes:
+      label: Management Machine OS
+      description: What OS is your management/development machine running?
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment Details
+      description: Any other relevant environment details
+      placeholder: |
+        - Azure CLI version:
+        - PowerShell version:
+        - Az module version:
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Add any other context, screenshots, or information about the problem here.

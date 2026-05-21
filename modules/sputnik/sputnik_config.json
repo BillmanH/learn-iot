@@ -1,0 +1,16 @@
+{
+  "registry": {
+    "type": "dockerhub",
+    "name": "billmanh"
+  },
+  "mqtt": {
+    "broker": "aio-broker",
+    "port": 1883,
+    "topic": "sputnik/beep"
+  },
+  "deployment": {
+    "namespace": "default",
+    "replicas": 1,
+    "beep_interval": 5
+  }
+}

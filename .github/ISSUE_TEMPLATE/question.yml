@@ -1,0 +1,51 @@
+name: ❓ Question
+description: Ask a question about Azure IoT Operations or this repository
+title: "[Question]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have a question? We're happy to help! Please provide as much context as possible.
+
+  - type: dropdown
+    id: topic
+    attributes:
+      label: Topic
+      description: What area is your question about?
+      options:
+        - Installation / Setup
+        - Azure IoT Operations Configuration
+        - K3s / Kubernetes
+        - MQTT / Message Broker
+        - Edge Applications
+        - Fabric Integration
+        - ARM Templates / Deployment
+        - Troubleshooting
+        - General / Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your Question
+      description: What would you like to know?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Any relevant context about what you're trying to accomplish
+      placeholder: |
+        - What are you trying to achieve?
+        - What have you tried so far?
+        - What environment are you working in?
+
+  - type: textarea
+    id: research
+    attributes:
+      label: What I've Already Tried
+      description: Have you looked at the documentation or tried any troubleshooting steps?

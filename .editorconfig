@@ -1,0 +1,58 @@
+# EditorConfig is awesome: https://EditorConfig.org
+
+# top-most EditorConfig file
+root = true
+
+# All files
+[*]
+charset = utf-8
+end_of_line = auto
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# Windows batch files
+[*.{bat,cmd}]
+end_of_line = crlf
+
+# PowerShell files
+[*.ps1]
+end_of_line = crlf
+indent_size = 4
+
+# Shell scripts (Unix/Linux)
+[*.sh]
+end_of_line = lf
+indent_size = 4
+
+# Python files
+[*.py]
+end_of_line = lf
+indent_size = 4
+max_line_length = 88
+
+# YAML files
+[*.{yml,yaml}]
+end_of_line = lf
+indent_size = 2
+
+# JSON files
+[*.json]
+end_of_line = lf
+indent_size = 2
+
+# Markdown files
+[*.md]
+end_of_line = auto
+trim_trailing_whitespace = false
+
+# Dockerfile
+[Dockerfile*]
+end_of_line = lf
+indent_size = 4
+
+# Configuration files
+[*.{toml,ini,cfg,conf}]
+end_of_line = lf
+indent_size = 4

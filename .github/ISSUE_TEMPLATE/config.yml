@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 Azure IoT Operations Documentation
+    url: https://learn.microsoft.com/azure/iot-operations/
+    about: Official Microsoft documentation for Azure IoT Operations
+  - name: 🔧 Azure IoT Operations Troubleshooting
+    url: https://learn.microsoft.com/azure/iot-operations/troubleshoot/overview
+    about: Official troubleshooting guide for Azure IoT Operations
+  - name: 💬 Microsoft Q&A - IoT
+    url: https://learn.microsoft.com/answers/tags/455/azure-iot
+    about: Ask questions on Microsoft Q&A for broader Azure IoT topics

@@ -1,0 +1,57 @@
+name: 📚 Documentation Issue
+description: Report missing, unclear, or incorrect documentation
+title: "[Docs]: "
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Help us improve the documentation! Please describe what's missing or needs improvement.
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Documentation Issue Type
+      options:
+        - Missing documentation
+        - Incorrect / outdated information
+        - Unclear instructions
+        - Typo / grammatical error
+        - Broken links
+        - Missing code examples
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: location
+    attributes:
+      label: Document Location
+      description: Which file or section has the issue?
+      placeholder: "e.g., linux_build/linux_build_steps.md or README.md"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe what's wrong or missing
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested Improvement
+      description: How should this be improved or corrected?
+
+  - type: dropdown
+    id: contribution
+    attributes:
+      label: Contribution
+      description: Would you be willing to submit a PR to fix this?
+      options:
+        - "Yes"
+        - "Maybe, with guidance"
+        - "No"
